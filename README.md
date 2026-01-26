@@ -1,4 +1,4 @@
-# `hplc_extract`
+# `Weaselytics`
 
 Extract HPLC data from Agilent out.txt file and much more.
 
@@ -11,7 +11,7 @@ A Python 3 script for (hassle-free) plotting of HPLC chromatograms from output f
  Start the script with:
 
 ```console
-python3 hplc_extract.py [OPTION] filename
+python3 weaselytics.py [OPTION] filename
 ```
 
 it will show the chromatogram... (to complete)
@@ -97,5 +97,7 @@ Contributed by Emmanuel Bourret
 
 ## TO TO
 
-- Refactor the main code.
+- Refactor the main code into a package.
+
+- Add smoothing function before the baseline correction.
 

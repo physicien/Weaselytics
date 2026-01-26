@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
 from pybaselines import Baseline
-from scipy.signal import find_peaks, peak_widths, argrelmin, argrelmax
+from scipy.signal import find_peaks, peak_widths, argrelmin, argrelmax, savgol_filter
 from scipy.ndimage import gaussian_filter1d
 from scipy.special import erf
 from statsmodels.stats.stattools import durbin_watson as dwtest
@@ -300,6 +300,10 @@ parser.add_argument('-nb','--nobaseline',
         default=1, action='store_false',
         help='do not correct the baseline')
 
+parser.add_argument('-ns','--nosmoothing',
+        default=1, action='store_false',
+        help='do not smooth the signal')
+
 parser.add_argument('-x0','--startx',
         type=float,
         help='start fitting the gaussian at x min')
@@ -314,6 +318,7 @@ args = parser.parse_args()
 #change values according to arguments
 fit_data = args.nofit
 do_bl = args.nobaseline
+do_sm = args.nosmoothing
 
 #check if startx and endx are equal - exif if true.
 if args.startx is not None and args.endx is not None and args.startx == args.endx:
@@ -345,13 +350,20 @@ xdata = data[:,0]
 ydata_ini = data[:,1]
 signal = pre_process_signal(ydata_ini)
 
+#smoothing  #BEFORE OR AFTER baseline correction?
+if do_sm:
+    ydata_s = savgol_filter(signal,15,3)
+else:
+    ydata_s = signal
+
 #baseline correction
 if do_bl:
     baseline_fitter = Baseline(x_data=xdata)
-    baseline, params = beads(signal)
-    ydata = signal - baseline
+    baseline, params = beads(ydata_s)    #beads(signal)
+    ydata = ydata_s - baseline           #signal - baseline
 else:
-    ydata = signal
+    ydata = ydata_s                      #signal
+
 ajusted_data = np.array([xdata,ydata]).T
 
 #if export_bldata is given - txt generation of the bl corrected chromatogram

@@ -194,6 +194,12 @@ def beads(s):
     return [_bl,_p]
 
 ###############################################################################
+#Savitzky-Golay smoothing
+def smooth_SG_data(data,window,polyorder):
+    smooth_data = savgol_filter(data,window,polyorder)
+    return smooth_data
+
+###############################################################################
 #Gaussian function
 def gauss(x, params):
     amp, x0, sigma = params
@@ -352,17 +358,17 @@ signal = pre_process_signal(ydata_ini)
 
 #smoothing  #BEFORE OR AFTER baseline correction?
 if do_sm:
-    ydata_s = savgol_filter(signal,15,3)
+    ydata_s = smooth_SG_data(signal,9,0) #9,0
 else:
     ydata_s = signal
 
 #baseline correction
 if do_bl:
     baseline_fitter = Baseline(x_data=xdata)
-    baseline, params = beads(ydata_s)    #beads(signal)
-    ydata = ydata_s - baseline           #signal - baseline
+    baseline, params = beads(ydata_s)
+    ydata = ydata_s - baseline
 else:
-    ydata = ydata_s                      #signal
+    ydata = ydata_s
 
 ajusted_data = np.array([xdata,ydata]).T
 
@@ -461,6 +467,9 @@ if args.show or args.print:
 
     plt.plot(xdata, ydata_ini, marker='.', ls='', c=palette[7],
              label='raw data',ms=3)
+    if do_sm:
+        plt.plot(xdata, ydata_s, ls='-',c=palette[1], lw=1.5,
+                label='smooth data')
     if do_bl:
         plt.plot(xdata, ydata, ls='-',c=palette[5], lw=1.5,
                 label='ajusted data')

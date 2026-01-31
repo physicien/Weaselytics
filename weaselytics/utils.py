@@ -5,7 +5,7 @@ Helper functions to perform various signal preprocessin operations.
 """
 import numpy as np
 from scipy.signal import savgol_filter
-from statsmodels.stats.stattools import durbin_watson as dwtest
+#from statsmodels.stats.stattools import durbin_watson as dwtest
 
 def rm_ends_outliers(s, window_min=5, window_max=100):
     """
@@ -48,7 +48,45 @@ def rm_ends_outliers(s, window_min=5, window_max=100):
         _signal[-1] = _y1_med
     return _signal
 
-#Autocorrelation 
+def durbin_watson(resids, axis=0):
+    """
+    Calculates the Durbin-Watson statistic.
+
+    Parameters
+    ----------
+    resids : array_like
+        Data for which to compute the Durbin-Watson statistic. Usually
+        regression model residuals.
+    axis : int, optional
+        Axis to use if data has more than 1 dimension. Default is 0.
+
+    Returns
+    -------
+    dw : float, array-like
+        The Durbin-Watson statistic.
+
+    Notes
+    -----
+    The null hypothesis of the test is that there is no serial correlation
+    in the residuals.
+    The Durbin-Watson test statistic is defined as:
+
+    .. math::
+
+       \sum_{t=2}^T((e_t - e_{t-1})^2)/\sum_{t=1}^Te_t^2
+
+    The test statistic is approximately equal to 2*(1-r) where ``r`` is the
+    sample autocorrelation of the residuals. Thus, for r == 0, indicating no
+    serial correlation, the test statistic equals 2. This statistic will
+    always be between 0 and 4. The closer to 0 the statistic, the more
+    evidence for positive serial correlation. The closer to 4, the more
+    evidence for negative serial correlation.
+    """
+    resids = np.asarray(resids)
+    diff_resids = np.diff(resids, 1, axis=axis)
+    dw = np.sum(diff_resids**2, axis=axis) / np.sum(resids**2, axis=axis)
+    return dw
+
 def r2_fct(s):
     """
     Compute the squared values of `r`, the Durbin-Watson (DW) autocorrelation
@@ -66,7 +104,7 @@ def r2_fct(s):
         The squared values of the DW autocorrelation level.
 
     """
-    _r2 = ((2-dwtest(s))**2)/4
+    _r2 = ((2-durbin_watson(s))**2)/4
     return _r2
 
 def smooth_SG_data(x,window_lenght,polyorder):

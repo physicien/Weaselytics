@@ -86,9 +86,9 @@ The data are taken from the section "ABSORPTION SPECTRUM VIA TRANSITION ELECTRIC
 
 - `pybaselines` (development branch)
 
-- `numba`
+- `numba` (recommanded)
 
-- `statsmodels`
+<!-- - `statsmodels` -->
 
 - `time`
 

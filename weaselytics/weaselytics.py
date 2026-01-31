@@ -23,24 +23,8 @@ header1 = ["time","potential"]
 header2 = ["mol","solvent","distribution","A","x0","sigma","alpha"]
 mol_list = list()
 
-#FUNCTIONS
-##Check if the first and last data points are outlier
-#def rm_ends_outliers(s):
-#    _signal = np.copy(s)
-#    _x0_len = round(0.01*len(s))
-#    _y_max = 0.01*np.abs(np.max(s)-np.min(s))
-#    _y0_med = np.median(s[:_x0_len])
-#    _y0_gap = np.abs(s[0]-_y0_med)
-#    _y1_med = np.median(s[-_x0_len:])
-#    _y1_gap = np.abs(s[-1]-_y1_med)
-#
-#    if _y0_gap > _y_max:
-#        _signal[0] = _y0_med
-#    if _y1_gap > _y_max:
-#        _signal[-1] = _y1_med
-#    return _signal
-
 ###############################################################################
+#FUNCTIONS
 #Autocorrelation 
 def r2_fct(s):
     _r2 = ((2-dwtest(s))**2)/4

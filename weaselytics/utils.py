@@ -6,7 +6,6 @@ Helper functions to perform various signal preprocessin operations.
 import numpy as np
 from scipy.signal import savgol_filter
 
-#Check if the first and last data points are outlier
 def rm_ends_outliers(s, window_min=5, window_max=100):
     """
     Check whether the first and last elements of the input data are outliers.

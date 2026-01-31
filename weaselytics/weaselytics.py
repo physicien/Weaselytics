@@ -8,7 +8,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from pybaselines import Baseline
-from scipy.signal import argrelmin, argrelmax, savgol_filter
+from scipy.signal import argrelmin, argrelmax
 from scipy.ndimage import gaussian_filter1d
 from statsmodels.stats.stattools import durbin_watson as dwtest
 import matplotlib.pyplot as plt
@@ -16,6 +16,7 @@ import seaborn as sns
 import time
 
 from peakfitting import gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit
+from smoothing import *
 
 #GLOBAL LIST
 header1 = ["time","potential"]
@@ -197,12 +198,6 @@ def beads(s):
     toc = time.perf_counter()
     print(f"Baseline correction in {toc-tic:0.4f} seconds")
     return [_bl,_p]
-
-###############################################################################
-#Savitzky-Golay smoothing
-def smooth_SG_data(data,window,polyorder):
-    smooth_data = savgol_filter(data,window,polyorder)
-    return smooth_data
 
 ###############################################################################
 #PARSER

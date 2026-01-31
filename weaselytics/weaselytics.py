@@ -7,15 +7,15 @@ import argparse
 #import numba
 import numpy as np
 import pandas as pd
-from scipy.optimize import least_squares
 from pybaselines import Baseline
-from scipy.signal import find_peaks, peak_widths, argrelmin, argrelmax, savgol_filter
+from scipy.signal import argrelmin, argrelmax, savgol_filter
 from scipy.ndimage import gaussian_filter1d
-from scipy.special import erf
 from statsmodels.stats.stattools import durbin_watson as dwtest
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
+
+from PeakFitters import gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit
 
 #GLOBAL LIST
 header1 = ["time","potential"]
@@ -89,18 +89,23 @@ def fcutoff_beads(s):
     d1_min = np.argmin(smooth_d1[infls])
     if d1_min == 0:
         if len(infls) == 2:
+            print("Case 1")  #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min]]
             _freq_cutoff = 0.10*infl_plateau    #0.25
         else:
+            print("Case 2")  #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min+1]]
             _freq_cutoff = 0.75*infl_plateau
     else:
         thresh_d1 = smooth_d1[infls[d1_min-1]]
-        if ((thresh_d1 < -4E-04) and (d1_min > 2)):
+        print(f"{'thresh_d1 value:':<20}{thresh_d1:0.4E}")  # TEST
+        if ((thresh_d1 < -4E-04) and (d1_min > 2)):     # -2E-04 vs -4E-04
+            print("Case 3")  #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min-3]]
             infl_min = _freq_cutoff_range[infls[d1_min-2]]
             shift_factor = 0.20#0.1/np.log(len(s))*np.log(20)
         else:
+            print("Case 4")  #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min-1]]
             infl_min = _freq_cutoff_range[infls[d1_min]]
             shift_factor = 0.05#0.1/np.log(len(s))*np.log(20)
@@ -198,74 +203,6 @@ def beads(s):
 def smooth_SG_data(data,window,polyorder):
     smooth_data = savgol_filter(data,window,polyorder)
     return smooth_data
-
-###############################################################################
-#Gaussian function
-def gauss(x, params):
-    amp, x0, sigma = params
-    return amp*np.exp(-(x-x0)**2/(2*sigma**2))
-
-#Skew-normal function
-def skew_norm(x,params):
-    amp, loc, scale, alpha = params
-    _x = alpha*(x-loc)/scale
-    norm = np.sqrt(2*np.pi*scale**2)**-1* np.exp(
-            -((x-loc)**2)/(2*scale**2)
-            )
-    cdf = 0.5*(1+erf(_x/np.sqrt(2)))
-    return amp*2*norm*cdf
-
-#Least squares equation
-def lsq_eq(p,fct,x,y):
-    return fct(x,p) - y
-
-def peaks_params(s):
-    _prom_p = 0.05*s.max()
-    _prom_n = 0.5*(-s).max()
-    _peaks_p, _ = find_peaks(s,prominence=_prom_p)
-    _peaks_n, _ = find_peaks(-s,prominence=_prom_n,height=0.1)
-    _widths_p = peak_widths(s, _peaks_p, rel_height=0.5)[0]
-    _widths_n = peak_widths(-s, _peaks_n, rel_height=0.5)[0]
-    _peaks = np.append(_peaks_p,_peaks_n)
-    _widths = np.append(_widths_p,_widths_n)
-    return [_peaks,_widths]
-
-def lsq_gauss_fit(x,y):
-    _peaks, _widths = peaks_params(y)
-    main_peak_i = np.absolute(y[_peaks]).argmax()
-    _i = _peaks[main_peak_i]
-    A0 = y[_i]
-    tau0 = x[_i]
-    sigma0 = x[_i + int(_widths[main_peak_i]/2)] - x[_i]
-    p0 = [A0, tau0, sigma0]
-    if A0 < 0:
-        bA = [-np.inf,0]
-    else:
-        bA = [0,np.inf]
-    bounds = ([bA[0],tau0-0.1,0],[bA[1],tau0+0.1,np.inf])
-    res_robust = least_squares(lsq_eq, p0, loss="soft_l1",
-                              f_scale=0.1, args=(gauss,x,y),
-                               bounds=bounds)
-    return res_robust.x
-
-def lsq_skew_norm_fit(x,y):
-    _peaks, _widths = peaks_params(y)
-    main_peak_i = np.absolute(y[_peaks]).argmax()
-    _i = _peaks[main_peak_i]
-    A0 = y[_i]
-    tau0 = x[_i]
-    sigma0 = x[_i + int(_widths[main_peak_i]/2)] - x[_i]
-    p0 = [A0, tau0, sigma0, 0]
-    if A0 < 0:
-        bA = [-np.inf,0]
-    else:
-        bA = [0,np.inf]
-#    bounds = ([bA[0],tau0-0.1,0,-np.inf],[bA[1],tau0+0.1,np.inf,np.inf])
-    bounds = ([bA[0],tau0-sigma0,0,-np.inf],[bA[1],tau0+sigma0,np.inf,np.inf])
-    res_robust = least_squares(lsq_eq, p0, loss="soft_l1",
-                               f_scale=0.1, args=(skew_norm,x,y),
-                               bounds=bounds)
-    return res_robust.x
 
 ###############################################################################
 #PARSER
@@ -366,7 +303,8 @@ else:
 if do_bl:
     baseline_fitter = Baseline(x_data=xdata)
     baseline, params = beads(ydata_s)
-    ydata = ydata_s - baseline
+    ydata = params["signal"]
+#    ydata = ydata_s - baseline
 else:
     ydata = ydata_s
 
@@ -468,7 +406,7 @@ if args.show or args.print:
     plt.plot(xdata, ydata_ini, marker='.', ls='', c=palette[7],
              label='raw data',ms=3)
     if do_sm:
-        plt.plot(xdata, ydata_s, ls='-',c=palette[1], lw=1.5,
+        plt.plot(xdata, ydata_s, ls='-.',c=palette[2], lw=1.5,
                 label='smooth data')
     if do_bl:
         plt.plot(xdata, ydata, ls='-',c=palette[5], lw=1.5,

@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import time
 
-from PeakFitters import gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit
+from peakfitting import gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit
 
 #GLOBAL LIST
 header1 = ["time","potential"]

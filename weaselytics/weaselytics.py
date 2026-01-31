@@ -10,7 +10,6 @@ import pandas as pd
 from pybaselines import Baseline
 from scipy.signal import argrelmin, argrelmax
 from scipy.ndimage import gaussian_filter1d
-from statsmodels.stats.stattools import durbin_watson as dwtest
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
@@ -25,11 +24,6 @@ mol_list = list()
 
 ###############################################################################
 #FUNCTIONS
-#Autocorrelation 
-def r2_fct(s):
-    _r2 = ((2-dwtest(s))**2)/4
-    return _r2
-
 #Basic BEADS for the autocorrelation plot
 def r2_beads(f_cut,s):
     _asym =1.0 
@@ -149,7 +143,7 @@ def fcutoff_beads(s):
 
 ###############################################################################
 #BEADS baseline correction
-def beads(s):
+def beads(s, _asym=1.0, _fp=True, _hw=None):
     # Read Navarro-Huerta et al (2017)
     # Section 3.2: Monitoring the autocorrelation to explore the BEADS
     #              working parameters
@@ -158,17 +152,10 @@ def beads(s):
     # Section 3.5: Application of the assisted BEADS
 
     print(f"{'Data points:':<20}{len(s):d}")
-
     _fcut = fcutoff_beads(s)#0.005*2000/len(s)
     print(f"{'Cutoff frequency:':<20}{_fcut:E}")
-
-    _asym =1.0 
     print(f"{'Asymmetry:':<20}{_asym:0.1f}")
-
-    _fp = True
     print(f"{'Fit parabola:':<20}{str(_fp):s}")
-
-    _hw = None
     print(f"{'Half window:':<20}{str(_hw):s}")
 
     tic = time.perf_counter()

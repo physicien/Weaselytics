@@ -5,6 +5,7 @@ Helper functions to perform various signal preprocessin operations.
 """
 import numpy as np
 from scipy.signal import savgol_filter
+from statsmodels.stats.stattools import durbin_watson as dwtest
 
 def rm_ends_outliers(s, window_min=5, window_max=100):
     """
@@ -47,6 +48,26 @@ def rm_ends_outliers(s, window_min=5, window_max=100):
         _signal[-1] = _y1_med
     return _signal
 
+#Autocorrelation 
+def r2_fct(s):
+    """
+    Compute the squared values of `r`, the Durbin-Watson (DW) autocorrelation
+    level.
+
+    Parameters
+    ----------
+    s : array-like
+        Data for which to compute the squared DW autocorrelation level. Usually
+        regression model residuals.
+
+    Returns
+    -------
+    _r2 : numpy.ndarray
+        The squared values of the DW autocorrelation level.
+
+    """
+    _r2 = ((2-dwtest(s))**2)/4
+    return _r2
 
 def smooth_SG_data(x,window_lenght,polyorder):
     """

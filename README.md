@@ -102,3 +102,5 @@ Contributed by Emmanuel Bourret
 
 - Add smoothing function before the baseline correction.
 
+- Write a more general parser.
+

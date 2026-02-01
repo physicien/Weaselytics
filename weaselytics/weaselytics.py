@@ -101,7 +101,7 @@ def fcutoff_beads(s):
     if args.show or args.print:
         xx = _freq_cutoff_range
         yy = r2_val
-        fig = plt.figure(figsize=[6.4,9.6])
+        fig = plt.figure(figsize=[6.4,9.6],num="Autocorrelation plots")
         gs = fig.add_gridspec(3, hspace=0)
         axs = gs.subplots(sharex=True)
         axs[0].semilogx(xx, yy, marker='.', ls='',label=r'$r^2$',ms=3)
@@ -259,7 +259,7 @@ xdata = data[:,0]
 ydata_ini = data[:,1]
 signal = rm_ends_outliers(ydata_ini)
 
-#smoothing  #BEFORE OR AFTER baseline correction?
+#smoothing
 if do_sm:
     ydata_s = smooth_SG_data(signal,9,0) #9,0
 else:
@@ -369,11 +369,12 @@ if args.show or args.print:
     palette = sns.color_palette("colorblind")
     sns.set_palette(palette)
 
+    plt.figure(num="Chromatogram")
     plt.plot(xdata, ydata_ini, marker='.', ls='', c=palette[7],
              label='raw data',ms=3)
     if do_sm:
         plt.plot(xdata, ydata_s, ls='-.',c=palette[2], lw=1.5,
-                label='smooth data')
+                label='smoothed data')
     if do_bl:
         plt.plot(xdata, ydata, ls='-',c=palette[5], lw=1.5,
                 label='ajusted data')
@@ -393,11 +394,12 @@ if args.show or args.print:
                 )
     plt.legend()
     plt.xlabel('Time (min.)')
-    plt.ylabel('Intensity (a.u.)')
+    plt.ylabel('Potential (mV)')
     plt.tight_layout()
     if args.show:
         plt.show()
     if args.print:
         filename = os.path.splitext(os.path.basename(path))[0]
         plt.savefig(f"images/{filename}.png")
+    plt.close()
     print("") # Why?

@@ -1,6 +1,6 @@
 # `Weaselytics`
 
-Extract HPLC data from Agilent out.txt file and much more.
+Python package to extract and analyse chromatographic data.
 
 <!-- ![show](examples/show-use3.gif) -->
 

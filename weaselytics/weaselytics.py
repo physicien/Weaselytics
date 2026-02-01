@@ -338,9 +338,10 @@ if fit_data:
     if args.output_stats:
         mol = args.output_stats
         path = args.filename
+        solv_pattern = r"(^.+)__LPYE"
         filename = os.path.basename(path)
         outname = re.match(r"(^.+).txt",filename).group(1)
-        solvent = re.match(r"(^.+)__LPYE",filename).group(1)
+        solvent = re.match(solv_pattern,filename).group(1)
         data_gauss = {
                 "mol": mol,
                 "solvent": solvent,

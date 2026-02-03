@@ -66,12 +66,6 @@ The data are taken from the section "ABSORPTION SPECTRUM VIA TRANSITION ELECTRIC
 -->
 
 ## Requirements
-- `re`
-
-- `sys`
-
-- `os`
-
 - `argparse`
 
 - `numpy`

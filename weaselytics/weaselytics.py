@@ -16,6 +16,7 @@ import time
 
 from peakfitting import gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit
 from utils import *
+from baseline import log_transform
 
 #GLOBAL LIST
 header1 = ["time","potential"]
@@ -40,10 +41,6 @@ def r2_beads(f_cut,s):
     _s_corr = s - _bl
     _r2 = r2_fct(_s_corr)
     return _r2
-
-#Log transformation used in the calculation of BEADS frequency cutoff
-def log_transform(s,epsilon):
-    return np.log10(s-np.min(s)+epsilon)
 
 #Frequency cutoff for BEADS
 def fcutoff_beads(s):
@@ -164,7 +161,8 @@ def beads(s, _asym=1.0, _fp=True, _hw=None):
             freq_cutoff=_fcut,
             fit_parabola=_fp,
             asymmetry=_asym,
-            smooth_half_window=_hw
+            smooth_half_window=_hw,
+            alpha=1.
             )
     toc = time.perf_counter()
     print(f"Baseline correction in {toc-tic:0.4f} seconds")

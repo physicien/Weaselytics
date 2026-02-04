@@ -26,7 +26,7 @@ it will show the chromatogram... (to complete)
 - `-os` `str` , optional: outputs the fitted data and statistiques for the peak labeled `<ARG>` to `filename_<ARG>.csv`
 - `-n` , optional: does not try to fit a chromatographic peak
 - `-nb` , optional: does not try to baseline correct the chromatogram
-- `-ns` , optional: does not try to smooth the chromatogram
+- `-sm` , optional: try to smooth the chromatogram
 - `-x0`  `float` , optional: starts fitting procedure at `x0` min (`x0 > 0`)
 - `-x1`  `float` , optional: ends fitting procedure at `x1` min (`x1 > x0 > 0`)
 

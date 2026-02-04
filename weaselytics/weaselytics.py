@@ -207,8 +207,8 @@ parser.add_argument('-nb','--nobaseline',
         default=1, action='store_false',
         help='do not correct the baseline')
 
-parser.add_argument('-ns','--nosmoothing',
-        default=1, action='store_false',
+parser.add_argument('-sm','--dosmoothing',
+        default=0, action='store_true',
         help='do not smooth the signal')
 
 parser.add_argument('-x0','--startx',
@@ -225,7 +225,7 @@ args = parser.parse_args()
 #change values according to arguments
 fit_data = args.nofit
 do_bl = args.nobaseline
-do_sm = args.nosmoothing
+do_sm = args.dosmoothing
 
 #check if startx and endx are equal - exif if true.
 if args.startx is not None and args.endx is not None and args.startx == args.endx:

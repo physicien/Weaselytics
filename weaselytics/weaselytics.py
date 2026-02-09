@@ -72,19 +72,19 @@ def fcutoff_beads(s, x):
             case = 3            #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min-3]]
             infl_min = _freq_cutoff_range[infls[d1_min-2]]
-            shift_factor = 0.35#0.20 #0.35      #0.1/np.log(len(s))*np.log(20)
+            shift_factor = 0.35#0.20 #0.35
         elif ((minloc_d1 < -1E-04) and (thresh_d1 > 1E-04) and (d1_min > 2)):
             case = 4            #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min-2]]
             infl_min = _freq_cutoff_range[infls[d1_min-1]]
-            shift_factor = 0.05#0.05 #0.10      #0.1/np.log(len(s))*np.log(20)
+            shift_factor = 0.05#0.05 #0.10
         else:
             case = 5            #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min-2]]
             infl_min = _freq_cutoff_range[infls[d1_min-1]]
-            shift_factor = 0.75#0.05 #0.10      #0.1/np.log(len(s))*np.log(20)
+            shift_factor = 0.75#0.05 #0.10
         infl_shift = shift_factor*(infl_min-infl_plateau)
-        _freq_cutoff = infl_plateau + infl_shift #1.50*infl_plateau
+        _freq_cutoff = infl_plateau + infl_shift
         print(f"Case {case:d}")             #TEST
     r2_ymin = r2_val[infls[d1_min-1]]-0.05  #only for the r2 plot limit
 
@@ -150,7 +150,7 @@ def beads(s, x, _asym=1.0, _fp=True, _hw=None):
     _baseline_fitter = Baseline(x_data=x)
     _signal = rm_ends_outliers(s)
     print(f"{'Data points:':<20}{len(_signal):d}")
-    _fcut, _case = fcutoff_beads(_signal, x)#0.005*2000/len(s)
+    _fcut, _case = fcutoff_beads(_signal, x)
     print(f"{'Cutoff frequency:':<20}{_fcut:E}")
     print(f"{'Asymmetry:':<20}{_asym:0.1f}")
     print(f"{'Fit parabola:':<20}{str(_fp):s}")

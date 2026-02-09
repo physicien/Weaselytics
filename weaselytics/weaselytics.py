@@ -16,7 +16,7 @@ import time
 
 from peakfitting import gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit
 from utils import *
-from baseline import log_transform
+from baseline import log_transform, relevant_range, r2_beads
 
 #GLOBAL LIST
 header1 = ["time","potential"]
@@ -25,33 +25,19 @@ mol_list = list()
 
 ###############################################################################
 #FUNCTIONS
-#Basic BEADS for the autocorrelation plot
-def r2_beads(f_cut,s):
-    _asym =1.0 
-    _fp = True
-    _hw = None
-
-    _bl, _p = baseline_fitter.beads(
-            s,
-            freq_cutoff=f_cut,
-            fit_parabola=_fp,
-            asymmetry=_asym,
-            smooth_half_window=_hw
-            )
-    _s_corr = s - _bl
-    _r2 = r2_fct(_s_corr)
-    return _r2
-
 #Frequency cutoff for BEADS
-def fcutoff_beads(s):
+def fcutoff_beads(s, x):
     tic = time.perf_counter()
     
+    _last_pt = relevant_range(s)                    #TEST
+    _bl_fitter = Baseline(x_data=x[:_last_pt])
     # log transform of the signal
-    _z = log_transform(s,1)
+    _z = log_transform(s[:_last_pt],1)
+    print(f"{'Used points:':<20}{len(_z):d}")       #TEST
 
     _freq_cutoff_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
     
-    r2_func = lambda x: r2_beads(x,_z)
+    r2_func = lambda x: r2_beads(x,_z,_bl_fitter)
     vr2_func = np.vectorize(r2_func)
     r2_val = vr2_func(_freq_cutoff_range)   # y-data
 
@@ -65,33 +51,46 @@ def fcutoff_beads(s):
     d1_min = np.argmin(smooth_d1[infls])
     if d1_min == 0:
         if len(infls) == 2:
-            print("Case 1")  #TEST
+            case = 1            #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min]]
             _freq_cutoff = 0.10*infl_plateau    #0.25
         else:
-            print("Case 2")  #TEST
+            case = 2            #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min+1]]
             _freq_cutoff = 0.75*infl_plateau
     else:
+        r2_min_d1 = smooth_d1[infls[d1_min]]
         thresh_d1 = smooth_d1[infls[d1_min-1]]
+        minloc_d1 = smooth_d1[infls[d1_min-2]]
+#        barrier_d1 = abs(minloc_d1 - r2_min_d1)
+#        mindiff_d1 = abs(thresh_d1 - minloc_d1)
+        print(f"{'r2_min_d1 value:':<20}{r2_min_d1:0.4E}")  # TEST
         print(f"{'thresh_d1 value:':<20}{thresh_d1:0.4E}")  # TEST
-        if ((thresh_d1 < -4E-04) and (d1_min > 2)):     # -2E-04 vs -4E-04
-            print("Case 3")  #TEST
+        print(f"{'minloc_d1 value:':<20}{minloc_d1:0.4E}")  # TEST
+#        if ((minloc_d1 < -1E-04) and (d1_min > 2)):
+        if ((minloc_d1 < -1E-04) and (thresh_d1 < -5E-05) and (d1_min > 2)):
+            case = 3            #TEST
             infl_plateau = _freq_cutoff_range[infls[d1_min-3]]
             infl_min = _freq_cutoff_range[infls[d1_min-2]]
-            shift_factor = 0.20#0.1/np.log(len(s))*np.log(20)
+            shift_factor = 0.35#0.20 #0.35      #0.1/np.log(len(s))*np.log(20)
+        elif ((minloc_d1 < -1E-04) and (thresh_d1 > 1E-04) and (d1_min > 2)):
+            case = 4            #TEST
+            infl_plateau = _freq_cutoff_range[infls[d1_min-2]]
+            infl_min = _freq_cutoff_range[infls[d1_min-1]]
+            shift_factor = 0.05#0.05 #0.10      #0.1/np.log(len(s))*np.log(20)
         else:
-            print("Case 4")  #TEST
-            infl_plateau = _freq_cutoff_range[infls[d1_min-1]]
-            infl_min = _freq_cutoff_range[infls[d1_min]]
-            shift_factor = 0.05#0.1/np.log(len(s))*np.log(20)
+            case = 5            #TEST
+            infl_plateau = _freq_cutoff_range[infls[d1_min-2]]
+            infl_min = _freq_cutoff_range[infls[d1_min-1]]
+            shift_factor = 0.75#0.05 #0.10      #0.1/np.log(len(s))*np.log(20)
         infl_shift = shift_factor*(infl_min-infl_plateau)
         _freq_cutoff = infl_plateau + infl_shift #1.50*infl_plateau
+        print(f"Case {case:d}")             #TEST
     r2_ymin = r2_val[infls[d1_min-1]]-0.05  #only for the r2 plot limit
 
     toc = time.perf_counter()
     print(f"Autocorrelation in {toc-tic:0.4f} seconds")
-    fi_r2_val = r2_beads(_freq_cutoff,_z)
+    fi_r2_val = r2_beads(_freq_cutoff,_z,_bl_fitter)
     print(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
 
     
@@ -136,11 +135,11 @@ def fcutoff_beads(s):
             filename = os.path.splitext(os.path.basename(path))[0]
             plt.savefig(f"r2_plots/{filename}_r2.png")
         plt.close()
-    return _freq_cutoff
+    return [_freq_cutoff,case]
 
 ###############################################################################
 #BEADS baseline correction
-def beads(s, _asym=1.0, _fp=True, _hw=None):
+def beads(s, x, _asym=1.0, _fp=True, _hw=None):
     # Read Navarro-Huerta et al (2017)
     # Section 3.2: Monitoring the autocorrelation to explore the BEADS
     #              working parameters
@@ -148,16 +147,18 @@ def beads(s, _asym=1.0, _fp=True, _hw=None):
     # Section 3.4: Autocorrelation plot using the baseline-corrected signal
     # Section 3.5: Application of the assisted BEADS
 
-    print(f"{'Data points:':<20}{len(s):d}")
-    _fcut = fcutoff_beads(s)#0.005*2000/len(s)
+    _baseline_fitter = Baseline(x_data=x)
+    _signal = rm_ends_outliers(s)
+    print(f"{'Data points:':<20}{len(_signal):d}")
+    _fcut, _case = fcutoff_beads(_signal, x)#0.005*2000/len(s)
     print(f"{'Cutoff frequency:':<20}{_fcut:E}")
     print(f"{'Asymmetry:':<20}{_asym:0.1f}")
     print(f"{'Fit parabola:':<20}{str(_fp):s}")
     print(f"{'Half window:':<20}{str(_hw):s}")
 
     tic = time.perf_counter()
-    _bl, _p = baseline_fitter.beads(
-            s,
+    _bl, _p = _baseline_fitter.beads(
+            _signal,
             freq_cutoff=_fcut,
             fit_parabola=_fp,
             asymmetry=_asym,
@@ -166,7 +167,7 @@ def beads(s, _asym=1.0, _fp=True, _hw=None):
             )
     toc = time.perf_counter()
     print(f"Baseline correction in {toc-tic:0.4f} seconds")
-    return [_bl,_p]
+    return [_bl,_p,_case]
 
 ###############################################################################
 #PARSER
@@ -254,25 +255,24 @@ path = args.filename
 print(path)
 data =  np.loadtxt(path,skiprows=7)
 xdata = data[:,0]
-ydata_ini = data[:,1]
-signal = rm_ends_outliers(ydata_ini)
+ydata = data[:,1]
 
 #smoothing
 if do_sm:
-    ydata_s = smooth_SG_data(signal,9,0) #9,0
+    ydata_sm = smooth_SG(ydata,9,0) #9,0
 else:
-    ydata_s = signal
+    ydata_sm = ydata
 
 #baseline correction
 if do_bl:
-    baseline_fitter = Baseline(x_data=xdata)
-    baseline, params = beads(ydata_s)
-    ydata = params["signal"]
-#    ydata = ydata_s - baseline
+    baseline, params, case = beads(ydata_sm,xdata)
+    ydata_bl = params["signal"]
+#    ydata_bl = ydata_sm - baseline
 else:
-    ydata = ydata_s
+    ydata_bl = ydata_sm
 
-ajusted_data = np.array([xdata,ydata]).T
+signal = ydata_bl
+ajusted_data = np.array([xdata,signal]).T
 
 #if export_bldata is given - txt generation of the bl corrected chromatogram
 if args.export_bldata and do_bl:
@@ -369,13 +369,13 @@ if args.show or args.print:
     sns.set_palette(palette)
 
     plt.figure(num="Chromatogram")
-    plt.plot(xdata, ydata_ini, marker='.', ls='', c=palette[7],
+    plt.plot(xdata, ydata, marker='.', ls='', c=palette[7],
              label='raw data',ms=3)
     if do_sm:
-        plt.plot(xdata, ydata_s, ls='-.',c=palette[2], lw=1.5,
+        plt.plot(xdata, ydata_sm, ls='-.',c=palette[2], lw=1.5,
                 label='smoothed data')
     if do_bl:
-        plt.plot(xdata, ydata, ls='-',c=palette[5], lw=1.5,
+        plt.plot(xdata, signal, ls='-',c=palette[5], lw=1.5,
                 label='ajusted data')
         plt.plot(xdata, baseline, ls='--',c=palette[0], lw=2.0,
                 label='baseline')
@@ -391,6 +391,13 @@ if args.show or args.print:
                  ha='right',
                  color='tab:red'
                 )
+    if do_bl:
+        plt.annotate(f"{'Case:'}{case:>3d}",
+                    xy=(0.00,1.01),
+                    xycoords=("axes fraction"),
+                    ha='left',
+                    color='tab:red'
+                    )
     plt.legend()
     plt.xlabel('Time (min.)')
     plt.ylabel('Potential (mV)')

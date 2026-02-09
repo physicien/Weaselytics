@@ -107,7 +107,7 @@ def r2_fct(s):
     _r2 = ((2-durbin_watson(s))**2)/4
     return _r2
 
-def smooth_SG_data(x,window_lenght,polyorder):
+def smooth_SG(x,window_lenght,polyorder):
     """
     Apply a Savitzky-Golay filter to an array.
 

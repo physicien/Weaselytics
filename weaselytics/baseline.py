@@ -4,6 +4,35 @@
 Functions to perform the baseline correction.
 """
 import numpy as np
+from peakfitting import peaks_params
+from utils import r2_fct#, smooth_SG
+
+def relevant_range(s):
+    """
+    Limits the signal to the relevant range in order to find the optimal
+    cutoff frequency for the BEADS algorithm.
+
+    Parameters
+    ----------
+    s : array-like
+        The signal to limit.
+
+    Returns
+    -------
+    _last_arg : int
+        Index of the last relevant data point of in the signal ``s``.
+
+    """
+    _peaks, _widths = peaks_params(s)   #Smooth `s`?
+    _arg_last_peak = _peaks.argmax()
+    _last_peak = _peaks[_arg_last_peak]
+    _buffer = int(3*np.ceil(_widths)[_arg_last_peak])
+    _limmax = _last_peak + _buffer
+    if len(s) > _limmax:
+        _last_arg = _limmax
+    else:
+        _last_arg = len(s)
+    return _last_arg
 
 def log_transform(s,epsilon):
     """
@@ -36,4 +65,29 @@ def log_transform(s,epsilon):
     """
     log_s = np.log10(s-np.min(s)+epsilon)
     return log_s
+
+
+def r2_beads(f_cut, s, bl_fitter, asym=1.0, fp=True, hw=None):
+    """
+    Minimal baseline correction with the BEADS algorithm. Used to compute
+    the autocorrelation plot.
+
+    Parameters
+    ----------
+
+    Returns
+    -------
+
+    """
+    _bl, _p = bl_fitter.beads(
+            s,
+            freq_cutoff = f_cut,
+            fit_parabola = fp,
+            asymmetry = asym,
+            smooth_half_window = hw
+            )
+#    _s_corr = s - _bl
+    _s_corr = _p["signal"]
+    _r2 = r2_fct(_s_corr)
+    return _r2
 

@@ -94,7 +94,9 @@ Contributed by Emmanuel Bourret
 
 - Refactor the main code into a package.
 
-- Add smoothing function before the baseline correction.
-
 - Write a more general parser.
+
+- Develop an approach to divide the signal into regions where the peaks are of comparable widths (split-treat-splice).
+
+- Adjust alpha in BEADS if the signal is noisy.
 

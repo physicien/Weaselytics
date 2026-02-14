@@ -3,9 +3,16 @@
 """
 Functions to perform the baseline correction.
 """
+import os
 import numpy as np
+from pybaselines import Baseline
+from scipy.signal import argrelmin, argrelmax
+from scipy.ndimage import gaussian_filter1d
+import matplotlib.pyplot as plt
+import time                             #@EB temporary?
+
 from peakfitting import peaks_params
-from utils import r2_fct#, smooth_SG
+from utils import r2_fct, rm_ends_outliers
 
 def relevant_range(s):
     """
@@ -23,7 +30,9 @@ def relevant_range(s):
         Index of the last relevant data point of in the signal ``s``.
 
     """
-    _peaks, _widths = peaks_params(s)   #Smooth `s`?
+#    _s = gaussian_filter1d(s,10)
+    # No smoothing, but specific height_n value in case of noisy signal.
+    _peaks, _widths = peaks_params(s,height_n=0.15)
     _arg_last_peak = _peaks.argmax()
     _last_peak = _peaks[_arg_last_peak]
     _buffer = int(3*np.ceil(_widths)[_arg_last_peak])
@@ -63,8 +72,8 @@ def log_transform(s,epsilon):
         2017, 1507, 1-10. https://doi.org/10.1016/j.chroma.2017.05.057.
 
     """
-    log_s = np.log10(s-np.min(s)+epsilon)
-    return log_s
+    _log_s = np.log10(s-np.min(s)+epsilon)
+    return _log_s
 
 
 def r2_beads(f_cut, s, bl_fitter, asym=1.0, fp=True, hw=None):
@@ -90,4 +99,165 @@ def r2_beads(f_cut, s, bl_fitter, asym=1.0, fp=True, hw=None):
     _s_corr = _p["signal"]
     _r2 = r2_fct(_s_corr)
     return _r2
+
+#Frequency cutoff for BEADS
+def fcutoff_beads(s, x, args):
+    """
+
+    """
+    tic = time.perf_counter()
+   
+    path = args.filename    # @EB temporaty
+
+    _last_pt = relevant_range(s)            # @EB split signal here?
+    _bl_fitter = Baseline(x_data=x[:_last_pt])
+    # log transform of the signal
+    _z = log_transform(s[:_last_pt],1)
+    print(f"{'Used points:':<20}{len(_z):d}")       #TEST
+
+    _freq_cutoff_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
+    
+    r2_func = lambda x: r2_beads(x,_z,_bl_fitter)
+    vr2_func = np.vectorize(r2_func)
+    r2_val = vr2_func(_freq_cutoff_range)   # y-data
+
+    smooth_d0 = gaussian_filter1d(r2_val,25)    # @EB 15 or 25?
+    smooth_d1 = np.gradient(smooth_d0)
+    smooth_d2 = np.gradient(smooth_d1)
+    infls = np.where(np.diff(np.sign(smooth_d2)))[0]
+    pos_min_d1 = argrelmin(smooth_d1)[0]
+    pos_max_d1 = argrelmax(smooth_d1)[0]
+    # How do we find the right inflection point?
+    d1_min = np.argmin(smooth_d1[infls])
+
+    d0_drops = np.ediff1d(smooth_d0[pos_max_d1])
+    arg_d0_drops = (d0_drops<-0.01).nonzero()
+    rel_max_d1 = pos_max_d1[arg_d0_drops]
+    if len(rel_max_d1) == 0:
+        case = 1
+        arg_l = pos_max_d1[-1]
+        print(pos_max_d1)
+    elif len(rel_max_d1) == 1:
+        case = 2
+        arg_l = rel_max_d1[0]
+        arg_r = pos_min_d1[pos_min_d1 > arg_l][0]
+    else:
+        case = 3
+#        print(pos_max_d1)
+#        print(pos_min_d1)
+        print(smooth_d0[pos_max_d1])
+        rel_drop_values = d0_drops[arg_d0_drops]
+        tot_drop = np.cumsum(rel_drop_values)
+        print(tot_drop)
+        optimal_max_d1 = np.argmin(tot_drop[tot_drop>-0.50])
+        print(optimal_max_d1)
+        print(rel_drop_values[0])
+        # @EB -0.08 or -0.095?
+        if ((optimal_max_d1 == 0) and (rel_drop_values[0]>-0.095)):
+            case = 4
+            optimal_max_d1 += 1
+        arg_l = rel_max_d1[optimal_max_d1]
+        arg_r = pos_min_d1[pos_min_d1 > arg_l][0]
+
+    # @EB
+    r2_lim_l = r2_val[arg_l]
+
+    slope_arg = np.where(smooth_d1 <= -1E-04)[0]
+    _arg_cutoff = slope_arg[slope_arg >= arg_l][0]
+    _freq_cutoff = _freq_cutoff_range[_arg_cutoff]
+
+    print(f"Case {case:d}")
+    # @EB Ajuster le calcul suivant?
+    r2_ymin = r2_val[infls[d1_min-1]]-0.05  #only for the r2 plot limit
+
+    toc = time.perf_counter()
+    print(f"Autocorrelation in {toc-tic:0.4f} seconds")
+    fi_r2_val = r2_beads(_freq_cutoff,_z,_bl_fitter)
+    print(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
+
+    
+    if args.show or args.print:
+        xx = _freq_cutoff_range
+        yy = r2_val
+#        fig = plt.figure(figsize=[6.4,9.6],num="Autocorrelation plots")    #@EB
+        fig = plt.figure(figsize=[9.4,9.6],num="Autocorrelation plots")
+        gs = fig.add_gridspec(3, hspace=0)
+        axs = gs.subplots(sharex=True)
+        axs[0].semilogx(xx, yy, marker='.', ls='',label=r'$r^2$',ms=3)
+        axs[0].semilogx(xx, smooth_d0, marker='', ls='-',
+                        label=r'$r^2_\text{smooth}$',ms=3)
+        axs[1].semilogx(xx, smooth_d1, label='First Derivative')
+        axs[2].semilogx(xx, smooth_d2, label='Second Derivative')
+        for ax in axs.flat:
+            for i, infl in enumerate(infls, 1):
+                ax.axvline(x=xx[infl], c='k')#, label=f'Inflection Point {i}')
+            ax.axvline(x=_freq_cutoff,c='tab:red',ls='dashed'),
+            ax.label_outer()
+        for md1 in pos_min_d1:
+            axs[1].axvline(x=xx[md1],ymax=0.5,c='tab:pink',ls='dashed')
+        for md1 in pos_max_d1:
+            axs[1].axvline(x=xx[md1],ymin=0.5,c='tab:green',ls='dashed')
+        axs[0].annotate(f'{fi_r2_val:0.4f}',
+                        xy=(_freq_cutoff,1.01),
+                        xycoords=("data","axes fraction"),
+                        ha='center',
+                        color='tab:red'
+                        )
+        axs[0].annotate(f"{'Case:'}{case:>3d}",
+                    xy=(0.00,1.01),
+                    xycoords=("axes fraction"),
+                    ha='left',
+                    color='tab:red'
+                    )
+        axs[2].set_xlabel('Cutoff frequency')
+        axs[0].set_ylabel(r'$r^2_{y-b}$')
+        axs[1].set_ylabel(r"$r^2_{y-b}$'")
+        axs[2].set_ylabel(r"$r^2_{y-b}$''")
+        axs[0].set_ylim(r2_ymin,1.0)
+        axs[1].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
+        axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
+        axs[0].legend()
+        plt.tight_layout()
+        if args.show:
+            plt.show()
+        if args.print:
+            filename = os.path.splitext(os.path.basename(path))[0]
+            plt.savefig(f"r2_plots/{filename}_r2.png")
+        plt.close()
+    return [_freq_cutoff,case]
+
+###############################################################################
+#BEADS baseline correction
+def beads(s, x, args, _asym=1.0, _fp=True, _hw=None):
+    """
+
+    """
+    # Read Navarro-Huerta et al (2017)
+    # Section 3.2: Monitoring the autocorrelation to explore the BEADS
+    #              working parameters
+    # 3.3.2. Chromatograms involving peaks with extremely different magnitude
+    # Section 3.4: Autocorrelation plot using the baseline-corrected signal
+    # Section 3.5: Application of the assisted BEADS
+
+    _baseline_fitter = Baseline(x_data=x)
+    _signal = rm_ends_outliers(s)
+    print(f"{'Data points:':<20}{len(_signal):d}")
+    _fcut, _case = fcutoff_beads(_signal, x, args)
+    print(f"{'Cutoff frequency:':<20}{_fcut:E}")
+    print(f"{'Asymmetry:':<20}{_asym:0.1f}")
+    print(f"{'Fit parabola:':<20}{str(_fp):s}")
+    print(f"{'Half window:':<20}{str(_hw):s}")
+
+    tic = time.perf_counter()
+    _bl, _p = _baseline_fitter.beads(
+            _signal,
+            freq_cutoff=_fcut,
+            fit_parabola=_fp,
+            asymmetry=_asym,
+            smooth_half_window=_hw,
+            alpha=1.
+            )
+    toc = time.perf_counter()
+    print(f"Baseline correction in {toc-tic:0.4f} seconds")
+    return [_bl,_p,_case]
 

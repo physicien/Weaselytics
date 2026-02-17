@@ -110,7 +110,6 @@ def r2_beads(f_cut, s, bl_fitter, asym=1.0, fp=True, hw=None, alpha=1.0):
             smooth_half_window = hw,
             alpha = alpha
             )
-#    _s_corr = s - _bl
     _s_corr = _p["signal"]
     _r2 = r2_fct(_s_corr)
     return _r2
@@ -156,14 +155,6 @@ def fcutoff_beads(s, x, args, alpha=1.0):
     arg_d0_drops = (d0_drops<-0.01).nonzero()
     rel_max_d1 = pos_max_d1[arg_d0_drops]
 
-    # @EB Ajusting some problematic "Case 2"...
-#    if ((len(rel_max_d1) == 1) and (pos_max_d1[-1] < pos_min_d1[-1])):
-#        _last_point = np.array(len(_freq_cutoff_range)-1)
-#        pos_max_d1 = np.append(pos_max_d1,_last_point)
-#        d0_drops = np.ediff1d(smooth_d0[pos_max_d1])
-#        arg_d0_drops = (d0_drops<-0.01).nonzero()
-#        rel_max_d1 = pos_max_d1[arg_d0_drops]
-
     # Differents cases
     if len(rel_max_d1) == 0:
         case = 1
@@ -178,15 +169,16 @@ def fcutoff_beads(s, x, args, alpha=1.0):
         rel_drop_values = d0_drops[arg_d0_drops]
         tot_drop = np.cumsum(rel_drop_values)
         print(tot_drop)
+
         optimal_max_d1 = np.argmin(tot_drop[tot_drop>-0.50])
-        print(optimal_max_d1)
-        print(rel_drop_values[0])
+
         # @EB -0.08 or -0.095?
         if ((optimal_max_d1 == 0) and (rel_drop_values[0]>-0.095)):
             case = 4
             optimal_max_d1 += 1
         arg_l = rel_max_d1[optimal_max_d1]
         arg_r = pos_min_d1[pos_min_d1 > arg_l][0]
+        print(tot_drop[optimal_max_d1])
 
     # @EB
     r2_lim_l = r2_val[arg_l]

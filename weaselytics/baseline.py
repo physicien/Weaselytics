@@ -31,8 +31,22 @@ def relevant_range(s):
 
     """
 #    _s = gaussian_filter1d(s,10)
+#    window_size = 5
+#    _s = np.convolve(s, np.ones(window_size)/window_size, mode='valid')
     # No smoothing, but specific height_n value in case of noisy signal.
-    _peaks, _widths = peaks_params(s,height_n=0.15)
+    _peaks, _widths = peaks_params(s, height_n=0.01)
+
+    # @EB Signal splitting
+#    print(_peaks)
+#    print(_widths)
+#    print("===========================")
+#    print(_peaks/_widths)
+#    print("===========================")
+
+#    print(_peaks[np.argmin(_widths)])
+#    print(np.min(_widths))
+#    print(_widths/np.min(_widths))  # Width outliers?
+
     _arg_last_peak = _peaks.argmax()
     _last_peak = _peaks[_arg_last_peak]
     _buffer = int(3*np.ceil(_widths)[_arg_last_peak])
@@ -76,7 +90,7 @@ def log_transform(s,epsilon):
     return _log_s
 
 
-def r2_beads(f_cut, s, bl_fitter, asym=1.0, fp=True, hw=None):
+def r2_beads(f_cut, s, bl_fitter, asym=1.0, fp=True, hw=None, alpha=1.0):
     """
     Minimal baseline correction with the BEADS algorithm. Used to compute
     the autocorrelation plot.
@@ -93,7 +107,8 @@ def r2_beads(f_cut, s, bl_fitter, asym=1.0, fp=True, hw=None):
             freq_cutoff = f_cut,
             fit_parabola = fp,
             asymmetry = asym,
-            smooth_half_window = hw
+            smooth_half_window = hw,
+            alpha = alpha
             )
 #    _s_corr = s - _bl
     _s_corr = _p["signal"]
@@ -101,7 +116,7 @@ def r2_beads(f_cut, s, bl_fitter, asym=1.0, fp=True, hw=None):
     return _r2
 
 #Frequency cutoff for BEADS
-def fcutoff_beads(s, x, args):
+def fcutoff_beads(s, x, args, alpha=1.0):
     """
 
     """
@@ -117,7 +132,7 @@ def fcutoff_beads(s, x, args):
 
     _freq_cutoff_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
     
-    r2_func = lambda x: r2_beads(x,_z,_bl_fitter)
+    r2_func = lambda x: r2_beads(x,_z,_bl_fitter, alpha)
     vr2_func = np.vectorize(r2_func)
     r2_val = vr2_func(_freq_cutoff_range)   # y-data
 
@@ -127,24 +142,38 @@ def fcutoff_beads(s, x, args):
     infls = np.where(np.diff(np.sign(smooth_d2)))[0]
     pos_min_d1 = argrelmin(smooth_d1)[0]
     pos_max_d1 = argrelmax(smooth_d1)[0]
+    d1_min = np.argmin(smooth_d1[pos_min_d1])
+    # @EB Ajusting some problematic "Case 2"...
+    if ((pos_max_d1[-1] < pos_min_d1[-1]) and
+        (pos_min_d1[-1] == pos_min_d1[d1_min])):    # @EB not general yet...
+        _last_point = np.array(len(_freq_cutoff_range)-1)
+        pos_max_d1 = np.append(pos_max_d1,_last_point)
+
     # How do we find the right inflection point?
-    d1_min = np.argmin(smooth_d1[infls])
+    infl_min = np.argmin(smooth_d1[infls])
 
     d0_drops = np.ediff1d(smooth_d0[pos_max_d1])
     arg_d0_drops = (d0_drops<-0.01).nonzero()
     rel_max_d1 = pos_max_d1[arg_d0_drops]
+
+    # @EB Ajusting some problematic "Case 2"...
+#    if ((len(rel_max_d1) == 1) and (pos_max_d1[-1] < pos_min_d1[-1])):
+#        _last_point = np.array(len(_freq_cutoff_range)-1)
+#        pos_max_d1 = np.append(pos_max_d1,_last_point)
+#        d0_drops = np.ediff1d(smooth_d0[pos_max_d1])
+#        arg_d0_drops = (d0_drops<-0.01).nonzero()
+#        rel_max_d1 = pos_max_d1[arg_d0_drops]
+
+    # Differents cases
     if len(rel_max_d1) == 0:
         case = 1
         arg_l = pos_max_d1[-1]
-        print(pos_max_d1)
     elif len(rel_max_d1) == 1:
         case = 2
         arg_l = rel_max_d1[0]
         arg_r = pos_min_d1[pos_min_d1 > arg_l][0]
     else:
         case = 3
-#        print(pos_max_d1)
-#        print(pos_min_d1)
         print(smooth_d0[pos_max_d1])
         rel_drop_values = d0_drops[arg_d0_drops]
         tot_drop = np.cumsum(rel_drop_values)
@@ -168,7 +197,7 @@ def fcutoff_beads(s, x, args):
 
     print(f"Case {case:d}")
     # @EB Ajuster le calcul suivant?
-    r2_ymin = r2_val[infls[d1_min-1]]-0.05  #only for the r2 plot limit
+    r2_ymin = r2_val[infls[infl_min-1]]-0.05  #only for the r2 plot limit
 
     toc = time.perf_counter()
     print(f"Autocorrelation in {toc-tic:0.4f} seconds")
@@ -228,7 +257,7 @@ def fcutoff_beads(s, x, args):
 
 ###############################################################################
 #BEADS baseline correction
-def beads(s, x, args, _asym=1.0, _fp=True, _hw=None):
+def beads(s, x, args, asym=1.0, fp=True, hw=None, alpha=1.):
     """
 
     """
@@ -244,18 +273,19 @@ def beads(s, x, args, _asym=1.0, _fp=True, _hw=None):
     print(f"{'Data points:':<20}{len(_signal):d}")
     _fcut, _case = fcutoff_beads(_signal, x, args)
     print(f"{'Cutoff frequency:':<20}{_fcut:E}")
-    print(f"{'Asymmetry:':<20}{_asym:0.1f}")
-    print(f"{'Fit parabola:':<20}{str(_fp):s}")
-    print(f"{'Half window:':<20}{str(_hw):s}")
+    print(f"{'Asymmetry:':<20}{asym:0.1f}")
+    print(f"{'Fit parabola:':<20}{str(fp):s}")
+    print(f"{'Half window:':<20}{str(hw):s}")
+    print(f"{'alpha:':<20}{alpha:0.2f}")
 
     tic = time.perf_counter()
     _bl, _p = _baseline_fitter.beads(
             _signal,
             freq_cutoff=_fcut,
-            fit_parabola=_fp,
-            asymmetry=_asym,
-            smooth_half_window=_hw,
-            alpha=1.
+            fit_parabola=fp,
+            asymmetry=asym,
+            smooth_half_window=hw,
+            alpha=alpha
             )
     toc = time.perf_counter()
     print(f"Baseline correction in {toc-tic:0.4f} seconds")

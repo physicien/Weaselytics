@@ -101,7 +101,7 @@ def lsq_eq(p,fct,x,y):
     """
     return fct(x,p) - y
 
-def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.5, height_n=0.1,
+def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
                  rel_height_p=0.5, rel_height_n=0.5):
     """
     Function which find the center and width for every peak of the
@@ -119,7 +119,10 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.5, height_n=0.1,
         Required prominence of negative peaks relative to the deepest negative
         peak. Default is 0.5.
     height_n : float, optional
-        Required height of negative peaks. Default is 0.1.
+        Required height of negative peaks. Either a number, ``None``, an array
+        matching x or a 2-element sequence of the former. The first element is
+        always interpreted as the minimal and the second, if supplied, as the
+        maximal required height. Default is 0.1.
     rel_height_p : float, optional
         Selects the relative height at which the width of a positive peak is
         determined, expressed as a fraction of its prominence. A value of 1.0
@@ -141,14 +144,25 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.5, height_n=0.1,
         The widths for each peak in `s`.
 
     """
-    _prom_p = rel_prom_p*s.max()
-    _prom_n = rel_prom_n*(-s).max()
-    _peaks_p, _ = find_peaks(s,prominence=_prom_p)
-    _peaks_n, _ = find_peaks(-s,prominence=_prom_n,height=height_n)
+    # @EB remove height_n? Seems to be useful...
+    _, _raw_params_p = find_peaks(s,prominence=0.0)
+    _, _raw_params_n = find_peaks(-s,prominence=0.0)
+    _max_prom_p = _raw_params_p["prominences"].max()
+    _max_prom_n = _raw_params_n["prominences"].max()
+    if _max_prom_p <= 1:
+        rel_prom_p = 0.5
+    _prom_p = rel_prom_p * _max_prom_p
+    _prom_n = rel_prom_n * _max_prom_n
+#    _prom_p = rel_prom_p*s.max()            # @EB heuristic
+#    _prom_n = rel_prom_n*(-s).max()         # @EB heuristic
+    _peaks_p, _ = find_peaks(s, prominence=_prom_p)
+    _peaks_n, _ = find_peaks(-s, prominence=_prom_n, height=height_n)
+#    print(_peaks_p)
+#    print(_peaks_n)
     _widths_p = peak_widths(s, _peaks_p, rel_height=rel_height_p)[0]
     _widths_n = peak_widths(-s, _peaks_n, rel_height=rel_height_n)[0]
-    _peaks = np.append(_peaks_p,_peaks_n)
-    _widths = np.append(_widths_p,_widths_n)
+    _peaks = np.append(_peaks_p, _peaks_n)
+    _widths = np.append(_widths_p, _widths_n)
     index_array = np.argsort(_peaks)
     return [_peaks[index_array],_widths[index_array]]
 

@@ -76,7 +76,7 @@ def log_transform(s,epsilon):
 
     Returns
     -------
-    log_s : numpy.ndarray
+    _log_s : numpy.ndarray
         The log transformed data.
     
     References
@@ -114,8 +114,17 @@ def r2_beads(f_cut, s, bl_fitter, asym=1.0, fp=True, hw=None, alpha=1.0):
     _r2 = r2_fct(_s_corr)
     return _r2
 
+def r2_beads_array(x, y, baseline_fitter, alpha, frequency_range):
+    """
+    """
+    _r2_func = lambda x: r2_beads(x, y, baseline_fitter, alpha)
+    _vr2_func = np.vectorize(_r2_func)
+    return _vr2_func(frequency_range)
+
 #Frequency cutoff for BEADS
-def fcutoff_beads(s, x, args, alpha=1.0):
+def fcutoff_beads(s, x, args, alpha=1.0, smoothing_window=25, 
+                  slope_thresh=-1.0E-04, plateau_thresh=1.0E-04,
+                  drop_thresh=0.90):
     """
 
     """
@@ -127,15 +136,14 @@ def fcutoff_beads(s, x, args, alpha=1.0):
     _bl_fitter = Baseline(x_data=x[:_last_pt])
     # log transform of the signal
     _z = log_transform(s[:_last_pt],1)
-    print(f"{'Used points:':<20}{len(_z):d}")       #TEST
+    print(f"{'Used points:':<20}{len(_z):d}")
 
     _freq_cutoff_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
     
-    r2_func = lambda x: r2_beads(x,_z,_bl_fitter, alpha)
-    vr2_func = np.vectorize(r2_func)
-    r2_val = vr2_func(_freq_cutoff_range)   # y-data
+    # y-data
+    r2_val = r2_beads_array(x,_z,_bl_fitter,alpha,_freq_cutoff_range)
 
-    smooth_d0 = gaussian_filter1d(r2_val,25)    # @EB 15 or 25?
+    smooth_d0 = gaussian_filter1d(r2_val,smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
     smooth_d2 = np.gradient(smooth_d1)
     infls = np.where(np.diff(np.sign(smooth_d2)))[0]
@@ -143,47 +151,72 @@ def fcutoff_beads(s, x, args, alpha=1.0):
     pos_max_d1 = argrelmax(smooth_d1)[0]
     d1_min = np.argmin(smooth_d1[pos_min_d1])
     # @EB Ajusting some problematic "Case 2"...
-    if ((pos_max_d1[-1] < pos_min_d1[-1]) and
-        (pos_min_d1[-1] == pos_min_d1[d1_min])):    # @EB not general yet...
-        _last_point = np.array(len(_freq_cutoff_range)-1)
-        pos_max_d1 = np.append(pos_max_d1,_last_point)
+#    if ((pos_max_d1[-1] < pos_min_d1[-1]) and
+#        (pos_min_d1[-1] == pos_min_d1[d1_min])):    # @EB not general yet...
+#        _last_point = np.array(len(_freq_cutoff_range)-1)
+#        pos_max_d1 = np.append(pos_max_d1,_last_point)
 
     # How do we find the right inflection point?
     infl_min = np.argmin(smooth_d1[infls])
 
-    d0_drops = np.ediff1d(smooth_d0[pos_max_d1])
-    arg_d0_drops = (d0_drops<-0.01).nonzero()
-    rel_max_d1 = pos_max_d1[arg_d0_drops]
+#    d0_drops = np.ediff1d(smooth_d0[pos_max_d1])
+#    arg_d0_drops = (d0_drops<-0.01).nonzero()
+#    rel_max_d1 = pos_max_d1[arg_d0_drops]
+
+    plateau = (np.absolute(smooth_d1) < plateau_thresh)
+    arg_plateau = np.where(plateau)[0]                          # @EB plateau
+#    patate = pos_max_d1[smooth_d1[pos_max_d1] < 0]
+#    patate = pos_max_d1[smooth_d1[pos_max_d1] < plateau_thresh]
+#    patate = pos_max_d1[((smooth_d1[pos_max_d1] < 0) &
+    patate = pos_max_d1[((smooth_d1[pos_max_d1] < plateau_thresh) &
+                          (smooth_d0[pos_max_d1] > drop_thresh))]
+    print(pos_max_d1)
+    print(patate)
+    patate2 = np.intersect1d(arg_plateau,patate)
+    print(patate2)
+    # Differents cases
+    if len(patate2) == 0:
+        case = 1
+        arg_l = pos_max_d1[pos_max_d1 < patate[0]][-1]
+        print(arg_l)
+    else:
+        case = 2
+        arg_l = patate2[-1]
+
 
     # Differents cases
-    if len(rel_max_d1) == 0:
-        case = 1
-        arg_l = pos_max_d1[-1]
-    elif len(rel_max_d1) == 1:
-        case = 2
-        arg_l = rel_max_d1[0]
-        arg_r = pos_min_d1[pos_min_d1 > arg_l][0]
-    else:
-        case = 3
-        print(smooth_d0[pos_max_d1])
-        rel_drop_values = d0_drops[arg_d0_drops]
-        tot_drop = np.cumsum(rel_drop_values)
-        print(tot_drop)
+#    if len(rel_max_d1) == 0:
+#        case = 1
+#        arg_l = pos_max_d1[-1]
+#    elif len(rel_max_d1) == 1:
+#        case = 2
+#        arg_l = rel_max_d1[0]
+#        arg_r = pos_min_d1[pos_min_d1 > arg_l][0]
+#    else:
+#        case = 3
+#        print(smooth_d0[pos_max_d1])
+#        rel_drop_values = d0_drops[arg_d0_drops]
+#        tot_drop = np.cumsum(rel_drop_values)
 
-        optimal_max_d1 = np.argmin(tot_drop[tot_drop>-0.50])
+#        optimal_max_d1 = np.argmin(tot_drop[tot_drop>-0.50])
 
         # @EB -0.08 or -0.095?
-        if ((optimal_max_d1 == 0) and (rel_drop_values[0]>-0.095)):
-            case = 4
-            optimal_max_d1 += 1
-        arg_l = rel_max_d1[optimal_max_d1]
-        arg_r = pos_min_d1[pos_min_d1 > arg_l][0]
-        print(tot_drop[optimal_max_d1])
+#        if ((optimal_max_d1 == 0) and (rel_drop_values[0]>-0.095)):
+#            case = 4
+#            optimal_max_d1 += 1
+#        arg_l = rel_max_d1[optimal_max_d1]
+#        arg_r = pos_min_d1[pos_min_d1 > arg_l][0]
+##        print("==========")
+##        print("TEST")
+##        print(tot_drop)
+##        print(optimal_max_d1)
+##        print(tot_drop[optimal_max_d1])
+##        print("==========")
 
     # @EB
     r2_lim_l = r2_val[arg_l]
 
-    slope_arg = np.where(smooth_d1 <= -1E-04)[0]
+    slope_arg = np.where(smooth_d1 <= slope_thresh)[0]
     _arg_cutoff = slope_arg[slope_arg >= arg_l][0]
     _freq_cutoff = _freq_cutoff_range[_arg_cutoff]
 
@@ -208,6 +241,12 @@ def fcutoff_beads(s, x, args, alpha=1.0):
         axs[0].semilogx(xx, smooth_d0, marker='', ls='-',
                         label=r'$r^2_\text{smooth}$',ms=3)
         axs[1].semilogx(xx, smooth_d1, label='First Derivative')
+
+        axs[1].fill_between(xx, 0, 1,
+                            where=np.absolute(smooth_d1) < plateau_thresh,
+                            color='green', alpha=0.3, 
+                            transform=axs[1].get_xaxis_transform())
+
         axs[2].semilogx(xx, smooth_d2, label='Second Derivative')
         for ax in axs.flat:
             for i, infl in enumerate(infls, 1):

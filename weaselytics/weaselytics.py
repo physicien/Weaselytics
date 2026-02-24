@@ -12,9 +12,7 @@ import time
 
 from peakfitting import gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit
 from utils import *
-from baseline import (
-        log_transform, relevant_range, r2_beads, fcutoff_beads, beads
-        )
+from baseline import log_transform, relevant_range, auto_beads
 
 #GLOBAL LIST
 header1 = ["time","potential"]
@@ -28,7 +26,7 @@ parser = argparse.ArgumentParser(prog='hplc_parser',\
         description='Parse data from .txt file')
 
 #File is required
-parser.add_argument("filename",
+parser.add_argument("path",
         help="the .inp data file")
 
 parser.add_argument('-s','--show',
@@ -102,11 +100,12 @@ if args.endx:
         print("Warning. x1 < 0. Exit.")
         sys.exit(1)
 
-#Data processing
-path = args.filename
+#Data processing            #@EB write a good parser and use it here
+path = args.path
 print(path)
 data =  np.loadtxt(path,skiprows=7)
 xdata = data[:,0]
+
 ydata = data[:,1]
 
 #smoothing
@@ -117,9 +116,13 @@ else:
 
 #baseline correction
 if do_bl:
-    baseline, params, case = beads(ydata_sm,xdata,args)
+    baseline, params, case = auto_beads(ydata_sm, xdata, freq_cutoff=None,
+                                        show_plot=args.show,
+                                        print_plot=args.print, path=args.path)
     ydata_bl = params["signal"]
-#    ydata_bl = ydata_sm - baseline
+#    from baseline import auto_fabc                  #@EB 2026-02-23 mask
+#    from scipy.ndimage import gaussian_filter1d     #@EB 2026-02-23 mask
+#    patate = auto_fabc(gaussian_filter1d(ydata,15), xdata) #@EB 2026-02-23 mask
 else:
     ydata_bl = ydata_sm
 
@@ -142,6 +145,7 @@ if args.output_csv:
     df = pd.DataFrame(data)
     df.to_csv(filename+".csv", index=False, header=header1)
 
+#@EB make a function to fit from here
 #if startx argument is given - x-axis range
 if args.startx:
     xmin_fit = args.startx
@@ -187,7 +191,7 @@ if fit_data:
     #if output_stats is given - csv generation
     if args.output_stats:
         mol = args.output_stats
-        path = args.filename
+        path = args.path
         solv_pattern = r"(^.+)__LPYE"
         filename = os.path.basename(path)
         outname = re.match(r"(^.+).txt",filename).group(1)
@@ -231,6 +235,9 @@ if args.show or args.print:
                 label='ajusted data')
         plt.plot(xdata, baseline, ls='--',c=palette[0], lw=2.0,
                 label='baseline')
+#        mask = patate["mask"]                   # @EB 2026-02-23 mask
+#        plt.plot(xdata[~mask], ydata[~mask],"ms", ms=3 )# @EB 2026-02-23 mask
+
     if fit_data:
         plt.plot(x_robust, y_robust_g, ls='--', c=palette[2], lw=2.0,
                  label='robust gaussian fit')

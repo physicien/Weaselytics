@@ -33,10 +33,11 @@ def relevant_range(s):
 #    _s = gaussian_filter1d(s,10)
 #    window_size = 5
 #    _s = np.convolve(s, np.ones(window_size)/window_size, mode='valid')
+
     # No smoothing, but specific height_n value in case of noisy signal.
     _peaks, _widths = peaks_params(s, height_n=0.01)
 
-    # @EB Signal splitting
+    #@EB Signal splitting
 #    print(_peaks)
 #    print(_widths)
 #    print("===========================")
@@ -90,8 +91,7 @@ def log_transform(s,epsilon):
     return _log_s
 
 
-def r2_beads(f_cut, s, bl_fitter, asym=1.0, fit_parabola=True,
-             half_window=None, alpha=1.0):
+def r2_beads(f_cut, s, bl_fitter, asym=1.0, fit_parabola=True, alpha=1.0):
     """
     Minimal baseline correction with the BEADS algorithm. Used to compute
     the autocorrelation plot.
@@ -108,7 +108,6 @@ def r2_beads(f_cut, s, bl_fitter, asym=1.0, fit_parabola=True,
             freq_cutoff = f_cut,
             fit_parabola = fit_parabola,
             asymmetry = asym,
-            smooth_half_window = half_window,
             alpha = alpha
             )
     _s_corr = _p["signal"]
@@ -116,10 +115,10 @@ def r2_beads(f_cut, s, bl_fitter, asym=1.0, fit_parabola=True,
     return _r2
 
 
-def r2_beads_array(x, y, baseline_fitter, alpha, frequency_range):
+def r2_beads_array(x, y, baseline_fitter, frequency_range, alpha):
     """
     """
-    _r2_func = lambda x: r2_beads(x, y, baseline_fitter, alpha)
+    _r2_func = lambda x: r2_beads(x, y, baseline_fitter, alpha=alpha)
     _vr2_func = np.vectorize(_r2_func)
     return _vr2_func(frequency_range)
 
@@ -129,8 +128,6 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, pl_thresh, pl_ext_thresh, freq_cutoff,
              path="./file.txt"):
     """
     """
-#    x = _freq_cutoff_range
-#    r2 = r2_val
     pos_min_d1 = argrelmin(sm_d1)[0]
     pos_max_d1 = argrelmax(sm_d1)[0]
     infls = np.where(np.diff(np.sign(sm_d2)))[0]
@@ -210,8 +207,10 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
     """
     tic = time.perf_counter()
    
-    _last_pt = relevant_range(s)            # @EB split signal here?
+    _last_pt = relevant_range(s)    # @EB split signal here?
+    
     _bl_fitter = Baseline(x_data=x[:_last_pt])
+
     # log transform of the signal
     _z = log_transform(s[:_last_pt],1)
     print(f"{'Used points:':<20}{len(_z):d}")
@@ -219,7 +218,7 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
     _freq_cutoff_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
     
     # y-data
-    r2_val = r2_beads_array(x,_z,_bl_fitter,alpha,_freq_cutoff_range)
+    r2_val = r2_beads_array(x, _z, _bl_fitter, _freq_cutoff_range, alpha)
 
     smooth_d0 = gaussian_filter1d(r2_val,smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
@@ -232,28 +231,29 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
 
     plateau = (np.absolute(smooth_d1) < plateau_thresh)
     arg_plateau = np.where(plateau)[0]                          # @EB plateau
-    patate = pos_max_d1[((smooth_d1[pos_max_d1] < plateau_thresh) &
+    loose_reg = pos_max_d1[((smooth_d1[pos_max_d1] < plateau_thresh) &
                           (smooth_d0[pos_max_d1] > drop_thresh))]
-    print(pos_max_d1)
-    print(patate)
-    patate2 = np.intersect1d(arg_plateau,patate)
-    print(patate2)
+#    print(pos_max_d1)
+#    print(loose_reg)
+    tight_reg = np.intersect1d(arg_plateau,loose_reg)
+#    print(tight_reg)
+
     # Differents cases
-    if len(patate2) == 0:
+    if len(tight_reg) == 0:
         case = 1
-        arg_l = pos_max_d1[pos_max_d1 < patate[0]][-1]
+        arg_l = pos_max_d1[pos_max_d1 < loose_reg[0]][-1]
         print(arg_l)
     else:
         case = 2
-        arg_l = patate2[-1]
+        arg_l = tight_reg[-1]
 
 # @EB HERE
-#        next_patate = np.setdiff1d(patate,patate2)
-        next_patate = np.setdiff1d(pos_max_d1,patate2)
-        if len(next_patate) != 0:
-            next_plateau = next_patate[0]
-            print(f"{'r2[arg_l]':<20}{smooth_d0[arg_l]:0.4f}")
-            print(f"{'d1[next_plateau]':<20}{smooth_d1[next_plateau]:E}")
+#        next_region = np.setdiff1d(loose_reg,tight_reg)
+        next_region = np.setdiff1d(pos_max_d1,tight_reg)
+        if len(next_region) != 0:
+            next_plateau = next_region[0]
+            print(f"{'r2[arg_l]:':<20}{smooth_d0[arg_l]:0.4f}")
+            print(f"{'d1[next_plateau]:':<20}{smooth_d1[next_plateau]:E}")
             if ((smooth_d0[arg_l] >= 0.995) and
                 (np.absolute(smooth_d1[next_plateau]) < plateau_ext_thresh)):
                 case = 3
@@ -261,9 +261,6 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
             elif smooth_d0[arg_l] >= 0.998:
                 case = 4
                 arg_l = next_plateau
-
-    # @EB
-#    r2_lim_l = r2_val[arg_l]
 
     slope_arg = np.where(smooth_d1 <= slope_thresh)[0]
     try:
@@ -279,14 +276,14 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
     print(f"Autocorrelation in {toc-tic:0.4f} seconds")
     fi_r2_val = r2_beads(_freq_cutoff,_z,_bl_fitter)
     print(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
-    print("=================================")
-    max_d1_val = smooth_d1[arg_l]
-    print(f"{'arg_l d1 value:':<20}{max_d1_val:E}")
-    r2_d1_val = smooth_d1[_arg_cutoff]
-    print(f"{'cutoff d1 value:':<20}{r2_d1_val:E}")
-    r2_d2_val = smooth_d2[_arg_cutoff]
-    print(f"{'cutoff d2 value:':<20}{r2_d2_val:E}")
-    print("=================================")
+#    print("=================================")
+#    max_d1_val = smooth_d1[arg_l]
+#    print(f"{'arg_l d1 value:':<20}{max_d1_val:E}")
+#    r2_d1_val = smooth_d1[_arg_cutoff]
+#    print(f"{'cutoff d1 value:':<20}{r2_d1_val:E}")
+#    r2_d2_val = smooth_d2[_arg_cutoff]
+#    print(f"{'cutoff d2 value:':<20}{r2_d2_val:E}")
+#    print("=================================")
 
     # r2 plot
     if show_plot or print_plot:
@@ -299,8 +296,8 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
 
 ###############################################################################
 #BEADS baseline correction
-def auto_beads(s, x, freq_cutoff=None, asym=1.0, fit_parabola=True,
-               half_window=None, alpha=1., show_plot=False, print_plot=False,
+def auto_beads(s, x, freq_cutoff=None, asymmetry=1.0, fit_parabola=True,
+               alpha=1.0, show_plot=False, print_plot=False,
                path="./file.txt"):
     """
     Automatic implementation of the Baseline estimation and denoising with
@@ -312,18 +309,48 @@ def auto_beads(s, x, freq_cutoff=None, asym=1.0, fit_parabola=True,
 
     Parameters
     ----------
+    s : array-like, shape (N,)
+        The y-values of the measured signal, with N data points.
+    x : array-like, shape (N,)
+        The x-values of the measured signal, with N data points.
+    freq_cutoff : float, optional
+        The cutoff frequency of the high pass filter, normalized such that
+        0 < `freq_cutoff` < 0.5. Default is None, which will calculate its
+        value based on the autocorrelation plot of the log-transform from
+        Navarro-Huerta [2].
+    asymmetry : float, optional
+        A number greater than 0 that determines the weighting of negative
+        values compared to positive values in the cost function. For example,
+        if is 6.0, it will give negative values six times more impact on the
+        cost function that positive values. If set to 1 (the default) for a
+        symmetric cost function, or a value less than 1 to weigh positive
+        values more.
+    fit_parabola : bool, optional
+        If True (default), will fit a parabola to the data and subtract it
+        before performing the BEADS fit as suggested in [2]. This ensures the
+        endpoints of the fit data are close to 0, which is required by BEADS.
+        If the data is already close to 0 on both endpoints, set `fit_parabola`
+        to False (but it does not change anything in reality).
+    alpha : float, optional
+        TO CONTINUE
 
+    References
+    ----------
+    .. [1] Ning, X., et al. Chromatogram baseline estimation and denoising
+        using sparsity (BEADS). Chemometrics and Intelligent Laboratory
+        Systems, 2014, 139, 156-167.
+    .. [2] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in
+        complex chromatograms using the BEADS algorithm. Journal of
+        Chromatography A, 2017, 1507, 1-10.
     """
-    # Read Navarro-Huerta et al (2017)
-    # Section 3.2: Monitoring the autocorrelation to explore the BEADS
-    #              working parameters
-    # 3.3.2. Chromatograms involving peaks with extremely different magnitude
-    # Section 3.4: Autocorrelation plot using the baseline-corrected signal
-    # Section 3.5: Application of the assisted BEADS
 
     _baseline_fitter = Baseline(x_data=x)
     _signal = rm_ends_outliers(s)
     print(f"{'Data points:':<20}{len(_signal):d}")
+
+    if asymmetry <= 0:
+        raise ValueError('asymmetry must be greater than 0')
+
     if freq_cutoff is None:
         _freq_cutoff, _case = fcutoff_beads(_signal, x, show_plot=show_plot,
                                             print_plot=print_plot, path=path)
@@ -332,10 +359,10 @@ def auto_beads(s, x, freq_cutoff=None, asym=1.0, fit_parabola=True,
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")
         _freq_cutoff = freq_cutoff
         _case = 0
+
     print(f"{'Cutoff frequency:':<20}{_freq_cutoff:E}")
-    print(f"{'Asymmetry:':<20}{asym:0.1f}")
+    print(f"{'Asymmetry:':<20}{asymmetry:0.1f}")
     print(f"{'Fit parabola:':<20}{str(fit_parabola):s}")
-    print(f"{'Half window:':<20}{str(half_window):s}")
     print(f"{'alpha:':<20}{alpha:0.2f}")
 
     tic = time.perf_counter()                               #@TEMP
@@ -343,8 +370,7 @@ def auto_beads(s, x, freq_cutoff=None, asym=1.0, fit_parabola=True,
             _signal,
             freq_cutoff=_freq_cutoff,
             fit_parabola=fit_parabola,
-            asymmetry=asym,
-            smooth_half_window=half_window,
+            asymmetry=asymmetry,
             alpha=alpha
             )
     toc = time.perf_counter()                               #@TEMP
@@ -352,7 +378,7 @@ def auto_beads(s, x, freq_cutoff=None, asym=1.0, fit_parabola=True,
     return [_bl,_p,_case]
 
 
-# @EB 2026-02-23 mask
+#@EB mask
 def auto_fabc(s, x):
     _baseline_fitter = Baseline(x_data=x)
     _signal = rm_ends_outliers(s)

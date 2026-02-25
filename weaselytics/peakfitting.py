@@ -102,7 +102,7 @@ def lsq_eq(p,fct,x,y):
     return fct(x,p) - y
 
 def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
-                 rel_height_p=0.5, rel_height_n=0.5):
+                 rel_height_p=0.5, rel_height_n=0.5, width=None):
     """
     Function which find the center and width for every peak of the
     chromatogram (including the negative ones).
@@ -135,6 +135,11 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
         measures the peak’s width at its lowest contour level, whereas 0.5
         measures it at half the prominence height. The value must be at 
         least 0. Default is 0.5.
+    width : number or ndarray or sequence, optional
+        Required width of peaks in samples. Either a number, `None`, an array
+        matching x or a 2-element sequence of the former. The first element is
+        always interpreted as the minimal and the second, if supplied, as the
+        maximal required width. Default is `None`.
 
     Returns
     -------
@@ -155,8 +160,9 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
     _prom_n = rel_prom_n * _max_prom_n
 #    _prom_p = rel_prom_p*s.max()            # @EB heuristic
 #    _prom_n = rel_prom_n*(-s).max()         # @EB heuristic
-    _peaks_p, _ = find_peaks(s, prominence=_prom_p)
-    _peaks_n, _ = find_peaks(-s, prominence=_prom_n, height=height_n)
+    _peaks_p, _ = find_peaks(s, prominence=_prom_p, width=width)
+    _peaks_n, _ = find_peaks(-s, prominence=_prom_n, height=height_n,
+                             width=width)
 #    print(_peaks_p)
 #    print(_peaks_n)
     _widths_p = peak_widths(s, _peaks_p, rel_height=rel_height_p)[0]

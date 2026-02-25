@@ -105,7 +105,6 @@ path = args.path
 print(path)
 data =  np.loadtxt(path,skiprows=7)
 xdata = data[:,0]
-
 ydata = data[:,1]
 
 #smoothing

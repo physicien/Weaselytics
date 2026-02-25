@@ -14,7 +14,7 @@ import time                             #@EB temporary?
 from peakfitting import peaks_params
 from utils import r2_fct, rm_ends_outliers
 
-def relevant_range(s):
+def relevant_range(s,x):
     """
     Limits the signal to the relevant range in order to find the optimal
     cutoff frequency for the BEADS algorithm.
@@ -30,19 +30,19 @@ def relevant_range(s):
         Index of the last relevant data point of in the signal ``s``.
 
     """
-#    _s = gaussian_filter1d(s,10)
-#    window_size = 5
-#    _s = np.convolve(s, np.ones(window_size)/window_size, mode='valid')
-
     # No smoothing, but specific height_n value in case of noisy signal.
-    _peaks, _widths = peaks_params(s, height_n=0.01)
+#    _peaks, _widths = peaks_params(s, height_n=0.01)
+    _s = gaussian_filter1d(s,3)
+    _peaks, _widths = peaks_params(_s, height_n=0.50, width=3)
 
     #@EB Signal splitting
-#    print(_peaks)
-#    print(_widths)
-#    print("===========================")
+    print("===========================")
+    print(np.round(x[_peaks],2))       #@EB TO REMOVE
+    print(_peaks)
+    print(np.round(_widths,2))
+    print(np.round(_widths/np.min(_widths),2))
 #    print(_peaks/_widths)
-#    print("===========================")
+    print("===========================")
 
 #    print(_peaks[np.argmin(_widths)])
 #    print(np.min(_widths))
@@ -207,7 +207,7 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
     """
     tic = time.perf_counter()
    
-    _last_pt = relevant_range(s)    # @EB split signal here?
+    _last_pt = relevant_range(s,x)    # @EB split signal here?
     
     _bl_fitter = Baseline(x_data=x[:_last_pt])
 
@@ -248,8 +248,8 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
         arg_l = tight_reg[-1]
 
 # @EB HERE
-#        next_region = np.setdiff1d(loose_reg,tight_reg)
-        next_region = np.setdiff1d(pos_max_d1,tight_reg)
+        next_region = np.setdiff1d(loose_reg,tight_reg)
+#        next_region = np.setdiff1d(pos_max_d1,tight_reg)
         if len(next_region) != 0:
             next_plateau = next_region[0]
             print(f"{'r2[arg_l]:':<20}{smooth_d0[arg_l]:0.4f}")

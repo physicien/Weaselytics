@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import time                             #@EB temporary?
 
 from peakfitting import peaks_params
-from utils import r2_fct, rm_ends_outliers, continuous_ranges
+from utils import r2_fct, rm_ends_outliers, continuous_ranges, find_plateaus
 
 def relevant_range(s,x):
     """
@@ -230,20 +230,17 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=5.0E-05,#-1
 #    arg_d0_drops = (d0_drops<-0.01).nonzero()
 #    rel_max_d1 = pos_max_d1[arg_d0_drops]
 
-    plateau = (np.absolute(smooth_d1) < plateau_thresh)
-    arg_plateau = np.where(plateau)[0]                          # @EB plateau
+    reg_plateau = find_plateaus(smooth_d1, plateau_thresh)
+    reg_plateau_ext = find_plateaus(smooth_d1, plateau_ext_thresh,
+                                    plateau_thresh)
 
-    plateau_ext = (np.absolute(smooth_d1) < plateau_ext_thresh)
-#    arg_plateau_ext = np.where(plateau_ext)[0]
-    arg_plateau_ext = np.where(plateau_ext & ~plateau)[0]
-
-    tight_c_range = continuous_ranges(arg_plateau)
+    tight_c_range = continuous_ranges(reg_plateau)
     lim_first_plateau = np.intersect1d(tight_c_range[0],pos_max_d1)[-1]
     first_plateau_val = np.mean(smooth_d0[:lim_first_plateau])
 
-    tight_reg = np.intersect1d(arg_plateau,
+    tight_reg = np.intersect1d(reg_plateau,
                                pos_max_d1[r2_val[pos_max_d1] > 0.92])
-    loose_reg = np.intersect1d(arg_plateau_ext,
+    loose_reg = np.intersect1d(reg_plateau_ext,
                                pos_max_d1[r2_val[pos_max_d1] > 0.90])
 
     # Differents cases

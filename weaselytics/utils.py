@@ -148,3 +148,52 @@ def continuous_ranges(x):
     """
     c_range = np.split(x, np.where(x[1:] != x[:-1] +1)[0] +1)
     return c_range
+
+def find_plateaus(x, include_tol, exclude_tol=0, mode='absolute'):
+    """
+    Find the plateaus of an array according to a certain threshold. A second
+    threshold can also be used to exclude certain regions from the plateaus.
+
+    Parameters
+    ----------
+    x : array-like
+        The array on which to find plateaus.
+    include_tol : float
+        The cutoff threshold of the values to be included in the plateaus.
+    exclude_tol : float, optional
+        A second threshold to exclude values from the plateaus. Its value
+        should be smaller than that of `include_tol`. Default is 0.
+    mode : str, optional
+        One of the following string values.
+        'absolute' (default)
+            Takes the absolute value of the array.
+        'signed'
+            Takes signed values of the array.
+        
+    Returns
+    -------
+    plateaus : array-like
+        The array containing the position of the plateau regions of `x`.
+
+    Raises
+    ------
+    ValueError
+        Raised if `exclude_tol` in not smaller than `include_tol`, or if the 
+        `mode` being passed is not allowed.
+
+    """
+    # Make sure that the mode being passed is allowed
+    allowed_modes = ["absolute", "signed"]
+    if mode not in allowed_modes:
+        raise  ValueError(f"mode '{mode}' is not supported")
+
+    if mode == "absolute":
+        array = np.absolute(x)
+    elif mode == "signed":
+        array = x
+
+    if exclude_tol > include_tol:
+        raise ValueError("exclude_tol must be smaller than include_tol")
+    include_condition = ((array < include_tol) & (array > exclude_tol))
+    plateaus = np.where(include_condition)[0]
+    return plateaus

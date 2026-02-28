@@ -132,3 +132,19 @@ def smooth_SG(x,window_lenght,polyorder):
     smooth_data = savgol_filter(x,window_lenght,polyorder)
     return smooth_data
 
+def continuous_ranges(x):
+    """
+    Separates an array of integers into continuous segments.
+
+    Parameters
+    ----------
+    x : array-like 
+        The array.
+
+    Returns
+    -------
+    c_range : list of ndarrays
+        A list of continuous sub-arrays.
+    """
+    c_range = np.split(x, np.where(x[1:] != x[:-1] +1)[0] +1)
+    return c_range

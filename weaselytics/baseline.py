@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import time                             #@EB temporary?
 
 from peakfitting import peaks_params
-from utils import r2_fct, rm_ends_outliers
+from utils import r2_fct, rm_ends_outliers, continuous_ranges
 
 def relevant_range(s,x):
     """
@@ -41,7 +41,7 @@ def relevant_range(s,x):
     print(_peaks)
     print(np.round(_widths,2))
     print(np.round(_widths/np.min(_widths),2))
-#    print(_peaks/_widths)
+    print(np.round(_widths/x[_peaks],2))
     print("===========================")
 
 #    print(_peaks[np.argmin(_widths)])
@@ -198,8 +198,8 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, pl_thresh, pl_ext_thresh, freq_cutoff,
 
 
 #Frequency cutoff for BEADS
-def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
-                  plateau_thresh=5.0E-05, plateau_ext_thresh=1.1E-04,
+def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=5.0E-05,#-1.0E-04,
+                  plateau_thresh=6.1E-05, plateau_ext_thresh=2.2E-04,
                   drop_thresh=0.55, show_plot=False, print_plot=False,
                   path="./file.txt"):
     """
@@ -223,6 +223,7 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
     smooth_d0 = gaussian_filter1d(r2_val,smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
     smooth_d2 = np.gradient(smooth_d1)
+    pos_min_d1 = argrelmin(smooth_d1)[0]
     pos_max_d1 = argrelmax(smooth_d1)[0]
 
 #    d0_drops = np.ediff1d(smooth_d0[pos_max_d1])
@@ -231,38 +232,44 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=-1.0E-04,
 
     plateau = (np.absolute(smooth_d1) < plateau_thresh)
     arg_plateau = np.where(plateau)[0]                          # @EB plateau
-    loose_reg = pos_max_d1[((smooth_d1[pos_max_d1] < plateau_thresh) &
-                          (smooth_d0[pos_max_d1] > drop_thresh))]
-#    print(pos_max_d1)
-#    print(loose_reg)
-    tight_reg = np.intersect1d(arg_plateau,loose_reg)
-#    print(tight_reg)
+
+    plateau_ext = (np.absolute(smooth_d1) < plateau_ext_thresh)
+#    arg_plateau_ext = np.where(plateau_ext)[0]
+    arg_plateau_ext = np.where(plateau_ext & ~plateau)[0]
+
+    tight_c_range = continuous_ranges(arg_plateau)
+    lim_first_plateau = np.intersect1d(tight_c_range[0],pos_max_d1)[-1]
+    first_plateau_val = np.mean(smooth_d0[:lim_first_plateau])
+
+    tight_reg = np.intersect1d(arg_plateau,
+                               pos_max_d1[r2_val[pos_max_d1] > 0.92])
+    loose_reg = np.intersect1d(arg_plateau_ext,
+                               pos_max_d1[r2_val[pos_max_d1] > 0.90])
 
     # Differents cases
     if len(tight_reg) == 0:
         case = 1
         arg_l = pos_max_d1[pos_max_d1 < loose_reg[0]][-1]
-        print(arg_l)
     else:
         case = 2
         arg_l = tight_reg[-1]
 
-# @EB HERE
-        next_region = np.setdiff1d(loose_reg,tight_reg)
-#        next_region = np.setdiff1d(pos_max_d1,tight_reg)
-        if len(next_region) != 0:
-            next_plateau = next_region[0]
-            print(f"{'r2[arg_l]:':<20}{smooth_d0[arg_l]:0.4f}")
-            print(f"{'d1[next_plateau]:':<20}{smooth_d1[next_plateau]:E}")
-            if ((smooth_d0[arg_l] >= 0.995) and
-                (np.absolute(smooth_d1[next_plateau]) < plateau_ext_thresh)):
-                case = 3
-                arg_l = next_plateau
-            elif smooth_d0[arg_l] >= 0.998:
-                case = 4
-                arg_l = next_plateau
+    ref_drop = pos_min_d1[pos_min_d1 > arg_l][0]
+    diff_drop = smooth_d1[arg_l] - smooth_d1[ref_drop]
+    print(f"{'diff drop:':<20}{diff_drop:E}")
 
-    slope_arg = np.where(smooth_d1 <= slope_thresh)[0]
+    next_region = np.setdiff1d(loose_reg,tight_reg)
+    if len(next_region) != 0:
+        next_plateau = loose_reg[-1]
+        print(f"{'tight ref:':<20}{smooth_d0[arg_l]:0.4f}")
+        if diff_drop < 1.1E-4:
+            case = 3
+            arg_l = next_plateau
+        elif smooth_d0[arg_l] > 0.999:
+            case = 4
+            arg_l = next_plateau
+
+    slope_arg = np.where(np.absolute(smooth_d1) >= slope_thresh)[0]
     try:
         _arg_cutoff = slope_arg[slope_arg >= arg_l][0]
     except:
@@ -379,8 +386,8 @@ def auto_beads(s, x, freq_cutoff=None, asymmetry=1.0, fit_parabola=True,
 
 
 #@EB mask
-def auto_fabc(s, x):
-    _baseline_fitter = Baseline(x_data=x)
-    _signal = rm_ends_outliers(s)
-    _, _pp = _baseline_fitter.fabc(_signal,min_length=5)
-    return _pp
+#def auto_fabc(s, x):
+#    _baseline_fitter = Baseline(x_data=x)
+#    _signal = rm_ends_outliers(s)
+#    _, _pp = _baseline_fitter.fabc(_signal,min_length=5)
+#    return _pp

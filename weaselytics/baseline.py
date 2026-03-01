@@ -14,7 +14,7 @@ import time                             #@EB temporary?
 from peakfitting import peaks_params
 from utils import r2_fct, rm_ends_outliers, continuous_ranges, find_plateaus
 
-def relevant_range(s,x):
+def relevant_range(s, x, tol=6.):
     """
     Limits the signal to the relevant range in order to find the optimal
     cutoff frequency for the BEADS algorithm.
@@ -23,6 +23,8 @@ def relevant_range(s,x):
     ----------
     s : array-like
         The signal to limit.
+    x : array-like
+        The x of the signal.......
 
     Returns
     -------
@@ -33,24 +35,27 @@ def relevant_range(s,x):
     # No smoothing, but specific height_n value in case of noisy signal.
 #    _peaks, _widths = peaks_params(s, height_n=0.01)
     _s = gaussian_filter1d(s,3)
-    _peaks, _widths = peaks_params(_s, height_n=0.50, width=3)
+    _peaks, _widths = peaks_params(_s, height_n=0.50, width=3, rel_prom_p=0.01,
+                                   adapt=True)
 
     #@EB Signal splitting
+    width_per_x = _widths/x[_peaks]
+    # In case of very tall and large peaks (see acetonitrile)
+    exception = ((s[_peaks] > 14) & (width_per_x < 11))
+#    exception = False
+    rel_peaks = _peaks[((width_per_x < tol) | exception)]
+    rel_widths = _widths[((width_per_x < tol) | exception)]
     print("===========================")
-    print(np.round(x[_peaks],2))       #@EB TO REMOVE
-    print(_peaks)
-    print(np.round(_widths,2))
-    print(np.round(_widths/np.min(_widths),2))
-    print(np.round(_widths/x[_peaks],2))
+    print(np.round(x[rel_peaks],2))       #@EB TO REMOVE
+#    print(rel_peaks)
+#    print(np.round(rel_widths,2))
+#    print(np.round(rel_widths/np.min(rel_widths),2))
+    print(np.round(rel_widths/x[rel_peaks],2))
     print("===========================")
 
-#    print(_peaks[np.argmin(_widths)])
-#    print(np.min(_widths))
-#    print(_widths/np.min(_widths))  # Width outliers?
-
-    _arg_last_peak = _peaks.argmax()
-    _last_peak = _peaks[_arg_last_peak]
-    _buffer = int(3*np.ceil(_widths)[_arg_last_peak])
+    _arg_last_peak = rel_peaks.argmax()
+    _last_peak = rel_peaks[_arg_last_peak]
+    _buffer = int(3*np.ceil(rel_widths)[_arg_last_peak])
     _limmax = _last_peak + _buffer
     if len(s) > _limmax:
         _last_arg = _limmax
@@ -198,10 +203,9 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, pl_thresh, pl_ext_thresh, freq_cutoff,
 
 
 #Frequency cutoff for BEADS
-def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=5.0E-05,#-1.0E-04,
-                  plateau_thresh=6.1E-05, plateau_ext_thresh=2.2E-04,
-                  drop_thresh=0.55, show_plot=False, print_plot=False,
-                  path="./file.txt"):
+def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=5.0E-05,
+                  plateau_thresh=7.25E-05, plateau_ext_thresh=2.2E-04,
+                  show_plot=False, print_plot=False, path="./file.txt"):
     """
 
     """
@@ -234,12 +238,12 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=5.0E-05,#-1
     reg_plateau_ext = find_plateaus(smooth_d1, plateau_ext_thresh,
                                     plateau_thresh)
 
-    tight_c_range = continuous_ranges(reg_plateau)
-    lim_first_plateau = np.intersect1d(tight_c_range[0],pos_max_d1)[-1]
-    first_plateau_val = np.mean(smooth_d0[:lim_first_plateau])
+#    tight_c_range = continuous_ranges(reg_plateau)
+#    lim_first_plateau = np.intersect1d(tight_c_range[0],pos_max_d1)[-1]
+#    first_plateau_val = np.mean(smooth_d0[:lim_first_plateau])
 
     tight_reg = np.intersect1d(reg_plateau,
-                               pos_max_d1[r2_val[pos_max_d1] > 0.92])
+                               pos_max_d1[r2_val[pos_max_d1] > 0.90])
     loose_reg = np.intersect1d(reg_plateau_ext,
                                pos_max_d1[r2_val[pos_max_d1] > 0.90])
 

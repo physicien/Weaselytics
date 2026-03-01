@@ -102,7 +102,7 @@ def lsq_eq(p,fct,x,y):
     return fct(x,p) - y
 
 def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
-                 rel_height_p=0.5, rel_height_n=0.5, width=None):
+                 rel_height_p=0.5, rel_height_n=0.5, width=None, adapt=False):
     """
     Function which find the center and width for every peak of the
     chromatogram (including the negative ones).
@@ -140,6 +140,9 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
         matching x or a 2-element sequence of the former. The first element is
         always interpreted as the minimal and the second, if supplied, as the
         maximal required width. Default is `None`.
+    adapt : bool, optional
+        If True, lets the function change the value of `rel_prom_p` according
+        the the maximum prominence of the data.
 
     Returns
     -------
@@ -154,8 +157,14 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
     _, _raw_params_n = find_peaks(-s,prominence=0.0)
     _max_prom_p = _raw_params_p["prominences"].max()
     _max_prom_n = _raw_params_n["prominences"].max()
-    if _max_prom_p <= 1:
-        rel_prom_p = 0.5
+    # In case of low noisy signal
+    if adapt:
+        if _max_prom_p <= 1:
+            rel_prom_p = 0.5
+        elif _max_prom_p <= 2.5:
+            rel_prom_p = 0.08
+        elif _max_prom_p <= 10.0:
+            rel_prom_p = 5*rel_prom_p
     _prom_p = rel_prom_p * _max_prom_p
     _prom_n = rel_prom_n * _max_prom_n
 #    _prom_p = rel_prom_p*s.max()            # @EB heuristic

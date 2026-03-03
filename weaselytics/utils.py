@@ -9,7 +9,7 @@ from scipy.signal import savgol_filter
 
 def rm_ends_outliers(s, window_min=5, window_max=100):
     """
-    Check whether the first and last elements of the input data are outliers.
+    Checks whether the first and last elements of the input data are outliers.
     If either boundary value is classified as an outlier, substitute it with
     the median computed from a local window of data points whose size is
     ``round(0.01*len(s))``, ensuring that the window size lies between
@@ -89,7 +89,7 @@ def durbin_watson(resids, axis=0):
 
 def r2_fct(s):
     """
-    Compute the squared values of `r`, the Durbin-Watson (DW) autocorrelation
+    Computes the squared values of `r`, the Durbin-Watson (DW) autocorrelation
     level.
 
     Parameters
@@ -109,7 +109,7 @@ def r2_fct(s):
 
 def smooth_SG(x,window_lenght,polyorder):
     """
-    Apply a Savitzky-Golay filter to an array.
+    Applies a Savitzky-Golay filter to an array.
 
     Parameters
     ----------
@@ -151,7 +151,7 @@ def continuous_ranges(x):
 
 def find_plateaus(x, include_tol, exclude_tol=0, mode='absolute'):
     """
-    Find the plateaus of an array according to a certain threshold. A second
+    Finds the plateaus of an array according to a certain threshold. A second
     threshold can also be used to exclude certain regions from the plateaus.
 
     Parameters
@@ -197,3 +197,31 @@ def find_plateaus(x, include_tol, exclude_tol=0, mode='absolute'):
     include_condition = ((array < include_tol) & (array > exclude_tol))
     plateaus = np.where(include_condition)[0]
     return plateaus
+
+def merge_intervals(intervals):
+    """
+    Merges overlapping intervals of indices.
+
+    Parameters
+    ----------
+    intervals : array-like, shape (N,2)
+        The two dimensional array containing the start and stop indices for
+        each intervals of interest.
+
+    Returns
+    -------
+    merged_intervals : numpy.ndarray, shape (M,2) for M <= N
+        The two dimensional array containing the start and stop indices for
+        each non-overlapping intervals.
+        
+    """
+    sortedIntervals = sorted(intervals, key=lambda x: x[0])
+    merged = []
+
+    for interval in sortedIntervals:
+        if not merged or interval[0] > merged[-1][1]:
+            merged.append(interval)
+        else:
+            merged[-1][1] = max(interval[1], merged[-1][1])
+    merged_intervals = np.array(merged)
+    return merged_intervals

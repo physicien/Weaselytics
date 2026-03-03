@@ -119,9 +119,7 @@ if do_bl:
                                         show_plot=args.show,
                                         print_plot=args.print, path=args.path)
     ydata_bl = params["signal"]
-#    from baseline import auto_fabc                         #@EB mask
-#    from scipy.ndimage import gaussian_filter1d            #@EB mask
-#    patate = auto_fabc(gaussian_filter1d(ydata,15), xdata) #@EB mask
+#    ydata_bl = ydata_sm - baseline
 else:
     ydata_bl = ydata_sm
 
@@ -234,8 +232,6 @@ if args.show or args.print:
                 label='ajusted data')
         plt.plot(xdata, baseline, ls='--',c=palette[0], lw=2.0,
                 label='baseline')
-#        mask = patate["mask"]                              #@EB mask
-#        plt.plot(xdata[~mask], ydata[~mask],"ms", ms=3 )   #@EB mask
 
     if fit_data:
         plt.plot(x_robust, y_robust_g, ls='--', c=palette[2], lw=2.0,

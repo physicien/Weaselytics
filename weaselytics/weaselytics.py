@@ -117,7 +117,8 @@ else:
 if do_bl:
     baseline, params, case = auto_beads(ydata_sm, xdata, freq_cutoff=None,
                                         show_plot=args.show,
-                                        print_plot=args.print, path=args.path)
+                                        print_plot=args.print, path=args.path,
+                                        method="custom_beads")
     ydata_bl = params["signal"]
 #    ydata_bl = ydata_sm - baseline
 else:

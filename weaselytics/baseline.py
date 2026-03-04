@@ -12,7 +12,9 @@ import matplotlib.pyplot as plt
 import time                             #@EB temporary?
 
 from peakfitting import peaks_params
-from utils import r2_fct, rm_ends_outliers, continuous_ranges, find_plateaus
+from utils import (r2_dw, rm_ends_outliers, continuous_ranges, find_plateaus,
+                   merge_intervals
+                   )
 
 def relevant_range(s, x, tol=6.):
     """
@@ -25,6 +27,8 @@ def relevant_range(s, x, tol=6.):
         The signal to limit.
     x : array-like
         The x of the signal.......
+    tol : float, optional
+        Threshold 
 
     Returns
     -------
@@ -32,8 +36,6 @@ def relevant_range(s, x, tol=6.):
         Index of the last relevant data point of in the signal ``s``.
 
     """
-    # No smoothing, but specific height_n value in case of noisy signal.
-#    _peaks, _widths = peaks_params(s, height_n=0.01)
     _s = gaussian_filter1d(s,3)
     _peaks, _widths = peaks_params(_s, height_n=0.50, width=3, rel_prom_p=0.01,
                                    adapt=True)
@@ -41,27 +43,47 @@ def relevant_range(s, x, tol=6.):
     #@EB Signal splitting
     width_per_x = _widths/x[_peaks]
     # In case of very tall and large peaks (see acetonitrile)
-    exception = ((s[_peaks] > 14) & (width_per_x < 11))
+    exception = ((s[_peaks] > 20) & (width_per_x < 11))
 #    exception = False
     rel_peaks = _peaks[((width_per_x < tol) | exception)]
     rel_widths = _widths[((width_per_x < tol) | exception)]
+
     print("===========================")
-    print(np.round(x[rel_peaks],2))       #@EB TO REMOVE
-#    print(rel_peaks)
-#    print(np.round(rel_widths,2))
-#    print(np.round(rel_widths/np.min(rel_widths),2))
-    print(np.round(rel_widths/x[rel_peaks],2))
+    print(np.round(x[rel_peaks],2))
+    print(rel_peaks)
+    print(np.round(rel_widths,2))
+    print(np.round(rel_widths/np.min(rel_widths),2))
+#    print(np.round(rel_widths/x[rel_peaks],2))
     print("===========================")
+    
+    buffer = np.ceil(1.0*rel_widths).astype(int)    # 1.3?
+    lim_inf = rel_peaks - buffer
+    lim_sup = rel_peaks + buffer
+    limits = np.array([lim_inf,lim_sup]).T
+
+    ratio_w = rel_widths/np.min(rel_widths)
+    large_lim = limits[ratio_w > 1] # All peaks or only the larger ones?
+    merged_lim = merge_intervals(np.copy(large_lim))
+    if len(merged_lim) == 0:
+        merged_lim = ((None, None),)
+        sampling = 1
+    else:
+        # Because values in regions must be less than len(data)
+        if merged_lim[-1,-1] >= len(s):
+            merged_lim[-1,-1] = len(s) - 1
+        sampling = np.ceil((merged_lim[:,1]-merged_lim[:,0])/2.4
+                           /np.min(rel_widths)).astype(int)
+    print(merged_lim)
 
     _arg_last_peak = rel_peaks.argmax()
-    _last_peak = rel_peaks[_arg_last_peak]
-    _buffer = int(3*np.ceil(rel_widths)[_arg_last_peak])
-    _limmax = _last_peak + _buffer
+    _pos_last_peak = rel_peaks[_arg_last_peak]
+    _last_buffer = int(np.ceil(2*rel_widths)[_arg_last_peak])
+    _limmax = _pos_last_peak + _last_buffer
     if len(s) > _limmax:
         _last_arg = _limmax
     else:
         _last_arg = len(s)
-    return _last_arg
+    return _last_arg, merged_lim, sampling
 
 def log_transform(s,epsilon):
     """
@@ -82,7 +104,7 @@ def log_transform(s,epsilon):
 
     Returns
     -------
-    _log_s : numpy.ndarray
+    log_s : numpy.ndarray
         The log transformed data.
     
     References
@@ -92,14 +114,54 @@ def log_transform(s,epsilon):
         2017, 1507, 1-10. https://doi.org/10.1016/j.chroma.2017.05.057.
 
     """
-    _log_s = np.log10(s-np.min(s)+epsilon)
-    return _log_s
+    log_s = np.log10(s - np.min(s) + epsilon)
+    return log_s
 
-
-def r2_beads(f_cut, s, bl_fitter, asym=1.0, fit_parabola=True, alpha=1.0):
+def beads(s, freq_cutoff, bl_fitter, asymmetry=1.0, fit_parabola=True,
+          alpha=1.0, **kwargs):
     """
-    Minimal baseline correction with the BEADS algorithm. Used to compute
-    the autocorrelation plot.
+    Baseline correction with the BEADS algorithm.
+    """
+    bl, params = bl_fitter.beads(
+            s,
+            freq_cutoff=freq_cutoff,
+            fit_parabola=fit_parabola,
+            asymmetry=asymmetry,
+            alpha=alpha
+            )
+    return bl, params
+
+def custom_beads(s, freq_cutoff, bl_fitter, regions=((None,None),),
+                 sampling=1, asymmetry=1.0, fit_parabola=True, alpha=1.0,
+                 **kwargs):
+    """
+    Baseline correction with the custom BEADS algorithm.
+    """
+    beads_kwargs = {'freq_cutoff': freq_cutoff,
+                    'fit_parabola': fit_parabola,
+                    'asymmetry': asymmetry,
+                    'alpha': alpha
+                    }
+
+    bl, params = bl_fitter.custom_bc(
+            s,
+            method="beads",
+            regions=regions,
+            sampling=sampling,
+            lam=None,
+            method_kwargs=beads_kwargs
+            )
+    params['signal'] = np.interp(bl_fitter.x, params['x_fit'],
+                                 params['method_params']['signal'])
+#    print(len(params["method_params"]["signal"]))
+#    print(len(params["signal"]))
+#    print(len(bl))
+    return bl, params
+
+def r2_fcut(fcut, s, bl_fitter, algo, **kwargs):
+    """
+    Compute the squared of the autocorrelation level `r` for a given cutoff
+    frequency used for the substraction of the baseline.
 
     Parameters
     ----------
@@ -108,25 +170,18 @@ def r2_beads(f_cut, s, bl_fitter, asym=1.0, fit_parabola=True, alpha=1.0):
     -------
 
     """
-    _bl, _p = bl_fitter.beads(
-            s,
-            freq_cutoff = f_cut,
-            fit_parabola = fit_parabola,
-            asymmetry = asym,
-            alpha = alpha
-            )
-    _s_corr = _p["signal"]
-    _r2 = r2_fct(_s_corr)
-    return _r2
+    _, params = algo(s, fcut, bl_fitter, **kwargs)
+    s_corr = params["signal"]
+    r2 = r2_dw(s_corr)
+    return r2
 
-
-def r2_beads_array(x, y, baseline_fitter, frequency_range, alpha):
+def r2_fcut_array(x, y, baseline_fitter, fcut_range, algo, **kwargs):
     """
+    Define a vectorized function 
     """
-    _r2_func = lambda x: r2_beads(x, y, baseline_fitter, alpha=alpha)
-    _vr2_func = np.vectorize(_r2_func)
-    return _vr2_func(frequency_range)
-
+    r2_func = lambda x: r2_fcut(x, y, baseline_fitter, algo, **kwargs)
+    vr2_func = np.vectorize(r2_func)
+    return vr2_func(fcut_range)
 
 def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, pl_thresh, pl_ext_thresh, freq_cutoff,
              final_r2, case=0, show_plot=False, print_plot=False,
@@ -201,29 +256,33 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, pl_thresh, pl_ext_thresh, freq_cutoff,
         plt.savefig(f"r2_plots/{_filename}_r2.png")
     plt.close()
 
-
 #Frequency cutoff for BEADS
-def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=5.0E-05,
-                  plateau_thresh=7.25E-05, plateau_ext_thresh=2.2E-04,
-                  show_plot=False, print_plot=False, path="./file.txt"):
+def fcutoff(s, x, last_pt, smoothing_window=15,
+            slope_thresh=5.0E-05, tol0=3.0E-05, tol1=2.6E-04, show_plot=False,
+            print_plot=False, path="./file.txt", method="beads", **kwargs):
     """
 
     """
     tic = time.perf_counter()
-   
-    _last_pt = relevant_range(s,x)    # @EB split signal here?
+    # Make sure that the method being passed is allowed
+    allowed_methods = {"beads": beads, "custom_beads": custom_beads}
+    if method not in allowed_methods:
+        raise ValueError("method '{method}' is not implemented")
+
+    algo = allowed_methods[method]
     
-    _bl_fitter = Baseline(x_data=x[:_last_pt])
+    bl_fitter = Baseline(x_data=x[:last_pt])
 
     # log transform of the signal
-    _z = log_transform(s[:_last_pt],1)
-    print(f"{'Used points:':<20}{len(_z):d}")
+    z = log_transform(s[:last_pt],1)
+    print(f"{'Used points:':<20}{len(z):d}")
 
-    _freq_cutoff_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
+    fcut_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
     
     # y-data
-    r2_val = r2_beads_array(x, _z, _bl_fitter, _freq_cutoff_range, alpha)
+    r2_val = r2_fcut_array(x, z, bl_fitter, fcut_range, algo, **kwargs)
 
+##############################################################################
     smooth_d0 = gaussian_filter1d(r2_val,smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
     smooth_d2 = np.gradient(smooth_d1)
@@ -234,79 +293,74 @@ def fcutoff_beads(s, x, alpha=1.0, smoothing_window=15, slope_thresh=5.0E-05,
 #    arg_d0_drops = (d0_drops<-0.01).nonzero()
 #    rel_max_d1 = pos_max_d1[arg_d0_drops]
 
-    reg_plateau = find_plateaus(smooth_d1, plateau_thresh)
-    reg_plateau_ext = find_plateaus(smooth_d1, plateau_ext_thresh,
-                                    plateau_thresh)
+    tight_plateaus = find_plateaus(smooth_d1, tol0)
+#    loose_plateaus = find_plateaus(smooth_d1, tol1,
+#                                   tol0)
+    loose_plateaus = find_plateaus(smooth_d1, tol1)
 
-#    tight_c_range = continuous_ranges(reg_plateau)
-#    lim_first_plateau = np.intersect1d(tight_c_range[0],pos_max_d1)[-1]
-#    first_plateau_val = np.mean(smooth_d0[:lim_first_plateau])
+    tight_cont_reg = continuous_ranges(tight_plateaus)
+    starting_r2 = np.mean(smooth_d0[tight_cont_reg[0]])
+    starting_plateau = np.where(
+            np.absolute(starting_r2 - smooth_d0) < 2E-03)[0]
 
-    tight_reg = np.intersect1d(reg_plateau,
-                               pos_max_d1[r2_val[pos_max_d1] > 0.90])
-    loose_reg = np.intersect1d(reg_plateau_ext,
-                               pos_max_d1[r2_val[pos_max_d1] > 0.90])
+    secondary_plateaus = loose_plateaus[loose_plateaus > starting_plateau[-1]]
+    lim_d0_drop = np.where(r2_val < 0.6)[0][0]
+    lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0]
+    
+    test = np.intersect1d(secondary_plateaus,pos_max_d1)
+    if len(test) == 0:
+        test2 = secondary_plateaus[0]
+    else:
+        test2 = test[0]
+
+    pot_anchors = secondary_plateaus[((secondary_plateaus < lim_d0_drop)
+                                      & (secondary_plateaus < lim_d1_drop)
+                                      & (secondary_plateaus > test2))]
 
     # Differents cases
-    if len(tight_reg) == 0:
+    if len(pot_anchors) == 0:
         case = 1
-        arg_l = pos_max_d1[pos_max_d1 < loose_reg[0]][-1]
+        arg_l = np.intersect1d(starting_plateau, pos_max_d1)[-1] 
     else:
         case = 2
-        arg_l = tight_reg[-1]
-
-    ref_drop = pos_min_d1[pos_min_d1 > arg_l][0]
-    diff_drop = smooth_d1[arg_l] - smooth_d1[ref_drop]
-    print(f"{'diff drop:':<20}{diff_drop:E}")
-
-    next_region = np.setdiff1d(loose_reg,tight_reg)
-    if len(next_region) != 0:
-        next_plateau = loose_reg[-1]
-        print(f"{'tight ref:':<20}{smooth_d0[arg_l]:0.4f}")
-        if diff_drop < 1.1E-4:
+        arg_l = pot_anchors[np.argmin(np.absolute(smooth_d1[pot_anchors]))]
+        drop = starting_r2 - smooth_d0[arg_l]
+        print(f"{'drop:':<20}{drop:E}")
+        if drop > 8E-02:
             case = 3
-            arg_l = next_plateau
-        elif smooth_d0[arg_l] > 0.999:
-            case = 4
-            arg_l = next_plateau
-
+            arg_l = np.intersect1d(starting_plateau, pos_max_d1)[-1] 
+#            arg_l = np.intersect1d(tight_plateaus[tight_plateaus < test2],
+#                                   pos_max_d1[pos_max_d1 <= test2])[-1]
+    
+##############################################################################
     slope_arg = np.where(np.absolute(smooth_d1) >= slope_thresh)[0]
     try:
-        _arg_cutoff = slope_arg[slope_arg >= arg_l][0]
+        cutoff = slope_arg[slope_arg >= arg_l][0]
     except:
         print("WARNING: slope_arg < arg_l.")
-        _arg_cutoff = arg_l
-    _freq_cutoff = _freq_cutoff_range[_arg_cutoff]
+        cutoff = arg_l
+    fcut = fcut_range[cutoff]
+##############################################################################
 
     print(f"Case {case:d}")
-
     toc = time.perf_counter()
     print(f"Autocorrelation in {toc-tic:0.4f} seconds")
-    fi_r2_val = r2_beads(_freq_cutoff,_z,_bl_fitter)
+    fi_r2_val = r2_fcut(fcut, z, bl_fitter, algo, **kwargs)
     print(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
-#    print("=================================")
-#    max_d1_val = smooth_d1[arg_l]
-#    print(f"{'arg_l d1 value:':<20}{max_d1_val:E}")
-#    r2_d1_val = smooth_d1[_arg_cutoff]
-#    print(f"{'cutoff d1 value:':<20}{r2_d1_val:E}")
-#    r2_d2_val = smooth_d2[_arg_cutoff]
-#    print(f"{'cutoff d2 value:':<20}{r2_d2_val:E}")
-#    print("=================================")
 
     # r2 plot
     if show_plot or print_plot:
-        r2_plots(_freq_cutoff_range, r2_val, smooth_d0, smooth_d1, smooth_d2,
-                 plateau_thresh, plateau_ext_thresh, _freq_cutoff, fi_r2_val,
-                 case=case, show_plot=show_plot, print_plot=print_plot,
-                 path=path)
+        r2_plots(fcut_range, r2_val, smooth_d0, smooth_d1, smooth_d2,
+                 tol0, tol1, fcut, fi_r2_val, case=case, show_plot=show_plot,
+                 print_plot=print_plot, path=path)
 
-    return [_freq_cutoff,case]
+    return fcut, case
 
 ###############################################################################
 #BEADS baseline correction
-def auto_beads(s, x, freq_cutoff=None, asymmetry=1.0, fit_parabola=True,
-               alpha=1.0, show_plot=False, print_plot=False,
-               path="./file.txt"):
+def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
+               path="./file.txt", method="beads", asymmetry=1.0,
+               fit_parabola=True, alpha=1.0):
     """
     Automatic implementation of the Baseline estimation and denoising with
     sparsity (BEADS) algorithm.
@@ -340,7 +394,11 @@ def auto_beads(s, x, freq_cutoff=None, asymmetry=1.0, fit_parabola=True,
         If the data is already close to 0 on both endpoints, set `fit_parabola`
         to False (but it does not change anything in reality).
     alpha : float, optional
-        TO CONTINUE
+        ###########################  TO CONTINUE  ############################
+
+    Returns
+    -------
+    baseline : numpy.ndarray, shape (N,)
 
     References
     ----------
@@ -351,44 +409,55 @@ def auto_beads(s, x, freq_cutoff=None, asymmetry=1.0, fit_parabola=True,
         complex chromatograms using the BEADS algorithm. Journal of
         Chromatography A, 2017, 1507, 1-10.
     """
-
-    _baseline_fitter = Baseline(x_data=x)
-    _signal = rm_ends_outliers(s)
-    print(f"{'Data points:':<20}{len(_signal):d}")
-
     if asymmetry <= 0:
         raise ValueError('asymmetry must be greater than 0')
+    
+    # Make sure that the method being passed is allowed
+    allowed_methods = {"beads": beads, "custom_beads": custom_beads}
+    if method not in allowed_methods:
+        raise ValueError("method '{method}' is not implemented")
+
+    algo = allowed_methods[method]
+
+    # Takes care of possible outliers at both ends of the signal
+    signal = rm_ends_outliers(s)
+    # Limits the range and splits the signal
+    last_pt, peaks_range, sampling = relevant_range(signal,x)
+
+    method_kwargs = {
+            "asymmetry": asymmetry,
+            "fit_parabola": fit_parabola,
+            "alpha": alpha,
+            "regions": peaks_range,
+            "sampling": sampling
+            }
+
+    print(f"{'Data points:':<20}{len(signal):d}")
 
     if freq_cutoff is None:
-        _freq_cutoff, _case = fcutoff_beads(_signal, x, show_plot=show_plot,
-                                            print_plot=print_plot, path=path)
+        fcut, case = fcutoff(signal, x, last_pt,
+                             show_plot=show_plot, print_plot=print_plot,
+                             path=path, method="custom_beads", #@EB method
+                             **method_kwargs)
     else:
         if ((freq_cutoff <= 0) or (freq_cutoff >= 0.5)):
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")
-        _freq_cutoff = freq_cutoff
-        _case = 0
+        fcut = freq_cutoff
+        case = 0
 
-    print(f"{'Cutoff frequency:':<20}{_freq_cutoff:E}")
+    print(f"{'Cutoff frequency:':<20}{fcut:E}")
     print(f"{'Asymmetry:':<20}{asymmetry:0.1f}")
     print(f"{'Fit parabola:':<20}{str(fit_parabola):s}")
     print(f"{'alpha:':<20}{alpha:0.2f}")
 
+    # Final baseline correction
     tic = time.perf_counter()                               #@TEMP
-    _bl, _p = _baseline_fitter.beads(
-            _signal,
-            freq_cutoff=_freq_cutoff,
-            fit_parabola=fit_parabola,
-            asymmetry=asymmetry,
-            alpha=alpha
-            )
+
+    baseline_fitter = Baseline(x_data=x)
+    baseline, p = algo(signal, fcut, baseline_fitter, **method_kwargs)
+
     toc = time.perf_counter()                               #@TEMP
+
     print(f"Baseline correction in {toc-tic:0.4f} seconds") #@TEMP
-    return [_bl,_p,_case]
+    return baseline, p, case
 
-
-#@EB mask
-#def auto_fabc(s, x):
-#    _baseline_fitter = Baseline(x_data=x)
-#    _signal = rm_ends_outliers(s)
-#    _, _pp = _baseline_fitter.fabc(_signal,min_length=5)
-#    return _pp

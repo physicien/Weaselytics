@@ -46,7 +46,7 @@ def gauss(x, params):
     dist = amp*np.exp(-0.5*((x-x0)**2)/sigma**2)
     return dist
 
-def skew_norm(x,params):
+def skew_norm(x, params):
     """
     Generate a Skew normal distribution based on `params`.
 
@@ -83,7 +83,7 @@ def skew_norm(x,params):
     dist = amp*2*norm*cdf
     return dist
 
-def lsq_eq(p,fct,x,y):
+def lsq_eq(p, fct, x, y):
     """
     Compute the vector of residuals in order to solve the least-squares
     problem.
@@ -187,7 +187,7 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
 
     return peaks, widths
 
-def lsq_gauss_fit(x,y):
+def lsq_gauss_fit(x, y):
     """
     Use non-linear least squares to fit a Gaussian distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below
@@ -237,7 +237,7 @@ def lsq_gauss_fit(x,y):
     s = res_robust.x
     return s
 
-def lsq_skew_norm_fit(x,y):
+def lsq_skew_norm_fit(x, y):
     """
     Use non-linear least squares to fit a Skew normal distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below

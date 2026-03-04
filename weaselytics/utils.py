@@ -7,17 +7,16 @@ import numpy as np
 from scipy.signal import savgol_filter
 #from statsmodels.stats.stattools import durbin_watson as dwtest
 
-def rm_ends_outliers(s, window_min=5, window_max=100):
+def rm_ends_outliers(data, window_min=5, window_max=100):
     """
-    Checks whether the first and last elements of the input data are outliers.
-    If either boundary value is classified as an outlier, substitute it with
-    the median computed from a local window of data points whose size is
-    ``round(0.01*len(s))``, ensuring that the window size lies between
-    `window_min` and `window_max` (inclusive). 
+    Check whether the first and last elements of the input data are outliers.
+    If either of them is classified as an outlier, substitute it with the
+    median computed from a local window of data points whose size is
+    ``window_min <= round(0.01*len(s)) <= window_max``. 
 
     Parameters
     ----------
-    s : numpy.ndarray
+    data : numpy.ndarray
         The data to be tested.
     window_min : int, optional
         Minimum width of the window. Default is 5.
@@ -26,31 +25,31 @@ def rm_ends_outliers(s, window_min=5, window_max=100):
 
     Returns
     -------
-    _signal : numpy.ndarray
+    s : numpy.ndarray
         The data with outliers removed from both ends.
 
     """
-    _signal = np.copy(s)
-    _x0_len = round(0.01*len(s))
-    if _x0_len < window_min:
-        _x0_len = window_min
-    if _x0_len > window_max:
-        _x0_len = window_max
-    _y_max = 0.01*np.abs(np.max(s)-np.min(s))
-    _y0_med = np.median(s[:_x0_len])
-    _y0_gap = np.abs(s[0]-_y0_med)
-    _y1_med = np.median(s[-_x0_len:])
-    _y1_gap = np.abs(s[-1]-_y1_med)
+    s = np.copy(data)
+    size = round(0.01*len(data))
+    if size < window_min:
+        size = window_min
+    if size > window_max:
+        size = window_max
+    y_max = 0.01*np.abs(np.max(data)-np.min(data))
+    y0_med = np.median(data[:size])
+    y0_gap = np.abs(data[0]-y0_med)
+    y1_med = np.median(data[-size:])
+    y1_gap = np.abs(data[-1]-y1_med)
 
-    if _y0_gap > _y_max:
-        _signal[0] = _y0_med
-    if _y1_gap > _y_max:
-        _signal[-1] = _y1_med
-    return _signal
+    if y0_gap > y_max:
+        s[0] = y0_med
+    if y1_gap > y_max:
+        s[-1] = y1_med
+    return s
 
 def durbin_watson(resids, axis=0):
     """
-    Calculates the Durbin-Watson statistic.
+    Calculate the Durbin-Watson statistic.
 
     Parameters
     ----------
@@ -87,9 +86,9 @@ def durbin_watson(resids, axis=0):
     dw = np.sum(diff_resids**2, axis=axis) / np.sum(resids**2, axis=axis)
     return dw
 
-def r2_fct(s):
+def r2_dw(s):
     """
-    Computes the squared values of `r`, the Durbin-Watson (DW) autocorrelation
+    Compute the squared values of `r`, the Durbin-Watson (DW) autocorrelation
     level.
 
     Parameters
@@ -100,16 +99,16 @@ def r2_fct(s):
 
     Returns
     -------
-    _r2 : numpy.ndarray
+    r2 : float
         The squared values of the DW autocorrelation level.
 
     """
-    _r2 = ((2-durbin_watson(s))**2)/4
-    return _r2
+    r2 = ((2-durbin_watson(s))**2)/4
+    return r2
 
-def smooth_SG(x,window_lenght,polyorder):
+def smooth_SG(x, window_lenght, polyorder):
     """
-    Applies a Savitzky-Golay filter to an array.
+    Apply a Savitzky-Golay filter to an array.
 
     Parameters
     ----------
@@ -125,7 +124,7 @@ def smooth_SG(x,window_lenght,polyorder):
 
     Returns
     -------
-    y : ndarray, same shape as x
+    smooth_data : ndarray, same shape as x
         The filtered data.
 
     """
@@ -134,24 +133,24 @@ def smooth_SG(x,window_lenght,polyorder):
 
 def continuous_ranges(x):
     """
-    Separates an array of integers into continuous segments.
+    Separate an array of integers into continuous segments.
 
     Parameters
     ----------
     x : array-like 
-        The array.
+        The array to split.
 
     Returns
     -------
-    c_range : list of ndarrays
+    continuous : list of ndarrays
         A list of continuous sub-arrays.
     """
-    c_range = np.split(x, np.where(x[1:] != x[:-1] +1)[0] +1)
-    return c_range
+    continuous = np.split(x, np.where(x[1:] != x[:-1] +1)[0] +1)
+    return continuous
 
 def find_plateaus(x, include_tol, exclude_tol=0, mode='absolute'):
     """
-    Finds the plateaus of an array according to a certain threshold. A second
+    Find the plateaus of an array according to a certain threshold. A second
     threshold can also be used to exclude certain regions from the plateaus.
 
     Parameters
@@ -194,13 +193,14 @@ def find_plateaus(x, include_tol, exclude_tol=0, mode='absolute'):
 
     if exclude_tol > include_tol:
         raise ValueError("exclude_tol must be smaller than include_tol")
+
     include_condition = ((array < include_tol) & (array > exclude_tol))
     plateaus = np.where(include_condition)[0]
     return plateaus
 
 def merge_intervals(intervals):
     """
-    Merges overlapping intervals of indices.
+    Merge overlapping intervals.
 
     Parameters
     ----------
@@ -223,5 +223,6 @@ def merge_intervals(intervals):
             merged.append(interval)
         else:
             merged[-1][1] = max(interval[1], merged[-1][1])
+
     merged_intervals = np.array(merged)
     return merged_intervals

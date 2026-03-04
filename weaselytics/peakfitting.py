@@ -11,7 +11,7 @@ from scipy.optimize import least_squares
 
 def gauss(x, params):
     """
-    Generate a Gaussian distribution based on params.
+    Generate a Gaussian distribution based on `params`.
 
     Parameters
     ----------
@@ -29,7 +29,7 @@ def gauss(x, params):
 
     Returns
     -------
-    numpy.ndarray
+    dist : numpy.ndarray
         The Gaussian distribution evaluated with x.
 
     Raises
@@ -39,13 +39,16 @@ def gauss(x, params):
 
     """
     amp, x0, sigma = params
+
     if sigma <= 0:
         raise ValueError("sigma must be greater than 0.")
-    return amp*np.exp(-0.5*((x-x0)**2)/sigma**2)
+
+    dist = amp*np.exp(-0.5*((x-x0)**2)/sigma**2)
+    return dist
 
 def skew_norm(x,params):
     """
-    Generate a Skew normal distribution based on params.
+    Generate a Skew normal distribution based on `params`.
 
     Parameters
     ----------
@@ -65,22 +68,25 @@ def skew_norm(x,params):
 
     Returns
     -------
-    numpy.ndarray
+    dist : numpy.ndarray
         The Skew normal distribution evaluated with x.
 
     """
     amp, loc, scale, alpha = params
-    _x = alpha*(x-loc)/scale
+
+    z = alpha*(x-loc)/scale
     norm = np.sqrt(2*np.pi*scale**2)**-1* np.exp(
             -((x-loc)**2)/(2*scale**2)
             )
-    cdf = 0.5*(1+erf(_x/np.sqrt(2)))
-    return amp*2*norm*cdf
+    cdf = 0.5*(1+erf(z/np.sqrt(2)))
+
+    dist = amp*2*norm*cdf
+    return dist
 
 def lsq_eq(p,fct,x,y):
     """
-    Function which compute the vector of residuals in order to solve the
-    least-squares problem.
+    Compute the vector of residuals in order to solve the least-squares
+    problem.
 
     Parameters
     ----------
@@ -104,12 +110,11 @@ def lsq_eq(p,fct,x,y):
 def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
                  rel_height_p=0.5, rel_height_n=0.5, width=None, adapt=False):
     """
-    Function which find the center and width for every peak of the
-    chromatogram (including the negative ones).
+    Find the center and width for every peak of the chromatogram (including
+    the negative ones).
 
     Parameters
     ----------
-
     s : numpy.ndarray
         A signal with peaks.
     rel_prom_p : float, optional
@@ -146,40 +151,41 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
 
     Returns
     -------
-    _peaks : numpy.ndarray
+    peaks : numpy.ndarray
         Indices of peaks in `s` that satisfy all given conditions.
-    _widths : numpy.ndarray
+    widths : numpy.ndarray
         The widths for each peak in `s`.
 
     """
-    # @EB remove height_n? Seems to be useful...
-    _, _raw_params_p = find_peaks(s,prominence=0.0)
-    _, _raw_params_n = find_peaks(-s,prominence=0.0)
-    _max_prom_p = _raw_params_p["prominences"].max()
-    _max_prom_n = _raw_params_n["prominences"].max()
+    _, raw_params_p = find_peaks(s,prominence=0.0)
+    _, raw_params_n = find_peaks(-s,prominence=0.0)
+    max_prom_p = raw_params_p["prominences"].max()
+    max_prom_n = raw_params_n["prominences"].max()
     # In case of low noisy signal
     if adapt:
-        if _max_prom_p <= 1:
+        if max_prom_p <= 1:
             rel_prom_p = 0.5
-        elif _max_prom_p <= 2.5:
+        elif max_prom_p <= 2.5:
             rel_prom_p = 0.08
-        elif _max_prom_p <= 10.0:
+        elif max_prom_p <= 10.0:
             rel_prom_p = 5*rel_prom_p
-    _prom_p = rel_prom_p * _max_prom_p
-    _prom_n = rel_prom_n * _max_prom_n
-#    _prom_p = rel_prom_p*s.max()            # @EB heuristic
-#    _prom_n = rel_prom_n*(-s).max()         # @EB heuristic
-    _peaks_p, _ = find_peaks(s, prominence=_prom_p, width=width)
-    _peaks_n, _ = find_peaks(-s, prominence=_prom_n, height=height_n,
+    prom_p = rel_prom_p * max_prom_p
+    prom_n = rel_prom_n * max_prom_n
+ 
+    peaks_p, _ = find_peaks(s, prominence=prom_p, width=width)
+    peaks_n, _ = find_peaks(-s, prominence=prom_n, height=height_n,
                              width=width)
-#    print(_peaks_p)
-#    print(_peaks_n)
-    _widths_p = peak_widths(s, _peaks_p, rel_height=rel_height_p)[0]
-    _widths_n = peak_widths(-s, _peaks_n, rel_height=rel_height_n)[0]
-    _peaks = np.append(_peaks_p, _peaks_n)
-    _widths = np.append(_widths_p, _widths_n)
-    index_array = np.argsort(_peaks)
-    return [_peaks[index_array],_widths[index_array]]
+    widths_p = peak_widths(s, peaks_p, rel_height=rel_height_p)[0]
+    widths_n = peak_widths(-s, peaks_n, rel_height=rel_height_n)[0]
+
+    unsorted_peaks = np.append(peaks_p, peaks_n)
+    unsorted_widths = np.append(widths_p, widths_n)
+    
+    index_array = np.argsort(unsorted_peaks)
+    peaks = unsorted_peaks[index_array]
+    widths = unsorted_widths[index_array]
+
+    return peaks, widths
 
 def lsq_gauss_fit(x,y):
     """
@@ -196,8 +202,8 @@ def lsq_gauss_fit(x,y):
 
     Returns
     -------
-    x : ndarray-like with shape (3,)
-        Solution found, `x`, with the following fields defined:
+    s : ndarray with shape (3,)
+        Solution found, `s`, with the following fields defined:
 
         amp : float
             The maximum height of the distribution.
@@ -211,22 +217,25 @@ def lsq_gauss_fit(x,y):
     [1] https://scipy-cookbook.readthedocs.io/items/robust_regression.html
 
     """
-    _peaks, _widths = peaks_params(y)
-    main_peak_i = np.absolute(y[_peaks]).argmax()
-    _i = _peaks[main_peak_i]
-    A0 = y[_i]
-    tau0 = x[_i]
-    sigma0 = x[_i + int(_widths[main_peak_i]/2)] - x[_i]
+    peaks, widths = peaks_params(y)
+    main_index = np.absolute(y[peaks]).argmax()
+    peak = peaks[main_index]
+
+    A0 = y[peak]
+    tau0 = x[peak]
+    sigma0 = x[peak + int(widths[main_index]/2)] - x[peak]
     p0 = [A0, tau0, sigma0]
     if A0 < 0:
         bA = [-np.inf,0]
     else:
         bA = [0,np.inf]
     bounds = ([bA[0],tau0-0.1,0],[bA[1],tau0+0.1,np.inf])
+
     res_robust = least_squares(lsq_eq, p0, loss="soft_l1",
                               f_scale=0.1, args=(gauss,x,y),
                                bounds=bounds)
-    return res_robust.x
+    s = res_robust.x
+    return s
 
 def lsq_skew_norm_fit(x,y):
     """
@@ -243,8 +252,8 @@ def lsq_skew_norm_fit(x,y):
 
     Returns
     -------
-    x : ndarray-like with shape (4,)
-        Solution found, `x`, with the following fields defined:
+    s : ndarray with shape (4,)
+        Solution found, `s`, with the following fields defined:
 
         amp : float
             The maximum height of the distribution.
@@ -260,20 +269,22 @@ def lsq_skew_norm_fit(x,y):
     [1] https://scipy-cookbook.readthedocs.io/items/robust_regression.html
 
     """
-    _peaks, _widths = peaks_params(y)
-    main_peak_i = np.absolute(y[_peaks]).argmax()
-    _i = _peaks[main_peak_i]
-    A0 = y[_i]
-    tau0 = x[_i]
-    sigma0 = x[_i + int(_widths[main_peak_i]/2)] - x[_i]
+    peaks, widths = peaks_params(y)
+    main_index = np.absolute(y[peaks]).argmax()
+    peak = peaks[main_index]
+
+    A0 = y[peak]
+    tau0 = x[peak]
+    sigma0 = x[peak + int(widths[main_index]/2)] - x[peak]
     p0 = [A0, tau0, sigma0, 0]
     if A0 < 0:
         bA = [-np.inf,0]
     else:
         bA = [0,np.inf]
-#    bounds = ([bA[0],tau0-0.1,0,-np.inf],[bA[1],tau0+0.1,np.inf,np.inf])
     bounds = ([bA[0],tau0-sigma0,0,-np.inf],[bA[1],tau0+sigma0,np.inf,np.inf])
+
     res_robust = least_squares(lsq_eq, p0, loss="soft_l1",
                                f_scale=0.1, args=(skew_norm,x,y),
                                bounds=bounds)
-    return res_robust.x
+    s = res_robust.x
+    return s

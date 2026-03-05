@@ -10,14 +10,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import time
 
-from peakfitting import gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit
+from peakfitting import (gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit,
+                         fit_peak)
 from utils import *
 from baseline import log_transform, relevant_range, auto_beads
 
 #GLOBAL LIST
 header1 = ["time","potential"]
-header2 = ["mol","solvent","distribution","A","x0","sigma","alpha"]
-mol_list = list()
 
 ###############################################################################
 #PARSER
@@ -48,7 +47,7 @@ parser.add_argument('-o','--output_csv',
 
 parser.add_argument('-os','--output_stats',
         type=str,
-        help='output stats to <ARG>.csv')
+        help='output stats to filename_<ARG>.csv')
 
 parser.add_argument('-n','--nofit',
         default=1, action='store_false',
@@ -125,10 +124,10 @@ else:
     ydata_bl = ydata_sm
 
 signal = ydata_bl
-ajusted_data = np.array([xdata,signal]).T
 
 #if export_bldata is given - txt generation of the bl corrected chromatogram
 if args.export_bldata and do_bl:
+    ajusted_data = np.array([xdata,signal]).T
     filename = os.path.splitext(os.path.basename(path))[0]
     line1 = "Baseline corrected chromatogram of:\n"
     header = line1 + filename +"\n\n\n\n\n" 
@@ -143,79 +142,11 @@ if args.output_csv:
     df = pd.DataFrame(data)
     df.to_csv(filename+".csv", index=False, header=header1)
 
-#@EB make a function to fit from here
-#if startx argument is given - x-axis range
-if args.startx:
-    xmin_fit = args.startx
-else:
-    xmin_fit = min(xdata)
-
-#if endx argument is given - x-axis range
-if args.endx:
-    xmax_fit = args.endx
-else:
-    xmax_fit = max(xdata)
-
-data_fit = ajusted_data[(xdata>xmin_fit) & (xdata<xmax_fit)]
-xdata_fit = data_fit[:,0]
-ydata_fit = data_fit[:,1]
-
 #Curve fit with data
 if fit_data:
-    x_robust = np.arange(xdata_fit.min()-0.1, xdata_fit.max()+0.1, 0.001)
-    #Gaussian curve fit
-    p_lsq_g = lsq_gauss_fit(xdata_fit,ydata_fit)
-    y_robust_g = gauss(x_robust,p_lsq_g)
-    A_g, x0_g, sigma_g = p_lsq_g
-    sigma_g = abs(sigma_g)
-
-#    FWHM = 2.35482*sigma_g
-    print('The Amplitude of the gaussian fit is', A_g)
-    print('The center of the gaussian fit is', x0_g)
-    print('The sigma of the gaussian fit is', sigma_g,"\n")
-#    print('The FWHM of the gaussian fit is', FWHM)
-
-    #Skew-Normal curve fit
-    p_lsq_sn = lsq_skew_norm_fit(xdata_fit,ydata_fit)
-    y_robust_sn = skew_norm(x_robust,p_lsq_sn)
-    A_sn, x0_sn, sigma_sn, alpha_sn = p_lsq_sn
-    sigma_sn = abs(sigma_sn)
-    
-    print('The Amplitude of the skew-normal fit is', A_sn)
-    print('The center of the skew-normal fit is', x0_sn)
-    print('The sigma of the skew-normal fit is', sigma_sn)
-    print('The skew parameter of the skew-normal fit is', alpha_sn)
-
-    #if output_stats is given - csv generation
-    if args.output_stats:
-        mol = args.output_stats
-        path = args.path
-        solv_pattern = r"(^.+)__LPYE"
-        filename = os.path.basename(path)
-        outname = re.match(r"(^.+).txt",filename).group(1)
-        solvent = re.match(solv_pattern,filename).group(1)
-        data_gauss = {
-                "mol": mol,
-                "solvent": solvent,
-                "distribution":"Gaussian",
-                "A": A_g,
-                "x0": x0_g,
-                "sigma": sigma_g,
-                "alpha": 0
-                }
-        data_skew_norm = {
-                "mol": mol,
-                "solvent": solvent,
-                "distribution":"Skew-Normal",
-                "A": A_sn,
-                "x0": x0_sn,
-                "sigma": sigma_sn,
-                "alpha": alpha_sn
-                }
-        mol_list.append(data_gauss)
-        mol_list.append(data_skew_norm)
-        df = pd.DataFrame(mol_list)
-        df.to_csv(outname+"_"+mol+".csv", index=False, header=header2)
+    fitted_peak =fit_peak(signal, xdata, x0=args.startx, x1=args.endx,
+                          mol=args.output_stats, path=args.path)
+    x_robust, y_robust_g, y_robust_sn = fitted_peak
 
 #Prepare plot
 if args.show or args.print:

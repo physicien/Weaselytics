@@ -4,10 +4,13 @@
 Functions to perform Peak fitting.
 """
 
+import os
+import re
 import numpy as np
 from scipy.special import erf
 from scipy.signal import find_peaks, peak_widths
 from scipy.optimize import least_squares
+import pandas as pd
 
 def gauss(x, params):
     """
@@ -288,3 +291,103 @@ def lsq_skew_norm_fit(x, y):
                                bounds=bounds)
     s = res_robust.x
     return s
+
+def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
+    """
+    Fit robustly the most prominent peak on `x` with both Gaussian and
+    Skew-Normal distributions.
+
+    Parameters
+    ----------
+    s : array-like, shape (N,)
+        A signal with peaks.
+    x : array-like, shape (N,)
+        The x-values on which to fit a peak.
+    x0 : float, optional
+        Start of interval. The interval includes this value. If `x0` is set to
+        `None` (default), then ``x0 = min(x)``.
+    x1 : float, optional
+        End of interval. The interval includes this value. If `x1` is set to
+        `None` (default), then ``x1 = max(x)``.
+    mol : str, optional
+        Molecule identifier used to export and save the data of the peak. If
+        `None` (default), will not export the data.
+    path: str, optional
+        Path of the data file. If `None` (default), will not export the data.
+
+    Returns
+    -------
+    x_robust : array-like, shape (N,)
+        The x-values of the fitted distributions.
+    y_robust_g : array-like, shape (N,)
+        The y-values of the Gaussian distribution.
+    y_robust_sn : array-like, shape (N,)
+        The y-values of the Skew-Normal distribution.
+        
+    """
+    if x0:
+        xmin = x0
+    else:
+        xmin = min(x)
+
+    if x1:
+        xmax = x1
+    else:
+        xmax = max(x)
+
+    xdata = x[(x > xmin) & (x < xmax)]
+    ydata = s[(x > xmin) & (x < xmax)]
+
+    x_robust = np.arange(xdata.min() - 0.1, xdata.max() + 0.1, 0.001)
+
+    # Gaussian curve fit
+    p_lsq_g = lsq_gauss_fit(xdata, ydata)
+    y_robust_g = gauss(x_robust, p_lsq_g)
+    A_g, x0_g, sigma_g = p_lsq_g
+    sigma_g = abs(sigma_g)
+    print('The amplitude of the gaussian fit is', A_g)
+    print('The center of the gaussian fit is', x0_g)
+    print('The sigma of the gaussian fit is', sigma_g,"\n")
+
+    # Skew-Normal curve fit
+    p_lsq_sn = lsq_skew_norm_fit(xdata, ydata)
+    y_robust_sn = skew_norm(x_robust, p_lsq_sn)
+    A_sn, x0_sn, sigma_sn, alpha_sn = p_lsq_sn
+    sigma_sn = abs(sigma_sn)
+    print('The amplitude of the skew-normal fit is', A_sn)
+    print('The center of the skew-normal fit is', x0_sn)
+    print('The sigma of the skew-normal fit is', sigma_sn)
+    print('The skew parameter of the skew-normal fit is', alpha_sn)
+
+    #if name is given - csv generation
+    if mol and path:
+        solv_pattern = r"(^.+)__LPYE"   # not general...
+        filename = os.path.basename(path)
+        outname = re.match(r"(^.+).txt", filename).group(1)
+        solvent = re.match(solv_pattern, filename).group(1)
+        data_gauss = {
+                "mol": mol,
+                "solvent": solvent,
+                "distribution": "Gaussian",
+                "A": A_g,
+                "x0": x0_g,
+                "sigma": sigma_g,
+                "alpha": 0
+                }
+        data_skew_norm = {
+                "mol": mol,
+                "solvent": solvent,
+                "distribution": "Skew-Normal",
+                "A": A_sn,
+                "x0": x0_sn,
+                "sigma": sigma_sn,
+                "alpha": alpha_sn
+                }
+        mol_list = list()
+        mol_list.append(data_gauss)
+        mol_list.append(data_skew_norm)
+        df = pd.DataFrame(mol_list)
+        header = ["mol","solvent","distribution","A","x0","sigma","alpha"]
+        df.to_csv(outname+"_"+mol+".csv", index=False, header=header)
+    return x_robust, y_robust_g, y_robust_sn
+

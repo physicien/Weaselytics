@@ -47,21 +47,23 @@ def relevant_range(s, x, tol=6.):
 #    exception = False
     rel_peaks = _peaks[((width_per_x < tol) | exception)]
     rel_widths = _widths[((width_per_x < tol) | exception)]
+    ratio_w = rel_widths/np.min(rel_widths)
 
     print("===========================")
     print(np.round(x[rel_peaks],2))
     print(rel_peaks)
     print(np.round(rel_widths,2))
-    print(np.round(rel_widths/np.min(rel_widths),2))
+    print(np.round(ratio_w,2))
 #    print(np.round(rel_widths/x[rel_peaks],2))
     print("===========================")
     
-    buffer = np.ceil(1.0*rel_widths).astype(int)    # 1.3?
+    # Assuming that `rel_widths` is the FWHM and that the peak is gaussian,
+    # `buffer` is equal to the full peak width
+    buffer = np.ceil(0.85*rel_widths).astype(int)
     lim_inf = rel_peaks - buffer
     lim_sup = rel_peaks + buffer
     limits = np.array([lim_inf,lim_sup]).T
 
-    ratio_w = rel_widths/np.min(rel_widths)
     large_lim = limits[ratio_w > 1] # All peaks or only the larger ones?
     merged_lim = merge_intervals(np.copy(large_lim))
     if len(merged_lim) == 0:
@@ -71,8 +73,10 @@ def relevant_range(s, x, tol=6.):
         # Because values in regions must be less than len(data)
         if merged_lim[-1,-1] >= len(s):
             merged_lim[-1,-1] = len(s) - 1
-        sampling = np.ceil((merged_lim[:,1]-merged_lim[:,0])/2.4
+        #@EB Why divide by "2"?
+        sampling = np.ceil((merged_lim[:,1]-merged_lim[:,0])/2.0
                            /np.min(rel_widths)).astype(int)
+    print(sampling)
     print(merged_lim)
 
     _arg_last_peak = rel_peaks.argmax()
@@ -151,11 +155,13 @@ def custom_beads(s, freq_cutoff, bl_fitter, regions=((None,None),),
             lam=None,
             method_kwargs=beads_kwargs
             )
-    params['signal'] = np.interp(bl_fitter.x, params['x_fit'],
-                                 params['method_params']['signal'])
-#    print(len(params["method_params"]["signal"]))
-#    print(len(params["signal"]))
-#    print(len(bl))
+    
+    noise_fit = (params['y_fit'] - params['baseline_fit']
+                 - params['method_params']['signal'])
+    params['noise'] = np.interp(bl_fitter.x, params['x_fit'], noise_fit)
+    params['signal'] = s - bl - params['noise']
+#    params['signal'] = np.interp(bl_fitter.x, params['x_fit'],
+#                                 params['method_params']['signal'])
     return bl, params
 
 def r2_fcut(fcut, s, bl_fitter, algo, **kwargs):
@@ -264,13 +270,14 @@ def fcutoff(s, x, last_pt, smoothing_window=15,
 
     """
     tic = time.perf_counter()
+ 
     # Make sure that the method being passed is allowed
     allowed_methods = {"beads": beads, "custom_beads": custom_beads}
     if method not in allowed_methods:
         raise ValueError("method '{method}' is not implemented")
 
     algo = allowed_methods[method]
-    
+ 
     bl_fitter = Baseline(x_data=x[:last_pt])
 
     # log transform of the signal
@@ -278,7 +285,7 @@ def fcutoff(s, x, last_pt, smoothing_window=15,
     print(f"{'Used points:':<20}{len(z):d}")
 
     fcut_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
-    
+ 
     # y-data
     r2_val = r2_fcut_array(x, z, bl_fitter, fcut_range, algo, **kwargs)
 
@@ -304,7 +311,12 @@ def fcutoff(s, x, last_pt, smoothing_window=15,
             np.absolute(starting_r2 - smooth_d0) < 2E-03)[0]
 
     secondary_plateaus = loose_plateaus[loose_plateaus > starting_plateau[-1]]
-    lim_d0_drop = np.where(r2_val < 0.6)[0][0]
+    #@EB not general at all...
+    lim_r2 = 0.6
+    min_r2 = np.min(r2_val)
+    if  lim_r2 < min_r2:
+        lim_r2 = min_r2
+    lim_d0_drop = np.where(r2_val <= lim_r2)[0][0]
     lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0]
     
     test = np.intersect1d(secondary_plateaus,pos_max_d1)
@@ -437,8 +449,7 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     if freq_cutoff is None:
         fcut, case = fcutoff(signal, x, last_pt,
                              show_plot=show_plot, print_plot=print_plot,
-                             path=path, method="custom_beads", #@EB method
-                             **method_kwargs)
+                             path=path, method=method, **method_kwargs)
     else:
         if ((freq_cutoff <= 0) or (freq_cutoff >= 0.5)):
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")

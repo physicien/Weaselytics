@@ -96,7 +96,7 @@ Contributed by Emmanuel Bourret
 
 - Write a more general parser.
 
-- Develop an approach to divide the signal into regions where the peaks are of comparable widths (split-treat-splice).
+- ~~Develop an approach to divide the signal into regions where the peaks are of comparable widths (split & splice).~~
 
 - Adjust alpha in BEADS if the signal is noisy.
 

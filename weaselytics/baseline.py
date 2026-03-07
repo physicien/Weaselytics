@@ -49,13 +49,13 @@ def relevant_range(s, x, tol=6.):
     rel_widths = _widths[((width_per_x < tol) | exception)]
     ratio_w = rel_widths/np.min(rel_widths)
 
-    print("===========================")
-    print(np.round(x[rel_peaks],2))
-    print(rel_peaks)
-    print(np.round(rel_widths,2))
-    print(np.round(ratio_w,2))
+#    print("===========================")
+#    print(np.round(x[rel_peaks],2))
+#    print(rel_peaks)
+#    print(np.round(rel_widths,2))
+#    print(np.round(ratio_w,2))
 #    print(np.round(rel_widths/x[rel_peaks],2))
-    print("===========================")
+#    print("===========================")
     
     # Assuming that `rel_widths` is the FWHM and that the peak is gaussian,
     # `buffer` is equal to the full peak width
@@ -76,8 +76,8 @@ def relevant_range(s, x, tol=6.):
         #@EB Why divide by "2"?
         sampling = np.ceil((merged_lim[:,1]-merged_lim[:,0])/2.0
                            /np.min(rel_widths)).astype(int)
-    print(sampling)
-    print(merged_lim)
+#    print(sampling)
+#    print(merged_lim)
 
     _arg_last_peak = rel_peaks.argmax()
     _pos_last_peak = rel_peaks[_arg_last_peak]
@@ -189,8 +189,8 @@ def r2_fcut_array(x, y, baseline_fitter, fcut_range, algo, **kwargs):
     vr2_func = np.vectorize(r2_func)
     return vr2_func(fcut_range)
 
-def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, pl_thresh, pl_ext_thresh, freq_cutoff,
-             final_r2, case=0, show_plot=False, print_plot=False,
+def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, start_end, tol1_0, tol1_1, tol2,
+             freq_cutoff, final_r2, case=0, show_plot=False, print_plot=False,
              path="./file.txt"):
     """
     """
@@ -203,21 +203,29 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, pl_thresh, pl_ext_thresh, freq_cutoff,
     fig = plt.figure(figsize=[9.4,9.6],num="Autocorrelation plots")
     gs = fig.add_gridspec(3, hspace=0)
     axs = gs.subplots(sharex=True)
+    axs[0].fill_between(x, 0, 1,
+                        where= x <= x[start_end],
+                        color='green', alpha=0.1,
+                        transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
     axs[0].semilogx(x, sm_d0, marker='', ls='-',
                     label=r'$r^2_\text{smooth}$',ms=3)
 
     axs[1].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d1) < pl_thresh,
+                        where=np.absolute(sm_d1) < tol1_0,
                         color="none", ec="white", alpha=0.3, fc="purple", 
                         hatch="//", hatch_linewidth=4,
                         transform=axs[1].get_xaxis_transform())
     axs[1].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d1) < pl_ext_thresh,
+                        where=np.absolute(sm_d1) < tol1_1,
                         color='orange', alpha=0.3,
                         transform=axs[1].get_xaxis_transform())
-
     axs[1].semilogx(x, sm_d1, label='First Derivative')
+
+    axs[2].fill_between(x, 0, 1,
+                        where=np.absolute(sm_d2) < tol2,
+                        color='blue', alpha=0.1,
+                        transform=axs[2].get_xaxis_transform())
     axs[2].semilogx(x, sm_d2, label='Second Derivative')
     for ax in axs.flat:
         for i, infl in enumerate(infls, 1):
@@ -263,9 +271,10 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, pl_thresh, pl_ext_thresh, freq_cutoff,
     plt.close()
 
 #Frequency cutoff for BEADS
-def fcutoff(s, x, last_pt, smoothing_window=15,
-            slope_thresh=5.0E-05, tol0=3.0E-05, tol1=2.6E-04, show_plot=False,
-            print_plot=False, path="./file.txt", method="beads", **kwargs):
+def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
+            tol0=1.0E-03, tol1_0=1.0E-05, tol1_1=5.0E-04, tol2=2.0E-06,
+            num=1000, show_plot=False, print_plot=False, path="./file.txt",
+            method="beads", **kwargs):
     """
 
     """
@@ -284,7 +293,7 @@ def fcutoff(s, x, last_pt, smoothing_window=15,
     z = log_transform(s[:last_pt],1)
     print(f"{'Used points:':<20}{len(z):d}")
 
-    fcut_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
+    fcut_range = np.geomspace(0.00001, 0.5, num=num, endpoint=False)
  
     # y-data
     r2_val = r2_fcut_array(x, z, bl_fitter, fcut_range, algo, **kwargs)
@@ -293,24 +302,26 @@ def fcutoff(s, x, last_pt, smoothing_window=15,
     smooth_d0 = gaussian_filter1d(r2_val,smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
     smooth_d2 = np.gradient(smooth_d1)
-    pos_min_d1 = argrelmin(smooth_d1)[0]
+#    pos_min_d1 = argrelmin(smooth_d1)[0]
     pos_max_d1 = argrelmax(smooth_d1)[0]
+    d1_min = np.argmin(smooth_d1)
 
-#    d0_drops = np.ediff1d(smooth_d0[pos_max_d1])
-#    arg_d0_drops = (d0_drops<-0.01).nonzero()
-#    rel_max_d1 = pos_max_d1[arg_d0_drops]
+    tight_plateaus = find_plateaus(smooth_d1, tol1_0)
+    loose_plateaus = find_plateaus(smooth_d1, tol1_1)
 
-    tight_plateaus = find_plateaus(smooth_d1, tol0)
-#    loose_plateaus = find_plateaus(smooth_d1, tol1,
-#                                   tol0)
-    loose_plateaus = find_plateaus(smooth_d1, tol1)
+    tight_continuous = continuous_ranges(tight_plateaus)
+    starting_r2 = np.mean(smooth_d0[tight_continuous[0]])
+    starting_end = np.where(
+            np.absolute(starting_r2 - r2_val[:d1_min]) < tol0)[0][-1]
+    starting_plateau = np.arange(starting_end+1)
 
-    tight_cont_reg = continuous_ranges(tight_plateaus)
-    starting_r2 = np.mean(smooth_d0[tight_cont_reg[0]])
-    starting_plateau = np.where(
-            np.absolute(starting_r2 - smooth_d0) < 2E-03)[0]
-
-    secondary_plateaus = loose_plateaus[loose_plateaus > starting_plateau[-1]]
+    d2_flat = np.where(np.absolute(smooth_d2) < tol2)[0]
+    last_r2 = num - 1
+    if np.isin(tight_continuous[-1], last_r2).any():
+        last_r2 = tight_continuous[-1][0]
+    plateaus = loose_plateaus[(loose_plateaus > starting_plateau[-1]) &
+                              (loose_plateaus < last_r2)]
+    secondary_plateaus = np.intersect1d(plateaus, d2_flat) 
     #@EB not general at all...
     lim_r2 = 0.6
     min_r2 = np.min(r2_val)
@@ -332,12 +343,13 @@ def fcutoff(s, x, last_pt, smoothing_window=15,
     # Differents cases
     if len(pot_anchors) == 0:
         case = 1
-        arg_l = np.intersect1d(starting_plateau, pos_max_d1)[-1] 
+        arg_l = continuous_ranges(secondary_plateaus)[0][-1]
+#        arg_l = np.intersect1d(starting_plateau, pos_max_d1)[-1] 
     else:
         case = 2
         arg_l = pot_anchors[np.argmin(np.absolute(smooth_d1[pot_anchors]))]
         drop = starting_r2 - smooth_d0[arg_l]
-        print(f"{'drop:':<20}{drop:E}")
+#        print(f"{'drop:':<20}{drop:E}")
         if drop > 8E-02:
             case = 3
             arg_l = np.intersect1d(starting_plateau, pos_max_d1)[-1] 
@@ -363,8 +375,9 @@ def fcutoff(s, x, last_pt, smoothing_window=15,
     # r2 plot
     if show_plot or print_plot:
         r2_plots(fcut_range, r2_val, smooth_d0, smooth_d1, smooth_d2,
-                 tol0, tol1, fcut, fi_r2_val, case=case, show_plot=show_plot,
-                 print_plot=print_plot, path=path)
+                 starting_end, tol1_0, tol1_1, tol2, fcut, fi_r2_val,
+                 case=case, show_plot=show_plot, print_plot=print_plot,
+                 path=path)
 
     return fcut, case
 

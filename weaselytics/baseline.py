@@ -299,32 +299,37 @@ def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
     r2_val = r2_fcut_array(x, z, bl_fitter, fcut_range, algo, **kwargs)
 
 ##############################################################################
+    # Smoothed data and derivatives
     smooth_d0 = gaussian_filter1d(r2_val,smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
     smooth_d2 = np.gradient(smooth_d1)
 #    pos_min_d1 = argrelmin(smooth_d1)[0]
-    pos_max_d1 = argrelmax(smooth_d1)[0]
+#    pos_max_d1 = argrelmax(smooth_d1)[0]
     d1_min = np.argmin(smooth_d1)
+    #@EB not general at all...
+    lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0] 
 
+    # Proto-plateaus from d1 and d2
     tight_d1_flats = find_plateaus(smooth_d1, tol1_0)
     loose_d1_flats = find_plateaus(smooth_d1, tol1_1)
     d2_flats = np.where(np.absolute(smooth_d2) < tol2)[0]
 
+    # Find initial plateau
     tight_continuous = continuous_ranges(tight_d1_flats)
     starting_r2 = np.mean(smooth_d0[tight_continuous[0]])
     starting_end = np.where(
             np.absolute(starting_r2 - r2_val[:d1_min]) < tol0)[0][-1]
     starting_plateau = np.arange(starting_end+1)
 
+    # Remove final plateau if it is tight
     last_r2 = num - 1
     if np.isin(tight_continuous[-1], last_r2).any():
         last_r2 = tight_continuous[-1][0]
+
+    # Plateaus and anchors
     plateaus = loose_d1_flats[(loose_d1_flats > starting_plateau[-1]) &
                               (loose_d1_flats < last_r2)]
     secondary_plateaus = np.intersect1d(plateaus, d2_flats)
-
-    #@EB not general at all...
-    lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0] 
     anchors = secondary_plateaus[secondary_plateaus < lim_d1_drop]
 
     # Differents cases
@@ -336,19 +341,16 @@ def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
     else:
         case = 2
         arg_l = anchors[np.argmin(np.absolute(smooth_d1[anchors]))]
-#        drop = starting_r2 - smooth_d0[arg_l]
-#        print(f"{'drop:':<20}{drop:E}")
-#        if drop > 8E-02:
-#            case = 3
-#            arg_l = np.intersect1d(starting_plateau, pos_max_d1)[-1] 
     
 ##############################################################################
+    # Shift relative to the chosen anchor
     slope_arg = np.where(np.absolute(smooth_d1) >= slope_thresh)[0]
     try:
         cutoff = slope_arg[slope_arg >= arg_l][0]
     except:
         print("WARNING: slope_arg < arg_l.")
         cutoff = arg_l
+
     fcut = fcut_range[cutoff]
 ##############################################################################
 
@@ -371,7 +373,7 @@ def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
 #BEADS baseline correction
 def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
                path="./file.txt", method="beads", asymmetry=1.0,
-               fit_parabola=True, alpha=1.0):
+               fit_parabola=True, alpha=None):
     """
     Automatic implementation of the Baseline estimation and denoising with
     sparsity (BEADS) algorithm.
@@ -427,7 +429,6 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     allowed_methods = {"beads": beads, "custom_beads": custom_beads}
     if method not in allowed_methods:
         raise ValueError("method '{method}' is not implemented")
-
     algo = allowed_methods[method]
 
     # Takes care of possible outliers at both ends of the signal
@@ -435,16 +436,19 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     # Limits the range and splits the signal
     last_pt, peaks_range, sampling = relevant_range(signal,x)
 
+    # NOTE: The value of `alpha` doesn't need to change when looking for the
+    #       best r**2 because of the log transform
     method_kwargs = {
             "asymmetry": asymmetry,
             "fit_parabola": fit_parabola,
-            "alpha": alpha,
+            "alpha": 1.0,
             "regions": peaks_range,
             "sampling": sampling
             }
 
     print(f"{'Data points:':<20}{len(signal):d}")
 
+    # Cutoff frequency
     if freq_cutoff is None:
         fcut, case = fcutoff(signal, x, last_pt,
                              show_plot=show_plot, print_plot=print_plot,
@@ -454,6 +458,11 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")
         fcut = freq_cutoff
         case = 0
+
+    # Alpha
+    if alpha is None:
+        alpha=1.0
+        method_kwargs.update({"alpha": alpha})  #@EB TO CHANGE WHEN I KNOW HOW
 
     print(f"{'Cutoff frequency:':<20}{fcut:E}")
     print(f"{'Asymmetry:':<20}{asymmetry:0.1f}")

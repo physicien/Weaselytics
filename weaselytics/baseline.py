@@ -306,55 +306,41 @@ def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
     pos_max_d1 = argrelmax(smooth_d1)[0]
     d1_min = np.argmin(smooth_d1)
 
-    tight_plateaus = find_plateaus(smooth_d1, tol1_0)
-    loose_plateaus = find_plateaus(smooth_d1, tol1_1)
+    tight_d1_flats = find_plateaus(smooth_d1, tol1_0)
+    loose_d1_flats = find_plateaus(smooth_d1, tol1_1)
+    d2_flats = np.where(np.absolute(smooth_d2) < tol2)[0]
 
-    tight_continuous = continuous_ranges(tight_plateaus)
+    tight_continuous = continuous_ranges(tight_d1_flats)
     starting_r2 = np.mean(smooth_d0[tight_continuous[0]])
     starting_end = np.where(
             np.absolute(starting_r2 - r2_val[:d1_min]) < tol0)[0][-1]
     starting_plateau = np.arange(starting_end+1)
 
-    d2_flat = np.where(np.absolute(smooth_d2) < tol2)[0]
     last_r2 = num - 1
     if np.isin(tight_continuous[-1], last_r2).any():
         last_r2 = tight_continuous[-1][0]
-    plateaus = loose_plateaus[(loose_plateaus > starting_plateau[-1]) &
-                              (loose_plateaus < last_r2)]
-    secondary_plateaus = np.intersect1d(plateaus, d2_flat) 
-    #@EB not general at all...
-    lim_r2 = 0.6
-    min_r2 = np.min(r2_val)
-    if  lim_r2 < min_r2:
-        lim_r2 = min_r2
-    lim_d0_drop = np.where(r2_val <= lim_r2)[0][0]
-    lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0]
-    
-    test = np.intersect1d(secondary_plateaus,pos_max_d1)
-    if len(test) == 0:
-        test2 = secondary_plateaus[0]
-    else:
-        test2 = test[0]
+    plateaus = loose_d1_flats[(loose_d1_flats > starting_plateau[-1]) &
+                              (loose_d1_flats < last_r2)]
+    secondary_plateaus = np.intersect1d(plateaus, d2_flats)
 
-    pot_anchors = secondary_plateaus[((secondary_plateaus < lim_d0_drop)
-                                      & (secondary_plateaus < lim_d1_drop)
-                                      & (secondary_plateaus > test2))]
+    #@EB not general at all...
+    lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0] 
+    anchors = secondary_plateaus[secondary_plateaus < lim_d1_drop]
 
     # Differents cases
-    if len(pot_anchors) == 0:
+    if len(anchors) == 0:
         case = 1
         arg_l = continuous_ranges(secondary_plateaus)[0][-1]
-#        arg_l = np.intersect1d(starting_plateau, pos_max_d1)[-1] 
+        # Not needed if slope_arg is well chosen?
+        slope_thresh = tol1_1   #@EB temporary?
     else:
         case = 2
-        arg_l = pot_anchors[np.argmin(np.absolute(smooth_d1[pot_anchors]))]
-        drop = starting_r2 - smooth_d0[arg_l]
+        arg_l = anchors[np.argmin(np.absolute(smooth_d1[anchors]))]
+#        drop = starting_r2 - smooth_d0[arg_l]
 #        print(f"{'drop:':<20}{drop:E}")
-        if drop > 8E-02:
-            case = 3
-            arg_l = np.intersect1d(starting_plateau, pos_max_d1)[-1] 
-#            arg_l = np.intersect1d(tight_plateaus[tight_plateaus < test2],
-#                                   pos_max_d1[pos_max_d1 <= test2])[-1]
+#        if drop > 8E-02:
+#            case = 3
+#            arg_l = np.intersect1d(starting_plateau, pos_max_d1)[-1] 
     
 ##############################################################################
     slope_arg = np.where(np.absolute(smooth_d1) >= slope_thresh)[0]

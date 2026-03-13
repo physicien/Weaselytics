@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import time
 
+from parser import ParsedData
 from peakfitting import (gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit,
                          fit_peak)
 from utils import *
@@ -102,9 +103,11 @@ if args.endx:
 #Data processing            #@EB write a good parser and use it here
 path = args.path
 print(path)
-data =  np.loadtxt(path,skiprows=7)
-xdata = data[:,0]
-ydata = data[:,1]
+#data =  np.loadtxt(path,skiprows=7)
+#xdata = data[:,0]
+#ydata = data[:,1]
+parsed = ParsedData(path)
+xdata, ydata = parsed.data
 
 #smoothing
 if do_sm:
@@ -139,7 +142,8 @@ if args.export_bldata and do_bl:
 #if output_csv is given - csv generation of the chromatogram
 if args.output_csv:
     filename = os.path.splitext(os.path.basename(path))[0]
-    df = pd.DataFrame(data)
+    outdata = np.array([xdata, ydata]).T
+    df = pd.DataFrame(outdata)
     df.to_csv(filename+".csv", index=False, header=header1)
 
 #Curve fit with data

@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import time
 
-from parser import ParsedData
+from parsers import ParsedData
 from peakfitting import (gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit,
                          fit_peak)
 from utils import *

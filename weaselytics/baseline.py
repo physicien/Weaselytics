@@ -6,7 +6,7 @@ Functions to perform the baseline correction.
 import os
 import numpy as np
 from pybaselines import Baseline
-from scipy.signal import argrelmin, argrelmax
+from scipy.signal import argrelmin, argrelmax#, medfilt
 from scipy.ndimage import gaussian_filter1d
 import matplotlib.pyplot as plt
 import time                             #@EB temporary?
@@ -88,6 +88,24 @@ def relevant_range(s, x, tol=6.):
     else:
         _last_arg = len(s)
     return _last_arg, merged_lim, sampling
+
+#def exclude_discontinuity(s, reg, reg2, d1_mins, tol=1E-04):
+#    """
+#    """
+#    ediff = np.ediff1d(s[reg2])
+#    discontinuity = reg2[np.where(ediff > tol)[0]]
+#    if discontinuity.size != 0:
+#        iterable = (d1_mins[np.argmax(d1_mins > pos)] for pos in discontinuity)
+#        next_min = np.fromiter(iterable, int)
+#        to_exclude = np.hstack([np.arange(r[0], r[1]+1) for r in
+#                                zip(discontinuity, next_min)])
+#        new_reg = np.setdiff1d(reg, to_exclude)
+#    else:
+#        new_reg = reg
+#    #@EB way to specific...
+#    if new_reg.size == 0:
+#        new_reg = reg
+#    return new_reg
 
 def log_transform(s,epsilon):
     """
@@ -189,14 +207,14 @@ def r2_fcut_array(x, y, baseline_fitter, fcut_range, algo, **kwargs):
     vr2_func = np.vectorize(r2_func)
     return vr2_func(fcut_range)
 
-def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, start_end, tol1_0, tol1_1, tol2,
-             freq_cutoff, final_r2, case=0, show_plot=False, print_plot=False,
-             path="./file.txt"):
+def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
+             tol1_0, tol1_1, tol2, freq_cutoff, final_r2, case=0,
+             show_plot=False, print_plot=False, path="./file.txt"):
     """
     """
-    pos_min_d1 = argrelmin(sm_d1)[0]
-    pos_max_d1 = argrelmax(sm_d1)[0]
     infls = np.where(np.diff(np.sign(sm_d2)))[0]
+    accepted = np.zeros(len(x))
+    accepted[sec_p] = 1
 
     #@EB
 #    fig = plt.figure(figsize=[6.4,9.6],num="Autocorrelation plots")
@@ -204,8 +222,12 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, start_end, tol1_0, tol1_1, tol2,
     gs = fig.add_gridspec(3, hspace=0)
     axs = gs.subplots(sharex=True)
     axs[0].fill_between(x, 0, 1,
-                        where= x <= x[start_end],
-                        color='green', alpha=0.1,
+                        where= x <= x[last_start],
+                        color='red', alpha=0.1,
+                        transform=axs[0].get_xaxis_transform())
+    axs[0].fill_between(x, 0, 1,
+                        where= accepted,
+                        color='green', alpha=0.3,
                         transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
     axs[0].semilogx(x, sm_d0, marker='', ls='-',
@@ -228,14 +250,14 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, start_end, tol1_0, tol1_1, tol2,
                         transform=axs[2].get_xaxis_transform())
     axs[2].semilogx(x, sm_d2, label='Second Derivative')
     for ax in axs.flat:
-        for i, infl in enumerate(infls, 1):
-            ax.axvline(x=x[infl], c='k', lw=0.5)#, label=f'Inflection Point {i}')
+#        for i, infl in enumerate(infls, 1):
+#            ax.axvline(x=x[infl], c='k', lw=0.5)#, label=f'Inflection Point {i}')
         ax.axvline(x=freq_cutoff,c='tab:red',ls='dashed'),
         ax.label_outer()
-    for md1 in pos_min_d1:
-        axs[1].axvline(x=x[md1],ymax=0.5,c='tab:pink',ls='dashed')
-    for md1 in pos_max_d1:
-        axs[1].axvline(x=x[md1],ymin=0.5,c='tab:green',ls='dashed')
+#    for md1 in min_d1:
+#        axs[1].axvline(x=x[md1],ymax=0.5,c='tab:pink',ls='dashed')
+#    for md1 in max_d1:
+#        axs[1].axvline(x=x[md1],ymin=0.5,c='tab:green',ls='dashed')
     axs[0].annotate(f'{final_r2:0.4f}',
                     xy=(freq_cutoff,1.01),
                     xycoords=("data","axes fraction"),
@@ -301,10 +323,11 @@ def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
 ##############################################################################
     # Smoothed data and derivatives
     smooth_d0 = gaussian_filter1d(r2_val,smoothing_window)
+#    smooth_d0 = medfilt(r2_val, smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
     smooth_d2 = np.gradient(smooth_d1)
-#    pos_min_d1 = argrelmin(smooth_d1)[0]
-#    pos_max_d1 = argrelmax(smooth_d1)[0]
+    min_d1 = argrelmin(smooth_d1)[0]
+    max_d1 = argrelmax(smooth_d1)[0]
     d1_min = np.argmin(smooth_d1)
     #@EB not general at all...
     lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0] 
@@ -326,18 +349,28 @@ def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
     if np.isin(tight_continuous[-1], last_r2).any():
         last_r2 = tight_continuous[-1][0]
 
-    # Plateaus and anchors
+    # Plateaus
     plateaus = loose_d1_flats[(loose_d1_flats > starting_plateau[-1]) &
                               (loose_d1_flats < last_r2)]
     secondary_plateaus = np.intersect1d(plateaus, d2_flats)
-    anchors = secondary_plateaus[secondary_plateaus < lim_d1_drop]
+
+    # Anchors
+    sec_max_d1 = np.intersect1d(secondary_plateaus,max_d1)
+    if len(sec_max_d1) == 0:
+        p2_start = secondary_plateaus[0]
+    else:
+        # Make sure this is not on the tail of the initial plateau (p1) by
+        # starting p2 at the first max of d1 on the secondary plateaus.
+        p2_start = sec_max_d1[0]
+    anchors = secondary_plateaus[((secondary_plateaus < lim_d1_drop) &
+                                  (secondary_plateaus > p2_start))]
 
     # Differents cases
     if len(anchors) == 0:
         case = 1
         arg_l = continuous_ranges(secondary_plateaus)[0][-1]
         # Not needed if slope_arg is well chosen?
-        slope_thresh = tol1_1   #@EB temporary?
+        slope_thresh = tol1_1*0.5    #@EB temporary?
     else:
         case = 2
         arg_l = anchors[np.argmin(np.absolute(smooth_d1[anchors]))]
@@ -362,10 +395,10 @@ def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
 
     # r2 plot
     if show_plot or print_plot:
-        r2_plots(fcut_range, r2_val, smooth_d0, smooth_d1, smooth_d2,
-                 starting_end, tol1_0, tol1_1, tol2, fcut, fi_r2_val,
-                 case=case, show_plot=show_plot, print_plot=print_plot,
-                 path=path)
+        r2_plots(fcut_range, r2_val, smooth_d0, smooth_d1, smooth_d2, min_d1,
+                 max_d1, starting_plateau[-1], secondary_plateaus, tol1_0,
+                 tol1_1,tol2, fcut, fi_r2_val, case=case, show_plot=show_plot,
+                 print_plot=print_plot, path=path)
 
     return fcut, case
 

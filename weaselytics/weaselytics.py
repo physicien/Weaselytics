@@ -1,23 +1,21 @@
 #!/usr/bin/python3
 
-import re
 import sys
 import os
 import argparse
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
 
 from parsers import ParsedData
-from peakfitting import (gauss, skew_norm, lsq_gauss_fit, lsq_skew_norm_fit,
-                         fit_peak)
-from utils import *
-from baseline import log_transform, relevant_range, auto_beads
+from peakfitting import gauss, skew_norm, fit_peak
+from utils import smooth_SG
+from baseline import auto_beads
+from export import export_txt, export_csv
+from plot import plot
 
 #GLOBAL LIST
-header1 = ["time","potential"]
 
 ###############################################################################
 #PARSER
@@ -103,99 +101,63 @@ if args.endx:
 #Data processing            #@EB write a good parser and use it here
 path = args.path
 print(path)
-#data =  np.loadtxt(path,skiprows=7)
-#xdata = data[:,0]
-#ydata = data[:,1]
 parsed = ParsedData(path)
 xdata, ydata = parsed.data
 
+#Prepare kwargs for the plot
+if args.show or args.print:
+    plot_kwargs = {
+            "show_plot": args.show,
+            "print_plot": args.print
+            }
+
 #smoothing
 if do_sm:
-    ydata_sm = smooth_SG(ydata,9,0) #9,0
+    ydata_sm = smooth_SG(ydata,9,0)
+    # to plot
+    if args.show or args.print:
+        plot_kwargs['y_sm'] = ydata_sm
+    mod_ydata = ydata_sm
 else:
-    ydata_sm = ydata
+    mod_ydata = ydata
 
 #baseline correction
 if do_bl:
-    baseline, params, case = auto_beads(ydata_sm, xdata, freq_cutoff=None,
+    baseline, params, case = auto_beads(mod_ydata, xdata, freq_cutoff=None,
                                         show_plot=args.show,
                                         print_plot=args.print, path=args.path,
                                         method="custom_beads")
-    ydata_bl = params["signal"]
-#    ydata_bl = ydata_sm - baseline
-else:
-    ydata_bl = ydata_sm
-
-signal = ydata_bl
+    signal = params["signal"]
+    # to plot
+    if args.show or args.print:
+        plot_kwargs['bl'] = baseline
+        plot_kwargs['case'] = case
+        plot_kwargs['s'] = signal
+    mod_ydata = signal
 
 #if export_bldata is given - txt generation of the bl corrected chromatogram
 if args.export_bldata and do_bl:
-    ajusted_data = np.array([xdata,signal]).T
-    filename = os.path.splitext(os.path.basename(path))[0]
-    line1 = "Baseline corrected chromatogram of:\n"
-    header = line1 + filename +"\n\n\n\n\n" 
-    np.savetxt(filename+"_bl.txt", ajusted_data,
-               delimiter = ' ',
-               header=header
-              )
+    export_txt(xdata, mod_ydata, path=path)
 
 #if output_csv is given - csv generation of the chromatogram
 if args.output_csv:
-    filename = os.path.splitext(os.path.basename(path))[0]
-    outdata = np.array([xdata, ydata]).T
-    df = pd.DataFrame(outdata)
-    df.to_csv(filename+".csv", index=False, header=header1)
+    #@EB ydata or mod_ydata?
+    export_csv(xdata, ydata, path=path)
 
 #Curve fit with data
 if fit_data:
-    fitted_peak =fit_peak(signal, xdata, x0=args.startx, x1=args.endx,
-                          mol=args.output_stats, path=args.path)
-    x_robust, y_robust_g, y_robust_sn = fitted_peak
+    x_robust, y_robust_g, y_robust_sn = fit_peak(mod_ydata, xdata,
+                                                 x0=args.startx,
+                                                 x1=args.endx,
+                                                 mol=args.output_stats,
+                                                 path=args.path)
+    # to plot
+    if args.show or args.print:
+        plot_kwargs['x_fit'] = x_robust
+        plot_kwargs['y_fit_g'] = y_robust_g
+        plot_kwargs['y_fit_sn'] = y_robust_sn
 
 #Prepare plot
 if args.show or args.print:
-    palette = sns.color_palette("colorblind")
-    sns.set_palette(palette)
-
-    plt.figure(num="Chromatogram")
-    plt.plot(xdata, ydata, marker='.', ls='', c=palette[7],
-             label='raw data',ms=3)
-    if do_sm:
-        plt.plot(xdata, ydata_sm, ls='-.',c=palette[2], lw=1.5,
-                label='smoothed data')
-    if do_bl:
-        plt.plot(xdata, signal, ls='-',c=palette[5], lw=1.5,
-                label='ajusted data')
-        plt.plot(xdata, baseline, ls='--',c=palette[0], lw=2.0,
-                label='baseline')
-
-    if fit_data:
-        plt.plot(x_robust, y_robust_g, ls='--', c=palette[2], lw=2.0,
-                 label='robust gaussian fit')
-        plt.plot(x_robust, y_robust_sn, ls='-.', c=palette[3], lw=2.0,
-                 label='robust skew-normal fit')
-
-    plt.annotate(f"{'# data pts:'}{len(xdata):>6d}",
-                 xy=(1.0,1.01),
-                 xycoords=("axes fraction"),
-                 ha='right',
-                 color='tab:red'
-                )
-    if do_bl:
-        plt.annotate(f"{'Case:'}{case:>3d}",
-                    xy=(0.00,1.01),
-                    xycoords=("axes fraction"),
-                    ha='left',
-                    color='tab:red'
-                    )
-    plt.legend()
-    plt.xlabel('Time (min.)')
-    plt.ylabel('Potential (mV)')
-    plt.tight_layout()
-    if args.show:
-        plt.show()
-    if args.print:
-        filename = os.path.splitext(os.path.basename(path))[0]
-        plt.savefig(f"images/{filename}.png")
-    plt.close()
+    plot(xdata, ydata, **plot_kwargs)
     print("") # Why?

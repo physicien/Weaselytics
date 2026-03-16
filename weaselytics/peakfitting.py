@@ -12,104 +12,6 @@ from scipy.signal import find_peaks, peak_widths
 from scipy.optimize import least_squares
 import pandas as pd
 
-def gauss(x, params):
-    """
-    Generate a Gaussian distribution based on `params`.
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        The x-values at which to evaluate the distribution.
-    params : array-like with shape (n,)
-        `params` with the following fields defined:
-
-        amp : float
-            The maximum height of the distribution.
-        x0 : float
-            The center of the distribution.
-        sigma : float
-            The standard deviation of the distribution.
-
-    Returns
-    -------
-    dist : numpy.ndarray
-        The Gaussian distribution evaluated with x.
-
-    Raises
-    ------
-    ValueError
-        Raised if `sigma` is not greater than 0.
-
-    """
-    amp, x0, sigma = params
-
-    if sigma <= 0:
-        raise ValueError("sigma must be greater than 0.")
-
-    dist = amp*np.exp(-0.5*((x-x0)**2)/sigma**2)
-    return dist
-
-def skew_norm(x, params):
-    """
-    Generate a Skew normal distribution based on `params`.
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        The x-values at which to evaluate the distribution.
-    params : array-like with shape (n,)
-        `params` with the following fields defined:
-
-        amp : float
-            The maximum height of the distribution.
-        loc :  float
-            The location parameter of the distribution.
-        scale : float
-            The scale parameter of the distribution.
-        alpha : float
-            The shape parameter of the distribution.
-
-    Returns
-    -------
-    dist : numpy.ndarray
-        The Skew normal distribution evaluated with x.
-
-    """
-    amp, loc, scale, alpha = params
-
-    z = alpha*(x-loc)/scale
-    norm = np.sqrt(2*np.pi*scale**2)**-1* np.exp(
-            -((x-loc)**2)/(2*scale**2)
-            )
-    cdf = 0.5*(1+erf(z/np.sqrt(2)))
-
-    dist = amp*2*norm*cdf
-    return dist
-
-def lsq_eq(p, fct, x, y):
-    """
-    Compute the vector of residuals in order to solve the least-squares
-    problem.
-
-    Parameters
-    ----------
-    p : array-like with shape (n,)
-        Set of independent variables defining the function.
-    fct : callable
-        Function used to solve the least-squares problem.
-    x : numpy.ndarray
-        Range on the x-axis to fit `fct`.
-    y : numpy.ndarray
-        Values on which to fit `fct` for each point of the x-axis range.
-
-    Returns
-    -------
-    callable
-        A function to feed to the `scipy.optimize.least_squares` method.
-
-    """
-    return fct(x,p) - y
-
 def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
                  rel_height_p=0.5, rel_height_n=0.5, width=None, adapt=False):
     """
@@ -190,7 +92,105 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
 
     return peaks, widths
 
-def lsq_gauss_fit(x, y):
+def gauss(x, params):
+    """
+    Generate a Gaussian distribution based on `params`.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        The x-values at which to evaluate the distribution.
+    params : array-like with shape (n,)
+        `params` with the following fields defined:
+
+        amp : float
+            The maximum height of the distribution.
+        x0 : float
+            The center of the distribution.
+        sigma : float
+            The standard deviation of the distribution.
+
+    Returns
+    -------
+    dist : numpy.ndarray
+        The Gaussian distribution evaluated with x.
+
+    Raises
+    ------
+    ValueError
+        Raised if `sigma` is not greater than 0.
+
+    """
+    amp, x0, sigma = params
+
+    if sigma <= 0:
+        raise ValueError("sigma must be greater than 0.")
+
+    dist = amp*np.exp(-0.5*((x-x0)**2)/sigma**2)
+    return dist
+
+def skew_norm(x, params):
+    """
+    Generate a Skew normal distribution based on `params`.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        The x-values at which to evaluate the distribution.
+    params : array-like with shape (n,)
+        `params` with the following fields defined:
+
+        amp : float
+            The maximum height of the distribution.
+        loc :  float
+            The location parameter of the distribution.
+        scale : float
+            The scale parameter of the distribution.
+        alpha : float
+            The shape parameter of the distribution.
+
+    Returns
+    -------
+    dist : numpy.ndarray
+        The Skew normal distribution evaluated with x.
+
+    """
+    amp, loc, scale, alpha = params
+
+    z = alpha*(x-loc)/scale
+    norm = np.sqrt(2*np.pi*scale**2)**-1* np.exp(
+            -((x-loc)**2)/(2*scale**2)
+            )
+    cdf = 0.5*(1+erf(z/np.sqrt(2)))
+
+    dist = amp*2*norm*cdf
+    return dist
+
+def _lsq_eq(p, fct, x, y):
+    """
+    Compute the vector of residuals in order to solve the least-squares
+    problem.
+
+    Parameters
+    ----------
+    p : array-like with shape (n,)
+        Set of independent variables defining the function.
+    fct : callable
+        Function used to solve the least-squares problem.
+    x : numpy.ndarray
+        Range on the x-axis to fit `fct`.
+    y : numpy.ndarray
+        Values on which to fit `fct` for each point of the x-axis range.
+
+    Returns
+    -------
+    callable
+        A function to feed to the `scipy.optimize.least_squares` method.
+
+    """
+    return fct(x,p) - y
+
+def _lsq_gauss_fit(x, y):
     """
     Use non-linear least squares to fit a Gaussian distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below
@@ -234,13 +234,13 @@ def lsq_gauss_fit(x, y):
         bA = [0,np.inf]
     bounds = ([bA[0],tau0-0.1,0],[bA[1],tau0+0.1,np.inf])
 
-    res_robust = least_squares(lsq_eq, p0, loss="soft_l1",
+    res_robust = least_squares(_lsq_eq, p0, loss="soft_l1",
                               f_scale=0.1, args=(gauss,x,y),
                                bounds=bounds)
     s = res_robust.x
     return s
 
-def lsq_skew_norm_fit(x, y):
+def _lsq_skew_norm_fit(x, y):
     """
     Use non-linear least squares to fit a Skew normal distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below
@@ -286,7 +286,7 @@ def lsq_skew_norm_fit(x, y):
         bA = [0,np.inf]
     bounds = ([bA[0],tau0-sigma0,0,-np.inf],[bA[1],tau0+sigma0,np.inf,np.inf])
 
-    res_robust = least_squares(lsq_eq, p0, loss="soft_l1",
+    res_robust = least_squares(_lsq_eq, p0, loss="soft_l1",
                                f_scale=0.1, args=(skew_norm,x,y),
                                bounds=bounds)
     s = res_robust.x
@@ -341,7 +341,7 @@ def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
     x_robust = np.arange(xdata.min() - 0.1, xdata.max() + 0.1, 0.001)
 
     # Gaussian curve fit
-    p_lsq_g = lsq_gauss_fit(xdata, ydata)
+    p_lsq_g = _lsq_gauss_fit(xdata, ydata)
     y_robust_g = gauss(x_robust, p_lsq_g)
     A_g, x0_g, sigma_g = p_lsq_g
     sigma_g = abs(sigma_g)
@@ -350,7 +350,7 @@ def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
     print('The sigma of the gaussian fit is', sigma_g,"\n")
 
     # Skew-Normal curve fit
-    p_lsq_sn = lsq_skew_norm_fit(xdata, ydata)
+    p_lsq_sn = _lsq_skew_norm_fit(xdata, ydata)
     y_robust_sn = skew_norm(x_robust, p_lsq_sn)
     A_sn, x0_sn, sigma_sn, alpha_sn = p_lsq_sn
     sigma_sn = abs(sigma_sn)

@@ -15,8 +15,9 @@ from peakfitting import peaks_params
 from utils import (r2_dw, rm_ends_outliers, continuous_ranges, find_plateaus,
                    merge_intervals
                    )
+from plot import r2_plots
 
-def relevant_range(s, x, tol=6.):
+def _relevant_range(s, x, tol=6.):
     """
     Limits the signal to the relevant range in order to find the optimal
     cutoff frequency for the BEADS algorithm.
@@ -32,21 +33,20 @@ def relevant_range(s, x, tol=6.):
 
     Returns
     -------
-    _last_arg : int
+    last_arg : int
         Index of the last relevant data point of in the signal ``s``.
 
     """
-    _s = gaussian_filter1d(s,3)
-    _peaks, _widths = peaks_params(_s, height_n=0.50, width=3, rel_prom_p=0.01,
+    z = gaussian_filter1d(s,3)
+    peaks, widths = peaks_params(z, height_n=0.50, width=3, rel_prom_p=0.01,
                                    adapt=True)
 
     #@EB Signal splitting
-    width_per_x = _widths/x[_peaks]
+    width_per_x = widths/x[peaks]
     # In case of very tall and large peaks (see acetonitrile)
-    exception = ((s[_peaks] > 20) & (width_per_x < 11))
-#    exception = False
-    rel_peaks = _peaks[((width_per_x < tol) | exception)]
-    rel_widths = _widths[((width_per_x < tol) | exception)]
+    exception = ((s[peaks] > 20) & (width_per_x < 11))
+    rel_peaks = peaks[((width_per_x < tol) | exception)]
+    rel_widths = widths[((width_per_x < tol) | exception)]
     ratio_w = rel_widths/np.min(rel_widths)
 
 #    print("===========================")
@@ -76,18 +76,16 @@ def relevant_range(s, x, tol=6.):
         #@EB Why divide by "2"?
         sampling = np.ceil((merged_lim[:,1]-merged_lim[:,0])/2.0
                            /np.min(rel_widths)).astype(int)
-#    print(sampling)
-#    print(merged_lim)
 
-    _arg_last_peak = rel_peaks.argmax()
-    _pos_last_peak = rel_peaks[_arg_last_peak]
-    _last_buffer = int(np.ceil(2*rel_widths)[_arg_last_peak])
-    _limmax = _pos_last_peak + _last_buffer
-    if len(s) > _limmax:
-        _last_arg = _limmax
+    arg_last_peak = rel_peaks.argmax()
+    pos_last_peak = rel_peaks[arg_last_peak]
+    last_buffer = int(np.ceil(2*rel_widths)[arg_last_peak])
+    limmax = pos_last_peak + last_buffer
+    if len(s) > limmax:
+        last_arg = limmax
     else:
-        _last_arg = len(s)
-    return _last_arg, merged_lim, sampling
+        last_arg = len(s)
+    return last_arg, merged_lim, sampling
 
 #def exclude_discontinuity(s, reg, reg2, d1_mins, tol=1E-04):
 #    """
@@ -107,7 +105,7 @@ def relevant_range(s, x, tol=6.):
 #        new_reg = reg
 #    return new_reg
 
-def log_transform(s,epsilon):
+def _log_transform(s,epsilon):
     """
     Log transformation used in the calculation of BEADS frequency cutoff. For
     further information, see [1].
@@ -182,7 +180,7 @@ def custom_beads(s, freq_cutoff, bl_fitter, regions=((None,None),),
 #                                 params['method_params']['signal'])
     return bl, params
 
-def r2_fcut(fcut, s, bl_fitter, algo, **kwargs):
+def _r2_fcut(fcut, s, bl_fitter, algo, **kwargs):
     """
     Compute the squared of the autocorrelation level `r` for a given cutoff
     frequency used for the substraction of the baseline.
@@ -199,101 +197,16 @@ def r2_fcut(fcut, s, bl_fitter, algo, **kwargs):
     r2 = r2_dw(s_corr)
     return r2
 
-def r2_fcut_array(x, y, baseline_fitter, fcut_range, algo, **kwargs):
+def _r2_fcut_array(x, y, baseline_fitter, fcut_range, algo, **kwargs):
     """
     Define a vectorized function 
     """
-    r2_func = lambda x: r2_fcut(x, y, baseline_fitter, algo, **kwargs)
+    r2_func = lambda x: _r2_fcut(x, y, baseline_fitter, algo, **kwargs)
     vr2_func = np.vectorize(r2_func)
     return vr2_func(fcut_range)
 
-def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
-             tol1_0, tol1_1, tol2, freq_cutoff, final_r2, case=0,
-             show_plot=False, print_plot=False, path="./file.txt"):
-    """
-    """
-    infls = np.where(np.diff(np.sign(sm_d2)))[0]
-    accepted = np.zeros(len(x))
-    accepted[sec_p] = 1
-
-    #@EB
-#    fig = plt.figure(figsize=[6.4,9.6],num="Autocorrelation plots")
-    fig = plt.figure(figsize=[9.4,9.6],num="Autocorrelation plots")
-    gs = fig.add_gridspec(3, hspace=0)
-    axs = gs.subplots(sharex=True)
-    axs[0].fill_between(x, 0, 1,
-                        where= x <= x[last_start],
-                        color='red', alpha=0.1,
-                        transform=axs[0].get_xaxis_transform())
-    axs[0].fill_between(x, 0, 1,
-                        where= accepted,
-                        color='green', alpha=0.3,
-                        transform=axs[0].get_xaxis_transform())
-    axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
-    axs[0].semilogx(x, sm_d0, marker='', ls='-',
-                    label=r'$r^2_\text{smooth}$',ms=3)
-
-    axs[1].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d1) < tol1_0,
-                        color="none", ec="white", alpha=0.3, fc="purple", 
-                        hatch="//", hatch_linewidth=4,
-                        transform=axs[1].get_xaxis_transform())
-    axs[1].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d1) < tol1_1,
-                        color='orange', alpha=0.3,
-                        transform=axs[1].get_xaxis_transform())
-    axs[1].semilogx(x, sm_d1, label='First Derivative')
-
-    axs[2].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d2) < tol2,
-                        color='blue', alpha=0.1,
-                        transform=axs[2].get_xaxis_transform())
-    axs[2].semilogx(x, sm_d2, label='Second Derivative')
-    for ax in axs.flat:
-#        for i, infl in enumerate(infls, 1):
-#            ax.axvline(x=x[infl], c='k', lw=0.5)#, label=f'Inflection Point {i}')
-        ax.axvline(x=freq_cutoff,c='tab:red',ls='dashed'),
-        ax.label_outer()
-#    for md1 in min_d1:
-#        axs[1].axvline(x=x[md1],ymax=0.5,c='tab:pink',ls='dashed')
-#    for md1 in max_d1:
-#        axs[1].axvline(x=x[md1],ymin=0.5,c='tab:green',ls='dashed')
-    axs[0].annotate(f'{final_r2:0.4f}',
-                    xy=(freq_cutoff,1.01),
-                    xycoords=("data","axes fraction"),
-                    ha='center',
-                    color='tab:red'
-                    )
-    axs[0].annotate(f"{'Case:'}{case:>3d}",
-                xy=(0.00,1.01),
-                xycoords=("axes fraction"),
-                ha='left',
-                color='tab:red'
-                )
-    axs[2].set_xlabel('Cutoff frequency')
-    axs[0].set_ylabel(r'$r^2_{y-b}$')
-    axs[1].set_ylabel(r"$r^2_{y-b}$'")
-    axs[2].set_ylabel(r"$r^2_{y-b}$''")
-
-    # How do we find the right inflection point?
-    # @EB Ajuster le calcul suivant?
-    infl_min = np.argmin(sm_d1[infls])
-    r2_ymin = r2[infls[infl_min-1]]-0.05  #only for the r2 plot limit
-    axs[0].set_ylim(r2_ymin,1.0)
-    axs[1].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
-    axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
-    axs[0].legend()
-    plt.tight_layout()
-    if show_plot:
-        plt.show()
-    if print_plot:
-        # @EB temporaty
-        _filename = os.path.splitext(os.path.basename(path))[0]
-        plt.savefig(f"r2_plots/{_filename}_r2.png")
-    plt.close()
-
 #Frequency cutoff for BEADS
-def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
+def _fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
             tol0=1.0E-03, tol1_0=1.0E-05, tol1_1=5.0E-04, tol2=2.0E-06,
             num=1000, show_plot=False, print_plot=False, path="./file.txt",
             method="beads", **kwargs):
@@ -312,13 +225,13 @@ def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
     bl_fitter = Baseline(x_data=x[:last_pt])
 
     # log transform of the signal
-    z = log_transform(s[:last_pt],1)
+    z = _log_transform(s[:last_pt],1)
     print(f"{'Used points:':<20}{len(z):d}")
 
     fcut_range = np.geomspace(0.00001, 0.5, num=num, endpoint=False)
  
     # y-data
-    r2_val = r2_fcut_array(x, z, bl_fitter, fcut_range, algo, **kwargs)
+    r2_val = _r2_fcut_array(x, z, bl_fitter, fcut_range, algo, **kwargs)
 
 ##############################################################################
     # Smoothed data and derivatives
@@ -390,7 +303,7 @@ def fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
     print(f"Case {case:d}")
     toc = time.perf_counter()
     print(f"Autocorrelation in {toc-tic:0.4f} seconds")
-    fi_r2_val = r2_fcut(fcut, z, bl_fitter, algo, **kwargs)
+    fi_r2_val = _r2_fcut(fcut, z, bl_fitter, algo, **kwargs)
     print(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
 
     # r2 plot
@@ -467,7 +380,7 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     # Takes care of possible outliers at both ends of the signal
     signal = rm_ends_outliers(s)
     # Limits the range and splits the signal
-    last_pt, peaks_range, sampling = relevant_range(signal,x)
+    last_pt, peaks_range, sampling = _relevant_range(signal,x)
 
     # NOTE: The value of `alpha` doesn't need to change when looking for the
     #       best r**2 because of the log transform
@@ -483,7 +396,7 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
 
     # Cutoff frequency
     if freq_cutoff is None:
-        fcut, case = fcutoff(signal, x, last_pt,
+        fcut, case = _fcutoff(signal, x, last_pt,
                              show_plot=show_plot, print_plot=print_plot,
                              path=path, method=method, **method_kwargs)
     else:

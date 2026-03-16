@@ -5,7 +5,6 @@ Helper functions to perform various signal preprocessin operations.
 """
 import numpy as np
 from scipy.signal import savgol_filter
-#from statsmodels.stats.stattools import durbin_watson as dwtest
 
 def rm_ends_outliers(data, window_min=5, window_max=100):
     """
@@ -47,7 +46,7 @@ def rm_ends_outliers(data, window_min=5, window_max=100):
         s[-1] = y1_med
     return s
 
-def durbin_watson(resids, axis=0):
+def _durbin_watson(resids, axis=0):
     """
     Calculate the Durbin-Watson statistic.
 
@@ -80,6 +79,8 @@ def durbin_watson(resids, axis=0):
     always be between 0 and 4. The closer to 0 the statistic, the more
     evidence for positive serial correlation. The closer to 4, the more
     evidence for negative serial correlation.
+
+    Based on the implementation found in ``statsmodels.stats.stattools``.
     """
     resids = np.asarray(resids)
     diff_resids = np.diff(resids, 1, axis=axis)
@@ -103,7 +104,7 @@ def r2_dw(s):
         The squared values of the DW autocorrelation level.
 
     """
-    r2 = ((2-durbin_watson(s))**2)/4
+    r2 = ((2-_durbin_watson(s))**2)/4
     return r2
 
 def smooth_SG(x, window_lenght, polyorder):

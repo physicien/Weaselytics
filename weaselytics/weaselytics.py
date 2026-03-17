@@ -1,12 +1,8 @@
 #!/usr/bin/python3
 
 import sys
-import os
 import argparse
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import time
 
 from parsers import ParsedData
 from peakfitting import gauss, skew_norm, fit_peak

@@ -34,15 +34,15 @@ def rm_ends_outliers(data, window_min=5, window_max=100):
         size = window_min
     if size > window_max:
         size = window_max
-    y_max = 0.01*np.abs(np.max(data)-np.min(data))
+    ymax = 0.01*np.abs(np.max(data)-np.min(data))
     y0_med = np.median(data[:size])
-    y0_gap = np.abs(data[0]-y0_med)
+    diff0 = np.abs(data[0]-y0_med)
     y1_med = np.median(data[-size:])
-    y1_gap = np.abs(data[-1]-y1_med)
+    diff1 = np.abs(data[-1]-y1_med)
 
-    if y0_gap > y_max:
+    if diff0 > ymax:
         s[0] = y0_med
-    if y1_gap > y_max:
+    if diff1 > ymax:
         s[-1] = y1_med
     return s
 

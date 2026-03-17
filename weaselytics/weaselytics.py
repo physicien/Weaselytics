@@ -104,7 +104,8 @@ xdata, ydata = parsed.data
 if args.show or args.print:
     plot_kwargs = {
             "show_plot": args.show,
-            "print_plot": args.print
+            "print_plot": args.print,
+            "path": path
             }
 
 #smoothing

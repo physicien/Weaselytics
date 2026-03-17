@@ -3,14 +3,10 @@
 """
 Functions to perform Peak fitting.
 """
-
-import os
-import re
 import numpy as np
 from scipy.special import erf
 from scipy.signal import find_peaks, peak_widths
 from scipy.optimize import least_squares
-import pandas as pd
 
 from export import export_dist
 

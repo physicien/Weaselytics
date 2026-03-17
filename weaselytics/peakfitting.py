@@ -12,6 +12,8 @@ from scipy.signal import find_peaks, peak_widths
 from scipy.optimize import least_squares
 import pandas as pd
 
+from export import export_dist
+
 def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
                  rel_height_p=0.5, rel_height_n=0.5, width=None, adapt=False):
     """
@@ -260,7 +262,7 @@ def _lsq_skew_norm_fit(x, y):
 
         amp : float
             The maximum height of the distribution.
-        loc :  float
+        loc : float
             The location parameter of the distribution.
         scale : float
             The scale parameter of the distribution.
@@ -361,33 +363,7 @@ def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
 
     #if name is given - csv generation
     if mol and path:
-        solv_pattern = r"(^.+)__LPYE"   # not general...
-        filename = os.path.basename(path)
-        outname = re.match(r"(^.+).txt", filename).group(1)
-        solvent = re.match(solv_pattern, filename).group(1)
-        data_gauss = {
-                "mol": mol,
-                "solvent": solvent,
-                "distribution": "Gaussian",
-                "A": A_g,
-                "x0": x0_g,
-                "sigma": sigma_g,
-                "alpha": 0
-                }
-        data_skew_norm = {
-                "mol": mol,
-                "solvent": solvent,
-                "distribution": "Skew-Normal",
-                "A": A_sn,
-                "x0": x0_sn,
-                "sigma": sigma_sn,
-                "alpha": alpha_sn
-                }
-        mol_list = list()
-        mol_list.append(data_gauss)
-        mol_list.append(data_skew_norm)
-        df = pd.DataFrame(mol_list)
-        header = ["mol","solvent","distribution","A","x0","sigma","alpha"]
-        df.to_csv(outname+"_"+mol+".csv", index=False, header=header)
+        export_dist(mol, path, p_lsq_g, p_lsq_sn)
+
     return x_robust, y_robust_g, y_robust_sn
 

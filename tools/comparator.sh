@@ -1,8 +1,8 @@
 #!/bin/bash
 
-JOB1=./REF_2026-03-12_8072682
-JOB2=./noisy_start_8160126
-WORKDIR=./${JOB1##*/}__vs__${JOB2##*/}
+JOB1=$1
+JOB2=$2
+WORKDIR=./$(basename $JOB1)__vs__$(basename $JOB2)
 IMGDIR=images
 R2DIR=r2_plots
 

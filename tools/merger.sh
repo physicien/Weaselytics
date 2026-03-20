@@ -1,7 +1,7 @@
 #!/bin/bash
 
-JOB=./noisy_start_8160126
-WORKDIR=./MERGED_${JOB##*/}
+JOB=$1
+WORKDIR=./MERGED_$(basename $JOB)
 IMGDIR=images
 R2DIR=r2_plots
 

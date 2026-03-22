@@ -82,12 +82,11 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
     widths_n = peak_widths(-s, peaks_n, rel_height=rel_height_n)[0]
 
     unsorted_peaks = np.append(peaks_p, peaks_n)
-    unsorted_widths = np.append(widths_p, widths_n)
-    
+    unsorted_widths = np.append(widths_p, widths_n) 
     index_array = np.argsort(unsorted_peaks)
+
     peaks = unsorted_peaks[index_array]
     widths = unsorted_widths[index_array]
-
     return peaks, widths
 
 def gauss(x, params):

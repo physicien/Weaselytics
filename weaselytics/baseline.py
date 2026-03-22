@@ -12,120 +12,124 @@ import matplotlib.pyplot as plt
 import time                             #@EB temporary?
 
 from peakfitting import peaks_params
-from utils import (r2_dw, rm_ends_outliers, continuous_ranges, find_plateaus,
-                   merge_intervals
+from utils import (r2_dw, continuous_ranges, find_plateaus, merge_intervals,
+                   end_window
                    )
 from plot import r2_plots
 
-def _relevant_range(s, x, tol=6.):
+def _relevant_regions(s, x, tol=6.):
     """
-    Limits the signal to the relevant range in order to find the optimal
+    Divide the signal into regions maximizing the contribution of the signal in
+    the calculation of the autocorrelation plot. in order to find the optimal
     cutoff frequency for the BEADS algorithm.
 
     Parameters
     ----------
-    s : array-like
-        The signal to limit.
-    x : array-like
-        The x of the signal.......
+    s : array-like, shape (N,)
+        The y-values of the signal.
+    x : array-like, shape (N,)
+        The x-values of the signal.
     tol : float, optional
-        Threshold 
+        Threshold on the ratio of a peak’s width as a function of its location
+        in `x`.
 
     Returns
     -------
-    last_arg : int
-        Index of the last relevant data point of in the signal ``s``.
+    peak_regions : array-like, shape (M,2)
+        The two dimensional array containing the start and stop indices for
+        each region containing a relevant peak. Each region is defined as
+        ``data[start:stop]``. Default is ((None, None),), which will use all
+        points.
+    sampling : int or array-like of shape (M,2)
+        The sampling step size for each region defined in `peak_regions`.
+    scut : int
+        Index of the last data point in `s` (signal cutoff) relevant to the
+        calculation of the autocorrelation.
 
     """
+    # NOTE: A weak smoothing helps to avoid peak detection in noisy region of
+    #       the signal by:
+    #           1) removing most of the spurious features in the raw signal
+    #           2) sligntly enlarging features relevant for peaks detection
     z = gaussian_filter1d(s,3)
     peaks, widths = peaks_params(z, height_n=0.50, width=3, rel_prom_p=0.01,
                                    adapt=True)
 
-    #@EB Signal splitting
+    # TODO: Find a way to make this part of the code more robust.
     width_per_x = widths/x[peaks]
     # In case of very tall and large peaks (see acetonitrile)
     exception = ((s[peaks] > 20) & (width_per_x < 11))
+    # Signal splitting
     rel_peaks = peaks[((width_per_x < tol) | exception)]
     rel_widths = widths[((width_per_x < tol) | exception)]
     ratio_w = rel_widths/np.min(rel_widths)
 
-#    print("===========================")
-#    print(np.round(x[rel_peaks],2))
-#    print(rel_peaks)
-#    print(np.round(rel_widths,2))
-#    print(np.round(ratio_w,2))
-#    print(np.round(rel_widths/x[rel_peaks],2))
-#    print("===========================")
-    
-    # Assuming that `rel_widths` is the FWHM and that the peak is gaussian,
-    # `buffer` is equal to the full peak width
+    # Peak full width
+    # NOTE: Assuming that `rel_widths` is the FWHM and that the peak is
+    #       gaussian, `buffer` is equal to half of the full peak width.
     buffer = np.ceil(0.85*rel_widths).astype(int)
-    lim_inf = rel_peaks - buffer
-    lim_sup = rel_peaks + buffer
-    limits = np.array([lim_inf,lim_sup]).T
+    left_lim = rel_peaks - buffer
+    right_lim = rel_peaks + buffer
+    full_widths = np.array([left_lim,right_lim]).T
 
-    large_lim = limits[ratio_w > 1] # All peaks or only the larger ones?
-    merged_lim = merge_intervals(np.copy(large_lim))
-    if len(merged_lim) == 0:
-        merged_lim = ((None, None),)
+    # Peak regions and sampling
+    large_peaks = full_widths[ratio_w > 1]      # Ignore the narrowest peak
+    peak_regions = merge_intervals(np.copy(large_peaks))
+    if len(peak_regions) == 0:
+        peak_regions = ((None, None),)
         sampling = 1
     else:
         # Because values in regions must be less than len(data)
-        if merged_lim[-1,-1] >= len(s):
-            merged_lim[-1,-1] = len(s) - 1
-        #@EB Why divide by "2"?
-        sampling = np.ceil((merged_lim[:,1]-merged_lim[:,0])/2.0
+        if peak_regions[-1,-1] >= len(s):
+            peak_regions[-1,-1] = len(s) - 1
+        sampling = np.ceil((peak_regions[:,1]-peak_regions[:,0])/2
                            /np.min(rel_widths)).astype(int)
+        #@EB Why divided by 2?
 
+    # Signal cutoff
+    # TODO: Maybe it would be a good idea to cut the less relevant starting
+    #       segment too.
     arg_last_peak = rel_peaks.argmax()
     pos_last_peak = rel_peaks[arg_last_peak]
-    last_buffer = int(np.ceil(2*rel_widths)[arg_last_peak])
-    limmax = pos_last_peak + last_buffer
-    if len(s) > limmax:
-        last_arg = limmax
+    buffer_last_peak = int(np.ceil(2*rel_widths)[arg_last_peak])
+    pos_max = pos_last_peak + buffer_last_peak
+    if len(s) > pos_max:
+        scut = pos_max
     else:
-        last_arg = len(s)
-    return last_arg, merged_lim, sampling
+        scut = len(s)
+    return peak_regions, sampling, scut
 
-#def exclude_discontinuity(s, reg, reg2, d1_mins, tol=1E-04):
-#    """
-#    """
-#    ediff = np.ediff1d(s[reg2])
-#    discontinuity = reg2[np.where(ediff > tol)[0]]
-#    if discontinuity.size != 0:
-#        iterable = (d1_mins[np.argmax(d1_mins > pos)] for pos in discontinuity)
-#        next_min = np.fromiter(iterable, int)
-#        to_exclude = np.hstack([np.arange(r[0], r[1]+1) for r in
-#                                zip(discontinuity, next_min)])
-#        new_reg = np.setdiff1d(reg, to_exclude)
-#    else:
-#        new_reg = reg
-#    #@EB way to specific...
-#    if new_reg.size == 0:
-#        new_reg = reg
-#    return new_reg
-
-def _log_transform(s,epsilon):
+def _log_transform(s, epsilon=1):
     """
-    Log transformation used in the calculation of BEADS frequency cutoff. For
-    further information, see [1].
+    Log transformation used in the calculation of the autocorrelation for the
+    BEADS algorithm. For further information, see [1].
 
     Parameters
     ----------
-    s : array-like
-        The data to transform.
-    epsilon : float
+    s : array-like, shape (N,)
+        The y-values of the signal to transform.
+    epsilon : float, optional
         An arbitrary positive offset. The larger the offset, the less
-        aggressive the pre-treatment. Default is 1. This value is appropriate
-        regarding the magnitude of the signals being processed, which reach
-        maxima around 500–10,000. Another reason for selecting ``epsilon = 1``
-        is because if ``yi = min (y)``, then 
-        ``log (yi − min(y) + 1) = log 1 = 0``.
+        aggressive the pre-treatment. Default is 1 (see Notes).
 
     Returns
     -------
     log_s : numpy.ndarray
         The log transformed data.
+
+    Notes
+    -----
+    The default value of ``epsilon = 1`` was originally suggested by
+    Navarro-Huerta et al. [1] for two reasons:
+        1) It was judged appropriate regarding the magnitude of the signals
+        reaching maxima around 500-10000.
+        2) If ``yi = min(y)``, then ``log(yi - min(y) + 1) = log 1 = 0``.
+
+    However, it seems uncertain whether choosing ``epsilon = 1`` is optimal
+    for a signal whose maximum value is below 500. My impression is that the
+    500-10000 guideline reported by Navarro-Huerta et al. [1] was most likely
+    derived purely from the particular signals they had at their disposal,
+    rather than being grounded in a substantive theoretical argument.
     
     References
     ----------
@@ -137,33 +141,176 @@ def _log_transform(s,epsilon):
     log_s = np.log10(s - np.min(s) + epsilon)
     return log_s
 
-def beads(s, freq_cutoff, bl_fitter, asymmetry=1.0, fit_parabola=True,
-          alpha=1.0, **kwargs):
+def beads(baseline_fitter, s, freq_cutoff=0.005, asymmetry=1.0,
+          fit_parabola=True, alpha=1.0, parabola_len=3, **kwargs):
     """
-    Baseline correction with the BEADS algorithm.
+    Baseline estimation and denoising with sparsity (BEADS).
+
+    Parameters
+    ----------
+    baseline_fitter : `Baseline` object
+        Contains the x-values of the signal to baseline correct and all
+        available baseline correction algorithms in pybaselines.
+    s :  array-like, shape (N,)
+        The y-values of the signal.
+    freq_cutoff : float, optional
+        The cutoff frequency of the high pass filter, normalized such that
+        0 < `freq_cutoff` < 0.5. Default is 0.005.
+    asymmetry : float, optional
+        A number greater than 0 that determines the weighting of negative
+        values compared to positive values in the cost function. For example,
+        if is 6.0, it will give negative values six times more impact on the
+        cost function that positive values. If set to 1 (the default), the
+        cost function is symmetric, and a value less than 1 will weigh positive
+        values more.
+    fit_parabola : bool, optional
+        If True (default), will fit a parabola to the data and subtract it
+        before performing the BEADS fit as suggested in [2]. This ensures the
+        endpoints of the fit data are close to 0, which is required by BEADS.
+        If the data is already close to 0 on both endpoints, set `fit_parabola`
+        to False (but it does not change anything in reality).
+    alpha : float, optional
+        #@EB will change in pybaselines. Default is 1.0.
+    parabola_len : int, optional
+        Size of the window used, at each ends of the data, to prevent issues
+        in fitting a parabola before the baseline correction[2] when the first
+        and/or last point is an outlier. Default is 3.
+    **kwargs
+        Additional keyword arguments.
+
+    Returns
+    -------
+    bl : numpy.ndarray, shape (N,)
+        The calculated baseline.
+    params : dict
+        A dictionary with the following items:
+
+        * 'signal': numpy.ndarray, shape (N,)
+            The pure signal portion of the input `data` without noise or the
+            baseline.
+        * 'tol_history': numpy.ndarray
+            An array containing the calculated tolerance values for each
+            iteration. The length of the array is the number of iterations
+            completed. If the last value in the array is greater than the input
+            `tol` value, then the function did not converge.
+        * 'fidelity': float
+            The fidelity term of the final fit, given as
+            :math:`0.5 * ||H(y - s)||_2^2`.
+        * 'penalty' : tuple[float, float, float]
+            The penalty terms of the final fit before multiplication with the
+            `lam_d` terms. These correspond to
+            :math:`\sum\limits_{i}^{N} \theta(s_i)`,
+            :math:`\sum\limits_{i}^{N - 1} \phi(\Delta^1 s_i)`, and
+            :math:`\sum\limits_{i}^{N - 2} \phi(\Delta^2 s_i)`, respectively.
+
+    References
+    ----------
+    .. [1] Ning, X., et al. Chromatogram baseline estimation and denoising
+        using sparsity (BEADS). Chemometrics and Intelligent Laboratory
+        Systems, 2014, 139, 156-167.
+    .. [2] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in
+        complex chromatograms using the BEADS algorithm. Journal of
+        Chromatography A, 2017, 1507, 1-10.
+
     """
-    bl, params = bl_fitter.beads(
+    bl, params = baseline_fitter.beads(
             s,
             freq_cutoff=freq_cutoff,
             fit_parabola=fit_parabola,
             asymmetry=asymmetry,
-            alpha=alpha
+            alpha=alpha,
+            parabola_len=parabola_len
             )
     return bl, params
 
-def custom_beads(s, freq_cutoff, bl_fitter, regions=((None,None),),
-                 sampling=1, asymmetry=1.0, fit_parabola=True, alpha=1.0,
-                 **kwargs):
+def custom_beads(baseline_fitter, s, regions=((None,None),), sampling=1,
+                 freq_cutoff=0.005, asymmetry=1.0, fit_parabola=True,
+                 alpha=1.0, parabola_len=3, **kwargs):
     """
-    Baseline correction with the custom BEADS algorithm.
+    Customized variant of BEADS for fine tuned stiffness of the baseline in
+    specific regions.
+
+    Parameters
+    ----------
+    baseline_fitter : `Baseline` object
+        Contains the x-values of the signal to baseline correct and all
+        available baseline correction algorithms in pybaselines.
+    s :  array-like, shape (N,)
+        The y-values of the signal.
+    regions : array-line, shape (M,2), optional
+        The two dimensional array containing the start and stop indices for
+        each region containing a relevant peak. Each region is defined as
+        ``data[start:stop]``. Default is ((None, None),), which will use all
+        points.
+    sampling : int or array-like, optional
+        The sampling step size for each region defined in `regions`. Default
+        is 1.
+    freq_cutoff : float, optional
+        The cutoff frequency of the high pass filter, normalized such that
+        0 < `freq_cutoff` < 0.5. Default is 0.005.
+    asymmetry : float, optional
+        A number greater than 0 that determines the weighting of negative
+        values compared to positive values in the cost function. For example,
+        if is 6.0, it will give negative values six times more impact on the
+        cost function that positive values. If set to 1 (the default), the
+        cost function is symmetric, and a value less than 1 will weigh positive
+        values more.
+    fit_parabola : bool, optional
+        If True (default), will fit a parabola to the data and subtract it
+        before performing the BEADS fit as suggested in [2]. This ensures the
+        endpoints of the fit data are close to 0, which is required by BEADS.
+        If the data is already close to 0 on both endpoints, set `fit_parabola`
+        to False (but it does not change anything in reality).
+    alpha : float, optional
+        #@EB will change in pybaselines. Default is 1.0.
+    parabola_len : int, optional
+        Size of the window used, at each ends of the data, to prevent issues
+        in fitting a parabola before the baseline correction [2] when the first
+        and/or last point is an outlier. Default is 3.
+    **kwargs
+        Additional keyword arguments.
+
+    Returns
+    -------
+    bl : numpy.ndarray, shape (N,)
+        The calculated baseline.
+    params : dict
+        A dictionary with the following items:
+
+        * 'signal': numpy.ndarray, shape (N,)
+            The pure signal portion of the input `data` without noise or the
+            baseline.
+        * 'x_fit': numpy.ndarray, shape (P,)
+            The truncated x-values used for fitting the baseline.
+        * 'y_fit': numpy.ndarray, shape (P,)
+            The truncated y-values used for fitting the baseline.
+        * 'baseline_fit': numpy.ndarray, shape (P,)
+            The truncated baseline before interpolating from `P` points to `N`
+            points.
+        * 'method_params': dict
+            A dictionary containing the output parameters for the fit using the
+            selected `method`.
+
+    References
+    ----------
+    .. [1] Ning, X., et al. Chromatogram baseline estimation and denoising
+        using sparsity (BEADS). Chemometrics and Intelligent Laboratory
+        Systems, 2014, 139, 156-167.
+    .. [2] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in
+        complex chromatograms using the BEADS algorithm. Journal of
+        Chromatography A, 2017, 1507, 1-10.
+    .. [3] Liland, K., et al. Customized baseline correction. Chemometrics and
+        Intelligent Laboratory Systems, 2011, 109(1), 51-56.
+
     """
     beads_kwargs = {'freq_cutoff': freq_cutoff,
                     'fit_parabola': fit_parabola,
                     'asymmetry': asymmetry,
-                    'alpha': alpha
+                    'alpha': alpha,
+                    'parabola_len': parabola_len
                     }
 
-    bl, params = bl_fitter.custom_bc(
+    bl, params = baseline_fitter.custom_bc(
             s,
             method="beads",
             regions=regions,
@@ -174,43 +321,145 @@ def custom_beads(s, freq_cutoff, bl_fitter, regions=((None,None),),
     
     noise_fit = (params['y_fit'] - params['baseline_fit']
                  - params['method_params']['signal'])
-    params['noise'] = np.interp(bl_fitter.x, params['x_fit'], noise_fit)
+    params['noise'] = np.interp(baseline_fitter.x, params['x_fit'], noise_fit)
     params['signal'] = s - bl - params['noise']
-#    params['signal'] = np.interp(bl_fitter.x, params['x_fit'],
-#                                 params['method_params']['signal'])
     return bl, params
 
-def _r2_fcut(fcut, s, bl_fitter, algo, **kwargs):
+def _r2(algo, baseline_fitter, y, p, param="freq_cutoff", **kwargs):
     """
-    Compute the squared of the autocorrelation level `r` for a given cutoff
-    frequency used for the substraction of the baseline.
+    Calculate the autocorrelation, based on the Durbin-Watson statistics, of
+    the baseline corrected signal for a given value of a given parameter used
+    for the substraction of the baseline.
 
     Parameters
     ----------
+    algo : Callable
+       The callable method corresponding to the input string.
+    baseline_fitter : `Baseline` object
+        Contains the x-values of the signal to baseline correct and all
+        available baseline correction algorithms in pybaselines.
+    y : array-like, shape (N,)
+        The y-values of the signal.
+    p : float
+        Value or `param` at which r2 is evaluated.
+    param : str, optional
+        Label of the parameter to correlate with the value of r2. Default is
+        "freq_cutoff".
+    **kwargs
+        Additional keyword arguments.
+        
+    Returns
+    -------
+    r2 : float
+        The autocorrelation of the baseline corrected signal for `param`=`p`.
+
+    """
+    kwargs[param] = p
+    _, params = algo(baseline_fitter, y, **kwargs)
+    y_corr = params["signal"]
+    r2 = r2_dw(y_corr)
+    return r2
+
+def _r2_array(algo, baseline_fitter, signal, param_range,
+              param="freq_cutoff", **kwargs):
+    """
+    Calculate the array of `r2`, the Durbin-Watson autocorrelation of the
+    baseline corrected signal, relative to a parameter on a specific range.
+
+    Parameters
+    ----------
+    algo : Callable
+       The callable method corresponding to the input string.
+    baseline_fitter : `Baseline` object
+        Contains the x-values of the signal to baseline correct and all
+        available baseline correction algorithms in pybaselines.
+    signal : array-like, shape (N,)
+        The y-values of the signal.
+    param_range : array-like, shape (M,)
+        Range of values taken by `param` and at which r2 is evaluated.
+    param : str, optional
+        Label of the parameter to correlate with the value of r2. Default is
+        "freq_cutoff".
+    **kwargs
+        Additional keyword arguments.
+    
+    Returns
+    -------
+    vr2 : numpy.ndarray, shape (M,)
+        The calculated array of r2.
+
+    """
+    r2_func = lambda x: _r2(algo, baseline_fitter, signal, x, param=param,
+                            **kwargs)
+    vr2_func = np.vectorize(r2_func)
+    vr2 = vr2_func(param_range)
+    return vr2
+
+def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
+            tol0=1.0E-03, tol1_0=1.0E-05, tol1_1=5.0E-04, tol2=2.0E-06,
+            num=1000, show_plot=False, print_plot=False, path="./file.txt",
+            method="beads", param="freq_cutoff", **kwargs):
+    """
+    Find the optimal cutoff frequency.
+
+    ###EXPERIMENTAL###
+    Since this function is still under development and very unreliable, it is
+    best to explain the general idea behind it rather than the details of the
+    current implementation. This is done in fcut.md
+    ##################
+
+    Parameters
+    ----------
+    s : array-like, shape (N,)
+        The y-values of the signal.
+    x : array-like, shape (N,)
+        The x-values of the signal.
+    scut : int
+        Index of the last data point in `s` (signal cutoff) relevant to the
+        calculation of the autocorrelation.
+    smoothing_window : int, optional
+        Standard deviation for Gaussian kernel used to smooth the signal.
+    slope_thresh : float, optional
+        Threshold on the value of `smooth_d1` for the final shift of the
+        frequency cutoff. Default is 5.0E-05.
+    tol0 : float, optional
+        Threshold used to find the first plateau on the autocorrelation plot.
+        Default is 1.0E-03.
+    tol1_0 : float, optional
+        Tight threshold used to find plateaus on the first derivative of the
+        smoothed autocorrelation plot. Default is 1.0E-05.
+    tol1_1 : float, optional
+        Loose threshold used to find plateaus on the first derivative of the
+        smoothed autocorrelation plot. Default is 5.0E-04.
+    tol2 : float, optional
+        Threshold used to find plateaus on the second derivative of the
+        smoothed autocorrelation plot. Default is 2.0E-06.
+    num : int, optional
+        Number of x-values spanning the frequency range to evaluate r2.
+        Default is 1000.
+    show_plot : bool, optional
+        If True, the plot will be shown to the screen. Default is False.
+    print_plot : bool, optional
+        If True, the plot will be exported as an image. Default is False.
+    path : str, optional
+        Path of the data file.
+    method : Callable
+       The callable method corresponding to the input string.
+    param : str, optional
+        Label of the parameter to correlate with the value of r2. Default is
+        "freq_cutoff".
+    **kwargs
+        Additional keyword arguments.
 
     Returns
     -------
-
-    """
-    _, params = algo(s, fcut, bl_fitter, **kwargs)
-    s_corr = params["signal"]
-    r2 = r2_dw(s_corr)
-    return r2
-
-def _r2_fcut_array(x, y, baseline_fitter, fcut_range, algo, **kwargs):
-    """
-    Define a vectorized function 
-    """
-    r2_func = lambda x: _r2_fcut(x, y, baseline_fitter, algo, **kwargs)
-    vr2_func = np.vectorize(r2_func)
-    return vr2_func(fcut_range)
-
-#Frequency cutoff for BEADS
-def _fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
-            tol0=1.0E-03, tol1_0=1.0E-05, tol1_1=5.0E-04, tol2=2.0E-06,
-            num=1000, show_plot=False, print_plot=False, path="./file.txt",
-            method="beads", **kwargs):
-    """
+    fcut : float
+        The cutoff frequency of the high pass filter, normalized such that
+        0 < `freq_cutoff` < 0.5.
+    case : int,
+        The case rule from which `fcut` have been selected. Not necessarily
+        useful in the current implementation, but it is advisable to keep it
+        until proven otherwise.
 
     """
     tic = time.perf_counter()
@@ -222,21 +471,22 @@ def _fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
 
     algo = allowed_methods[method]
  
-    bl_fitter = Baseline(x_data=x[:last_pt])
+    baseline_fitter = Baseline(x_data=x[:scut])
 
     # log transform of the signal
-    z = _log_transform(s[:last_pt],1)
+    z = _log_transform(s[:scut])
     print(f"{'Used points:':<20}{len(z):d}")
 
     fcut_range = np.geomspace(0.00001, 0.5, num=num, endpoint=False)
  
     # y-data
-    r2_val = _r2_fcut_array(x, z, bl_fitter, fcut_range, algo, **kwargs)
+    r2_val = _r2_array(algo, baseline_fitter, z, fcut_range, param=param,
+                       **kwargs)
 
-##############################################################################
+    ##########################################################################
     # Smoothed data and derivatives
     smooth_d0 = gaussian_filter1d(r2_val,smoothing_window)
-#    smooth_d0 = medfilt(r2_val, smoothing_window)
+    #smooth_d0 = medfilt(r2_val, smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
     smooth_d2 = np.gradient(smooth_d1)
     min_d1 = argrelmin(smooth_d1)[0]
@@ -288,7 +538,7 @@ def _fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
         case = 2
         arg_l = anchors[np.argmin(np.absolute(smooth_d1[anchors]))]
     
-##############################################################################
+    ##########################################################################
     # Shift relative to the chosen anchor
     slope_arg = np.where(np.absolute(smooth_d1) >= slope_thresh)[0]
     try:
@@ -298,12 +548,12 @@ def _fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
         cutoff = arg_l
 
     fcut = fcut_range[cutoff]
-##############################################################################
+    ##########################################################################
 
     print(f"Case {case:d}")
     toc = time.perf_counter()
     print(f"Autocorrelation in {toc-tic:0.4f} seconds")
-    fi_r2_val = _r2_fcut(fcut, z, bl_fitter, algo, **kwargs)
+    fi_r2_val = _r2(algo, baseline_fitter, z, fcut, param=param, **kwargs)
     print(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
 
     # r2 plot
@@ -319,7 +569,7 @@ def _fcutoff(s, x, last_pt, smoothing_window=15, slope_thresh=5.0E-05,
 #BEADS baseline correction
 def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
                path="./file.txt", method="beads", asymmetry=1.0,
-               fit_parabola=True, alpha=None):
+               fit_parabola=True, alpha=None, parabola_len=3):
     """
     Automatic implementation of the Baseline estimation and denoising with
     sparsity (BEADS) algorithm.
@@ -331,9 +581,15 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     Parameters
     ----------
     s : array-like, shape (N,)
-        The y-values of the measured signal, with N data points.
+        The y-values of the signal.
     x : array-like, shape (N,)
-        The x-values of the measured signal, with N data points.
+        The x-values of the signal.
+    show_plot : bool, optional
+        If True, the plot will be shown to the screen. Default is False.
+    print_plot : bool, optional
+        If True, the plot will be exported as an image. Default is False.
+    path : str, optional
+        Path of the data file.
     freq_cutoff : float, optional
         The cutoff frequency of the high pass filter, normalized such that
         0 < `freq_cutoff` < 0.5. Default is None, which will calculate its
@@ -343,8 +599,8 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
         A number greater than 0 that determines the weighting of negative
         values compared to positive values in the cost function. For example,
         if is 6.0, it will give negative values six times more impact on the
-        cost function that positive values. If set to 1 (the default) for a
-        symmetric cost function, or a value less than 1 to weigh positive
+        cost function that positive values. If set to 1 (default), the cost
+        function is symmetric, and a value less than 1 will weigh positive
         values more.
     fit_parabola : bool, optional
         If True (default), will fit a parabola to the data and subtract it
@@ -353,11 +609,24 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
         If the data is already close to 0 on both endpoints, set `fit_parabola`
         to False (but it does not change anything in reality).
     alpha : float, optional
-        ###########################  TO CONTINUE  ############################
+        #@EB will change in pybaselines. If None (default), will automatically
+        ajust the value (always to 1 for now).
+    parabola_len : int, optional
+        Size of the window used, at each ends of the data, to prevent issues
+        in fitting a parabola before the baseline correction[2] when the first
+        and/or last point is an outlier. If None, will be ajusted to the length
+        of the data.
 
     Returns
     -------
     baseline : numpy.ndarray, shape (N,)
+        The calculated baseline.
+    p : dict
+        A dictionary with the various parameters depending of the method used.
+    case : int,
+        The case rule from which `fcut` have been selected. Not necessarily
+        useful in the current implementation, but it is advisable to keep it
+        until proven otherwise.
 
     References
     ----------
@@ -367,6 +636,7 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     .. [2] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in
         complex chromatograms using the BEADS algorithm. Journal of
         Chromatography A, 2017, 1507, 1-10.
+
     """
     if asymmetry <= 0:
         raise ValueError('asymmetry must be greater than 0')
@@ -377,26 +647,27 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
         raise ValueError("method '{method}' is not implemented")
     algo = allowed_methods[method]
 
-    # Takes care of possible outliers at both ends of the signal
-    signal = rm_ends_outliers(s)
     # Limits the range and splits the signal
-    last_pt, peaks_range, sampling = _relevant_range(signal,x)
+    peak_regions, sampling, scut= _relevant_regions(s, x)
 
     # NOTE: The value of `alpha` doesn't need to change when looking for the
     #       best r**2 because of the log transform
+    # NOTE: The default setting of `parabola_len=3` is suitable to determine
+    #       `fcut` since the signal is log-transformed beforehand.
     method_kwargs = {
             "asymmetry": asymmetry,
             "fit_parabola": fit_parabola,
             "alpha": 1.0,
-            "regions": peaks_range,
+            "parabola_len": 3,
+            "regions": peak_regions,
             "sampling": sampling
             }
 
-    print(f"{'Data points:':<20}{len(signal):d}")
+    print(f"{'Data points:':<20}{len(s):d}")
 
     # Cutoff frequency
     if freq_cutoff is None:
-        fcut, case = _fcutoff(signal, x, last_pt,
+        fcut, case = _fcutoff(s, x, scut,
                              show_plot=show_plot, print_plot=print_plot,
                              path=path, method=method, **method_kwargs)
     else:
@@ -404,22 +675,29 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")
         fcut = freq_cutoff
         case = 0
+    method_kwargs["freq_cutoff"] = fcut
 
-    # Alpha
+    # Change alpha for the final baseline correction
     if alpha is None:
         alpha=1.0
         method_kwargs.update({"alpha": alpha})  #@EB TO CHANGE WHEN I KNOW HOW
+
+    # Change parabola_len for the final baseline correction
+    if parabola_len is None:
+        parabola_len=end_window(s)
+        method_kwargs.update({"parabola_len": parabola_len})
 
     print(f"{'Cutoff frequency:':<20}{fcut:E}")
     print(f"{'Asymmetry:':<20}{asymmetry:0.1f}")
     print(f"{'Fit parabola:':<20}{str(fit_parabola):s}")
     print(f"{'alpha:':<20}{alpha:0.2f}")
+    print(f"{'parabola_len:':<20}{parabola_len:d}")
 
     # Final baseline correction
     tic = time.perf_counter()                               #@TEMP
 
     baseline_fitter = Baseline(x_data=x)
-    baseline, p = algo(signal, fcut, baseline_fitter, **method_kwargs)
+    baseline, p = algo(baseline_fitter, s, **method_kwargs)
 
     toc = time.perf_counter()                               #@TEMP
 

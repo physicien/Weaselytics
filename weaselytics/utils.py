@@ -6,6 +6,33 @@ Helper functions to perform various signal preprocessin operations.
 import numpy as np
 from scipy.signal import savgol_filter
 
+def end_window(data, window_min=3, window_max=20):
+    """
+    Calculate the size of the local window used to detect endpoint outliers.
+    
+    Parameters
+    ----------
+    data : numpy.ndarray
+        The data to be tested.
+    window_min : int, optional
+        Minimum width of the window. Default is 3.
+    window_max : int, optional
+        Maximum width of the window. Default is 20.
+
+    Returns
+    -------
+    size : int
+        Size of the window.
+
+    """
+    size = int(round(0.01*len(data)))
+    if size < window_min:
+        size = window_min
+    if size > window_max:
+        size = window_max
+    return size
+
+
 def rm_ends_outliers(data, window_min=5, window_max=100):
     """
     Check whether the first and last elements of the input data are outliers.

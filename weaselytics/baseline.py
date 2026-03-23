@@ -678,9 +678,10 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     method_kwargs["freq_cutoff"] = fcut
 
     # Change alpha for the final baseline correction
+    # @EB TO CHANGE WHEN I KNOW HOW TO DO IT...
     if alpha is None:
         alpha=1.0
-        method_kwargs.update({"alpha": alpha})  #@EB TO CHANGE WHEN I KNOW HOW
+        method_kwargs.update({"alpha": alpha})  
 
     # Change parabola_len for the final baseline correction
     if parabola_len is None:

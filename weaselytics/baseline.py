@@ -141,8 +141,8 @@ def _log_transform(s, epsilon=1):
     log_s = np.log10(s - np.min(s) + epsilon)
     return log_s
 
-def beads(baseline_fitter, s, freq_cutoff=0.005, asymmetry=1.0,
-          fit_parabola=True, alpha=1.0, parabola_len=3, **kwargs):
+def _beads(baseline_fitter, s, freq_cutoff=0.005, asymmetry=1.0,
+           fit_parabola=True, alpha=1.0, parabola_len=3, **kwargs):
     """
     Baseline estimation and denoising with sparsity (BEADS).
 
@@ -223,9 +223,9 @@ def beads(baseline_fitter, s, freq_cutoff=0.005, asymmetry=1.0,
             )
     return bl, params
 
-def custom_beads(baseline_fitter, s, regions=((None,None),), sampling=1,
-                 freq_cutoff=0.005, asymmetry=1.0, fit_parabola=True,
-                 alpha=1.0, parabola_len=3, **kwargs):
+def _custom_beads(baseline_fitter, s, regions=((None,None),), sampling=1,
+                  freq_cutoff=0.005, asymmetry=1.0, fit_parabola=True,
+                  alpha=1.0, parabola_len=3, **kwargs):
     """
     Customized variant of BEADS for fine tuned stiffness of the baseline in
     specific regions.
@@ -465,7 +465,7 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
     tic = time.perf_counter()
  
     # Make sure that the method being passed is allowed
-    allowed_methods = {"beads": beads, "custom_beads": custom_beads}
+    allowed_methods = {"beads": _beads, "custom_beads": _custom_beads}
     if method not in allowed_methods:
         raise ValueError("method '{method}' is not implemented")
 
@@ -642,7 +642,7 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
         raise ValueError('asymmetry must be greater than 0')
     
     # Make sure that the method being passed is allowed
-    allowed_methods = {"beads": beads, "custom_beads": custom_beads}
+    allowed_methods = {"beads": _beads, "custom_beads": _custom_beads}
     if method not in allowed_methods:
         raise ValueError("method '{method}' is not implemented")
     algo = allowed_methods[method]

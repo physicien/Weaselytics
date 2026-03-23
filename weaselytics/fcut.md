@@ -4,13 +4,17 @@ In an autocorrelation plot of the baseline-corrected signal, a plateau represent
 2. Exclude plateaus that do not meet certain criteria, with the goal of identifying the plateau that includes the optimal value of `fcut`;
 3. Find the optimal value of `fcut` on that plateau.
 
+### 0. Preprocessing
 Before searching for plateaus, the signal must be restricted to a region of interest. For instance, consider a raw signal with 11000 data points, where the clean signal is confined to the first 1000 points. If we include all points from the raw signal in the analysis, the autocorrelation will be biased because the contribution from the key components in the region of interest is diluted. Consequently, the autocorrelation plot becomes "featureless" and hard to interpret.
 In the current implementation, this occurs at the start of `auto_beads` via the `_relevant_regions` function. In short, if we assume that a raw signal consists of a baseline, noise, and a sparse signal component with a reasonable signal-to-noise ratio, then we can approximately locate the positions and widths of the signal peaks directly in the raw signal. This is (part of) what `_relevant_regions` is designed to do. For reference, this function is also used to identify the regions of interest and the sampling strategy for `custom_bc`. As of today, the signal is only truncated on the right (via `scut`), but not on the left. In the future, it may be advantageous to clip the signal on the left side as well.
 
+### 1. Plateaus identification
 In my view, plateau detection is the most challenging aspect of this problem. Up to now, the most effective approach I have found is to impose a small threshold around 0 on both the first and second derivatives, and to mark as plateaus those points that fall within these tolerances. I experimented with several alternative techniques based on identifying features in the autocorrelation curve (for instance, inflection points or the extrema of its first derivative), but these approaches were too sensitive to the instabilities and discontinuities that can occur in the autocorrelation plot. A more robust method is therefore required.
 
+### 2. Plateaus exclusion
 Regarding the regions to discard, let us first assume that there is always an “initial” plateau, `p_ini`, on the far left of the autocorrelation curve, i.e. where the `fcut` values are smallest. On this plateau, any choice of `fcut` yields a baseline that is overly rigid. In addition, when `fit_parabola` is set to True, the baseline begins to deform, much like a stiff beam under compression. Consequently, `p_ini` is systematically excluded from the set of candidate plateaus. At present, this plateau is detected using a threshold on the `r2` value, by selecting the last point (before the minimum of the first derivative) that still satisfies this threshold. This approach allows us to better approximate the true end of the first plateau when it is highly noisy. However, a more robust method is required.
 
+### 3. Choosing the right `fcut` on a given plateau
 Finally, once we assume that the correct plateau has been located, selecting `fcut` should be fairly straightforward, taking the plateau’s center and boundaries as a guide.
 
 ## References

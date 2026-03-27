@@ -13,5 +13,3 @@ assignees: ''
 
 ### Description of a possible solution or alternative
 <!--Discuss in detail how the problem can be solved, or the benefit of an added feature.-->
-**Additional context**
-Add any other context or screenshots about the feature request here.

@@ -4,7 +4,12 @@
 Helper functions to perform various signal preprocessin operations.
 """
 import numpy as np
+import pandas as pd
 from scipy.signal import savgol_filter
+from scipy.stats import median_abs_deviation
+from skimage.filters import threshold_triangle, threshold_sauvola
+#from scipy.ndimage import gaussian_filter1d
+from diptest import diptest
 
 def end_window(data, window_min=3, window_max=20):
     """
@@ -79,7 +84,7 @@ def _durbin_watson(resids, axis=0):
 
     Parameters
     ----------
-    resids : array_like
+    resids : array-like
         Data for which to compute the Durbin-Watson statistic. Usually
         regression model residuals.
     axis : int, optional
@@ -254,3 +259,113 @@ def merge_intervals(intervals):
 
     merged_intervals = np.array(merged)
     return merged_intervals
+
+def _rolling_std(x, window=3):
+    """
+    Compute the rolling standard deviation of the data.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+       Input array of the data.
+    window : int, optional
+        Size of the rolling window. Default is 3.
+
+    Returns
+    -------
+    rolling_std : array-like, shape (N,)
+        The rolling standard deviation.
+    
+    """
+    data = {'value': x}
+    df = pd.DataFrame(data)
+    df['rolling_std'] = df['value'].rolling(window=window,
+                                            center=True,
+                                            min_periods=1
+                                            ).std()
+    rolling_std = df['rolling_std'].to_numpy()
+    return rolling_std
+
+def _rolling_mad(x, window=3):
+    """
+    Compute the rolling median absolute deviation of the data.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+       Input array of the data.
+    window : int, optional
+        Size of the rolling window. Default is 3.
+
+    Returns
+    -------
+    rolling_mad : array-like, shape (N,)
+        The rolling median absolute deviation of the data.
+    
+    """
+    data = {'value': x}
+    df = pd.DataFrame(data)
+    df['rolling_mad'] = df['value'].rolling(window=window,
+                                            center=True,
+                                            min_periods=1
+                                            ).apply(median_abs_deviation)
+    rolling_mad = df['rolling_mad'].to_numpy()
+    return rolling_mad
+
+def _long_plateaus(x, min_len=10):
+    """
+    Eliminate, in a discontinuous boolean array, the continuous segments of
+    `True` values that are shorter than `min_len`.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+        The discontinuous boolean array.
+    min_len : int, optional
+        Minimal length of a continuous segment. Default is 10.
+
+    Returns
+    -------
+    long_plateaus : array-like, shape (N,)
+        The boolean array in which every contiguous segment of `True` values
+        has a length of at least `min_len`.
+
+    """
+    seg_list = []
+    args_ini = np.nonzero(x)[0]
+    for seg in continuous_ranges(args_ini):
+        if len(seg) >= min_len:
+            seg_list.append(seg)
+    segments = np.concatenate(seg_list)
+    long_plateaus = np.zeros(len(x), dtype=bool)
+    long_plateaus[segments] = True
+    return long_plateaus
+
+
+def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
+    """
+    """
+    # Rolling standard deviation
+    rolling_std = _rolling_std(x, window=window)
+#    rolling_mad = _rolling_mad(x, window=window)
+    
+    # Test if the distribution is unimodal (p=1)  
+    _, pval = diptest(rolling_std)
+    print(f"{'pval:':<20}{pval:0.4f}")
+
+    # Find the threshold value
+    if pval < pval_cutoff:
+        # In case of significant multimodality
+        local_threshold = threshold_sauvola(rolling_std)
+        corrected = rolling_std - local_threshold
+        threshold = threshold_triangle(corrected, nbins=nbins)
+        plateaus = corrected < threshold
+    else:
+        threshold = threshold_triangle(rolling_std, nbins=nbins)
+        plateaus = rolling_std < threshold
+
+    # Discard shorter plateaus
+    plateaus = _long_plateaus(plateaus)
+
+    smooth_rolling_std = threshold_sauvola(rolling_std)
+    return plateaus, rolling_std, smooth_rolling_std

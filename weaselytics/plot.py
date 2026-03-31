@@ -150,7 +150,7 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
         Path of the data file.
 
     """
-    #TODO:
+    #TODO: Cleanup this function...
     infls = np.where(np.diff(np.sign(sm_d2)))[0]
     accepted = np.zeros(len(x))
     accepted[sec_p] = 1
@@ -158,7 +158,7 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
     #@EB
     #fig = plt.figure(figsize=[6.4,9.6],num="Autocorrelation plots")
     fig = plt.figure(figsize=[9.4,9.6],num="Autocorrelation plots")
-    gs = fig.add_gridspec(3, hspace=0)
+    gs = fig.add_gridspec(2, hspace=0)
     axs = gs.subplots(sharex=True)
     axs[0].fill_between(x, 0, 1,
                         where= x <= x[last_start],
@@ -169,25 +169,30 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
                         color='green', alpha=0.3,
                         transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
-    axs[0].semilogx(x, sm_d0, marker='', ls='-',
-                    label=r'$r^2_\text{smooth}$',ms=3)
+#    axs[0].semilogx(x, sm_d0, marker='', ls='-',
+#                    label=r'$r^2_\text{smooth}$',ms=3)
 
     axs[1].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d1) < tol1_0,
+                        where=tol1_0,
                         color="none", ec="white", alpha=0.3, fc="purple", 
                         hatch="//", hatch_linewidth=4,
                         transform=axs[1].get_xaxis_transform())
-    axs[1].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d1) < tol1_1,
-                        color='orange', alpha=0.3,
-                        transform=axs[1].get_xaxis_transform())
-    axs[1].semilogx(x, sm_d1, label='First Derivative')
+#    axs[1].fill_between(x, 0, 1,
+#                        where=np.absolute(sm_d1) < tol1_1,
+#                        color='orange', alpha=0.3,
+#                        transform=axs[1].get_xaxis_transform())
+    #axs[1].semilogx(x, sm_d1, marker='.', ls='',label=r'1',ms=3)
+    #axs[1].semilogx(x, sm_d2, marker='.', ls='',label=r'2',ms=3)
+#    axs[1].semilogx(x, sm_d0, marker='.', ls='', label=r'rolling_std', ms=3,
+#                    c='green')
+    axs[1].semilogx(x, sm_d1, ls='-', label=r'corrected')
+    axs[1].semilogx(x, sm_d2, ls='-', label=r'smooth')
 
-    axs[2].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d2) < tol2,
-                        color='blue', alpha=0.1,
-                        transform=axs[2].get_xaxis_transform())
-    axs[2].semilogx(x, sm_d2, label='Second Derivative')
+#    axs[2].fill_between(x, 0, 1,
+#                        where=np.absolute(sm_d2) < tol2,
+#                        color='blue', alpha=0.1,
+#                        transform=axs[2].get_xaxis_transform())
+#    axs[2].semilogx(x, sm_d2, label='Second Derivative')
     for ax in axs.flat:
     #    for i, infl in enumerate(infls, 1):
     #        ax.axvline(x=x[infl], c='k', lw=0.5)#, label=f'Inflection Point {i}')
@@ -209,18 +214,22 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
                 ha='left',
                 color='tab:red'
                 )
-    axs[2].set_xlabel('Cutoff frequency')
+#    axs[2].set_xlabel('Cutoff frequency')
     axs[0].set_ylabel(r'$r^2_{y-b}$')
-    axs[1].set_ylabel(r"$r^2_{y-b}$'")
-    axs[2].set_ylabel(r"$r^2_{y-b}$''")
+    axs[1].set_ylabel(r"Rolling Std($r^2_{y-b}$)")
+#    axs[1].set_ylabel(r"$r^2_{y-b}$'")
+#    axs[2].set_ylabel(r"$r^2_{y-b}$''")
 
     # How do we find the right inflection point?
     # @EB Ajuster le calcul suivant?
-    infl_min = np.argmin(sm_d1[infls])
-    r2_ymin = r2[infls[infl_min-1]]-0.05  #only for the r2 plot limit
-    axs[0].set_ylim(r2_ymin,1.0)
+#    infl_min = np.argmin(sm_d1[infls])
+#    r2_ymin = r2[infls[infl_min-1]]-0.05  #only for the r2 plot limit
+    p1_ymax = 2E-3#np.max(sm_d1[tol1_0])*2.50
+    p1_ymin = -1E-4#-0.05*p1_ymax
+#    axs[0].set_ylim(r2_ymin,1.0)
+    axs[1].set_ylim(bottom=p1_ymin, top=p1_ymax)
     axs[1].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
-    axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
+    #axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
     axs[0].legend()
     plt.tight_layout()
     if show_plot:

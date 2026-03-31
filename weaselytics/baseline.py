@@ -13,7 +13,7 @@ import time                             #@EB temporary?
 
 from peakfitting import peaks_params
 from utils import (r2_dw, continuous_ranges, find_plateaus, merge_intervals,
-                   end_window
+                   end_window, find_plateaus2
                    )
 from plot import r2_plots
 
@@ -482,6 +482,7 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
     # y-data
     r2_val = _r2_array(algo, baseline_fitter, z, fcut_range, param=param,
                        **kwargs)
+    test2, test, test3 = find_plateaus2(r2_val)
 
     ##########################################################################
     # Smoothed data and derivatives
@@ -558,9 +559,11 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
 
     # r2 plot
     if show_plot or print_plot:
-        r2_plots(fcut_range, r2_val, smooth_d0, smooth_d1, smooth_d2, min_d1,
-                 max_d1, starting_plateau[-1], secondary_plateaus, tol1_0,
-                 tol1_1,tol2, fcut, fi_r2_val, case=case, show_plot=show_plot,
+        r2_plots(fcut_range, r2_val, smooth_d0, test, test3, min_d1,
+        #r2_plots(fcut_range, r2_val, smooth_d0, smooth_d1, smooth_d2, min_d1,
+                 max_d1, starting_plateau[-1], secondary_plateaus, test2,
+                 #max_d1, starting_plateau[-1], secondary_plateaus, tol1_0,
+                 tol1_1, tol2, fcut, fi_r2_val, case=case, show_plot=show_plot,
                  print_plot=print_plot, path=path)
 
     return fcut, case

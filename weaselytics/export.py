@@ -31,7 +31,7 @@ def export_txt(x, y, path="./file.txt"):
     ajusted_data = np.array([x, y]).T
     filename = os.path.splitext(os.path.basename(path))[0]
     header = line + filename + "\n\n\n\n\n\n"
-    np.savetxt(filename+"_bl.txt", ajusted_data, delimiter=' ', header=header)
+    np.savetxt(filename+"_bl.txt", ajusted_data, delimiter='\t', header=header)
     return None
 
 def export_csv(x, y, path="./file.txt"):

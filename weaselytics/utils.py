@@ -347,6 +347,7 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
     """
     # Rolling standard deviation
     rolling_std = _rolling_std(x, window=window)
+    local_threshold = threshold_sauvola(rolling_std)
 #    rolling_mad = _rolling_mad(x, window=window)
     
     # Test if the distribution is unimodal (p=1)  
@@ -356,7 +357,6 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
     # Find the threshold value
     if pval < pval_cutoff:
         # In case of significant multimodality
-        local_threshold = threshold_sauvola(rolling_std)
         corrected = rolling_std - local_threshold
         threshold = threshold_triangle(corrected, nbins=nbins)
         plateaus = corrected < threshold
@@ -364,8 +364,11 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
         threshold = threshold_triangle(rolling_std, nbins=nbins)
         plateaus = rolling_std < threshold
 
+    test = rolling_std - local_threshold
+    crossings = np.where(np.diff(np.sign(test)))[0]
+    plateaus[crossings] = False
+
     # Discard shorter plateaus
     plateaus = _long_plateaus(plateaus)
 
-    smooth_rolling_std = threshold_sauvola(rolling_std)
-    return plateaus, rolling_std, smooth_rolling_std
+    return plateaus, rolling_std, local_threshold

@@ -332,11 +332,13 @@ def _long_plateaus(x, min_len=10):
 
     """
     seg_list = []
+    segments = []
     args_ini = np.nonzero(x)[0]
     for seg in continuous_ranges(args_ini):
         if len(seg) >= min_len:
             seg_list.append(seg)
-    segments = np.concatenate(seg_list)
+    if seg_list:
+        segments = np.concatenate(seg_list)
     long_plateaus = np.zeros(len(x), dtype=bool)
     long_plateaus[segments] = True
     return long_plateaus
@@ -344,10 +346,12 @@ def _long_plateaus(x, min_len=10):
 
 def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
     """
+    NOTE: CHANGE pval_cutoff to 0.05 later
     """
     # Rolling standard deviation
     rolling_std = _rolling_std(x, window=window)
     local_threshold = threshold_sauvola(rolling_std)
+    corrected = rolling_std - local_threshold
 #    rolling_mad = _rolling_mad(x, window=window)
     
     # Test if the distribution is unimodal (p=1)  
@@ -357,16 +361,21 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
     # Find the threshold value
     if pval < pval_cutoff:
         # In case of significant multimodality
-        corrected = rolling_std - local_threshold
         threshold = threshold_triangle(corrected, nbins=nbins)
         plateaus = corrected < threshold
     else:
         threshold = threshold_triangle(rolling_std, nbins=nbins)
         plateaus = rolling_std < threshold
 
-    test = rolling_std - local_threshold
-    crossings = np.where(np.diff(np.sign(test)))[0]
-    plateaus[crossings] = False
+#    crossings = np.where(np.diff(np.sign(corrected)))[0]
+#    plateaus[crossings] = False
+
+#    diff_std_mad = np.abs(rolling_std - rolling_mad)
+#    test = diff_std_mad < 5.0E-05
+#    plateaus = np.logical_and(plateaus, test)
+
+#    not_too_flat = rolling_std > 1.0E-06
+#    plateaus = np.logical_and(plateaus, not_too_flat)
 
     # Discard shorter plateaus
     plateaus = _long_plateaus(plateaus)

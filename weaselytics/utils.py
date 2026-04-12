@@ -348,11 +348,16 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
     """
     NOTE: CHANGE pval_cutoff to 0.05 later
     """
+    # TODO: Try to minimize the rolling MAD. Also, plot both rolling STD and
+    #       MAD side-by-side keeping in mind the idea of minimization.
+
     # Rolling standard deviation
     rolling_std = _rolling_std(x, window=window)
+    rolling_mad = _rolling_mad(x, window=window)
+    diff_std_mad = rolling_std - rolling_mad
+
     local_threshold = threshold_sauvola(rolling_std)
     corrected = rolling_std - local_threshold
-    rolling_mad = _rolling_mad(x, window=window)
     
     # Test if the distribution is unimodal (p=1)  
     _, pval = diptest(rolling_std)
@@ -367,10 +372,6 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
         threshold = threshold_triangle(rolling_std, nbins=nbins)
         plateaus = rolling_std < threshold
     
-    # TODO: Try to minimize the rolling MAD. Also, plot both rolling STD and
-    #       MAD side-by-side keeping in mind the idea of minimization.
-    diff_std_mad = rolling_std - rolling_mad
-
 #    crossings = np.where(np.diff(np.sign(corrected)))[0]
 #    plateaus[crossings] = False
 

@@ -60,7 +60,7 @@ class ParsedData:
 
         # Extract data from each line
         for line in lines:
-            if re.fullmatch(pattern, line):
+            if re.match(pattern, line):
                 xy = re.split("\s+", line)
                 xlist.append(float(xy[0]))
                 ylist.append(float(xy[1]))

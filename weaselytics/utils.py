@@ -351,7 +351,7 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
     # TODO: Try to minimize the rolling MAD. Also, plot both rolling STD and
     #       MAD side-by-side keeping in mind the idea of minimization.
 
-    # Rolling standard deviation
+    # Rolling statistics
     rolling_std = _rolling_std(x, window=window)
     rolling_mad = _rolling_mad(x, window=window)
     diff_std_mad = rolling_std - rolling_mad
@@ -375,7 +375,6 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
 #    crossings = np.where(np.diff(np.sign(corrected)))[0]
 #    plateaus[crossings] = False
 
-#    diff_std_mad = np.abs(rolling_std - rolling_mad)
 #    test = diff_std_mad < 5.0E-05
 #    plateaus = np.logical_and(plateaus, test)
 
@@ -384,5 +383,6 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
 
     # Discard shorter plateaus
     plateaus = _long_plateaus(plateaus)
+#    print(continuous_ranges(np.where(plateaus)[0]))
 
     return plateaus, rolling_std, diff_std_mad#rolling_mad#local_threshold

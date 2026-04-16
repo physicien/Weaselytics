@@ -8,7 +8,7 @@ import pandas as pd
 from scipy.signal import savgol_filter
 from scipy.stats import median_abs_deviation
 from skimage.filters import threshold_triangle, threshold_sauvola
-#from scipy.ndimage import gaussian_filter1d
+from scipy.ndimage import gaussian_filter1d
 from diptest import diptest
 
 def end_window(data, window_min=3, window_max=20):
@@ -343,6 +343,28 @@ def _long_plateaus(x, min_len=10):
     long_plateaus[segments] = True
     return long_plateaus
 
+def _ends_plateau(x, smoothing_window=15, tol0=1.0E-03, tol1_0=1.0E-05):
+    # Smoothed data and derivatives
+    smooth_d0 = gaussian_filter1d(x, smoothing_window)
+    smooth_d1 = np.gradient(smooth_d0)
+    d1_min = np.argmin(smooth_d1)
+
+    # Proto-plateaus from d1
+    tight_d1_flats = find_plateaus(smooth_d1, tol1_0)
+    tight_continuous = continuous_ranges(tight_d1_flats)
+
+    # Find initial plateau
+    starting_r2 = np.mean(smooth_d0[tight_continuous[0]])   # mean or median?
+    starting_end = np.where(
+            np.absolute(starting_r2 - x[:d1_min]) < tol0)[0][-1]
+    starting_plateau = starting_end + 1
+    
+    # Find final plateau
+    last_r2 = len(x) - 1
+    if np.isin(tight_continuous[-1], last_r2).any():
+        last_r2 = tight_continuous[-1][0]
+
+    return starting_plateau, last_r2
 
 def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
     """
@@ -372,11 +394,15 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
         threshold = threshold_triangle(rolling_std, nbins=nbins)
         plateaus = rolling_std < threshold
     
+    #test = diff_std_mad < 5.0E-05
+    #plateaus = np.logical_and(plateaus, test)
+
+    test1, test2 = _ends_plateau(x)
+    plateaus[:test1] = False
+    plateaus[test2:] = False
+
 #    crossings = np.where(np.diff(np.sign(corrected)))[0]
 #    plateaus[crossings] = False
-
-#    test = diff_std_mad < 5.0E-05
-#    plateaus = np.logical_and(plateaus, test)
 
 #    not_too_flat = rolling_std > 1.0E-06
 #    plateaus = np.logical_and(plateaus, not_too_flat)
@@ -384,5 +410,5 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
     # Discard shorter plateaus
     plateaus = _long_plateaus(plateaus)
 #    print(continuous_ranges(np.where(plateaus)[0]))
-
-    return plateaus, rolling_std, diff_std_mad#rolling_mad#local_threshold
+    
+    return plateaus, rolling_std, diff_std_mad

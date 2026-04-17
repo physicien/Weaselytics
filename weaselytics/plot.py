@@ -99,7 +99,7 @@ def plot(x, y, y_sm=None, s=None, bl=None, x_fit=None, y_fit_g=None,
     plt.close()
     return None
 
-def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
+def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, ends, sec_p,
              tol1_0, tol1_1, tol2, freq_cutoff, fcut_r2, case=0,
              show_plot=False, print_plot=False, path="./file.txt"):
     """
@@ -161,7 +161,7 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
     gs = fig.add_gridspec(2, hspace=0)
     axs = gs.subplots(sharex=True)
     axs[0].fill_between(x, 0, 1,
-                        where= x <= x[last_start],
+                        where= ends,
                         color='red', alpha=0.1,
                         transform=axs[0].get_xaxis_transform())
     axs[0].fill_between(x, 0, 1,

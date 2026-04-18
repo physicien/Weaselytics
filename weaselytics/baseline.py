@@ -5,15 +5,15 @@ Functions to perform the baseline correction.
 """
 import os
 import numpy as np
-from pybaselines import Baseline
+import time                             #@EB temporary?
+import matplotlib.pyplot as plt
 from scipy.signal import argrelmin, argrelmax#, medfilt
 from scipy.ndimage import gaussian_filter1d
-import matplotlib.pyplot as plt
-import time                             #@EB temporary?
+from pybaselines import Baseline
 
 from peakfitting import peaks_params
-from utils import (r2_dw, continuous_ranges, find_plateaus, merge_intervals,
-                   end_window, find_plateaus2
+from utils import (r2_dw, continuous_ranges, find_flat, merge_intervals,
+                   end_window, find_plateaus
                    )
 from plot import r2_plots
 
@@ -419,6 +419,7 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
         calculation of the autocorrelation.
     smoothing_window : int, optional
         Standard deviation for Gaussian kernel used to smooth the signal.
+        Default is 15.
     slope_thresh : float, optional
         Threshold on the value of `smooth_d1` for the final shift of the
         frequency cutoff. Default is 5.0E-05.
@@ -482,7 +483,10 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
     # y-data
     r2_val = _r2_array(algo, baseline_fitter, z, fcut_range, param=param,
                        **kwargs)
-    test2, test, test3 = find_plateaus2(r2_val)
+    #####
+    test_plateaus, ends, test, test3 = find_plateaus(r2_val)
+
+    #####
 
     ##########################################################################
     # Smoothed data and derivatives
@@ -493,12 +497,12 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
     min_d1 = argrelmin(smooth_d1)[0]
     max_d1 = argrelmax(smooth_d1)[0]
     d1_min = np.argmin(smooth_d1)
-    #@EB not general at all...
+    #EB not general at all...
     lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0] 
 
     # Proto-plateaus from d1 and d2
-    tight_d1_flats = find_plateaus(smooth_d1, tol1_0)
-    loose_d1_flats = find_plateaus(smooth_d1, tol1_1)
+    tight_d1_flats = find_flat(smooth_d1, tol1_0)
+    loose_d1_flats = find_flat(smooth_d1, tol1_1)
     d2_flats = np.where(np.absolute(smooth_d2) < tol2)[0]
 
     # Find initial plateau
@@ -510,7 +514,7 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
 
     # Remove final plateau if it is tight
     last_r2 = num - 1
-    if np.isin(tight_continuous[-1], last_r2).any():
+    if np.isin(last_r2, tight_continuous[-1]).any():
         last_r2 = tight_continuous[-1][0]
 
     # Plateaus
@@ -560,9 +564,7 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
     # r2 plot
     if show_plot or print_plot:
         r2_plots(fcut_range, r2_val, smooth_d0, test, test3, min_d1,
-        #r2_plots(fcut_range, r2_val, smooth_d0, smooth_d1, smooth_d2, min_d1,
-                 max_d1, starting_plateau[-1], secondary_plateaus, test2,
-                 #max_d1, starting_plateau[-1], secondary_plateaus, tol1_0,
+                 max_d1, ends, secondary_plateaus, test_plateaus,
                  tol1_1, tol2, fcut, fi_r2_val, case=case, show_plot=show_plot,
                  print_plot=print_plot, path=path)
 
@@ -691,7 +693,7 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
         parabola_len=end_window(s)
         method_kwargs.update({"parabola_len": parabola_len})
 
-    print(f"{'Cutoff frequency:':<20}{fcut:E}")
+    print(f"{'Cutoff frequency:':<20}{fcut:0.4E}")
     print(f"{'Asymmetry:':<20}{asymmetry:0.1f}")
     print(f"{'Fit parabola:':<20}{str(fit_parabola):s}")
     print(f"{'alpha:':<20}{alpha:0.2f}")

@@ -181,7 +181,7 @@ def continuous_ranges(x):
     continuous = np.split(x, np.where(x[1:] != x[:-1] +1)[0] +1)
     return continuous
 
-def find_plateaus(x, include_tol, exclude_tol=0, mode='absolute'):
+def find_flat(x, include_tol, exclude_tol=0, mode='absolute'):
     """
     Find the plateaus of an array according to a certain threshold. A second
     threshold can also be used to exclude certain regions from the plateaus.
@@ -312,7 +312,7 @@ def _rolling_mad(x, window=3):
     rolling_mad = df['rolling_mad'].to_numpy()
     return rolling_mad
 
-def _long_plateaus(x, min_len=10):
+def _long_segments(x, min_len=10):
     """
     Eliminate, in a discontinuous boolean array, the continuous segments of
     `True` values that are shorter than `min_len`.
@@ -326,7 +326,7 @@ def _long_plateaus(x, min_len=10):
 
     Returns
     -------
-    long_plateaus : array-like, shape (N,)
+    long_segments : array-like, shape (N,)
         The boolean array in which every contiguous segment of `True` values
         has a length of at least `min_len`.
 
@@ -339,47 +339,78 @@ def _long_plateaus(x, min_len=10):
             seg_list.append(seg)
     if seg_list:
         segments = np.concatenate(seg_list)
-    long_plateaus = np.zeros(len(x), dtype=bool)
-    long_plateaus[segments] = True
-    return long_plateaus
+    long_segments = np.zeros(len(x), dtype=bool)
+    long_segments[segments] = True
+    return long_segments
 
-def _ends_plateau(x, smoothing_window=15, tol0=1.0E-03, tol1_0=1.0E-05):
+def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
+               tol_rdiff=1.0E-04):
+    """
+    Identify the flat regions at both ends of `x`.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+        The y-values of the data.
+    rdiff : array-like, shape (N,)
+        The difference between the rolling standard deviation and the rolling
+        median absolute deviation of `x`.
+    smoothing_window : int, optional
+        Standard deviation for the Gaussian kernel used to smooth the data.
+        Default is 15.
+    tol0 : float, optional
+        Threshold used to find the first plateau of `x`. Defauls is 1.0E-03.
+    tol1 : float, optional
+        Threshold used to find plateaus on the first derivative of the smoothed
+        `x`. Default is 1.0E-05.
+    tol_rdiff : float, optional
+        Threshold on `rdiff` used to find the last plateau of `x`. Default is
+        1.0E-04.
+
+    Returns
+    -------
+    ends : array-like, shape (N,)
+        The boolean array in which the first and last plateaus of `x` are
+        indicated by the value `True`. 
+
+    """
     # Smoothed data and derivatives
     smooth_d0 = gaussian_filter1d(x, smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
-    d1_min = np.argmin(smooth_d1)
+    argmin_d1 = np.argmin(smooth_d1)
+
+    # Initialization of the array to return
+    ends = np.full(len(x), False, dtype=bool)
 
     # Proto-plateaus from d1
-    tight_d1_flats = find_plateaus(smooth_d1, tol1_0)
+    tight_d1_flats = find_flat(smooth_d1, tol1)
     tight_continuous = continuous_ranges(tight_d1_flats)
 
-    # Find initial plateau
-    starting_r2 = np.mean(smooth_d0[tight_continuous[0]])   # mean or median?
+    # Initial plateau
+    starting_r2 = np.median(smooth_d0[tight_continuous[0]])   # mean or median?
     starting_end = np.where(
-            np.absolute(starting_r2 - x[:d1_min]) < tol0)[0][-1]
-    starting_plateau = starting_end + 1
-    
-    # Find final plateau
+            np.absolute(starting_r2 - x[:argmin_d1]) < tol0)[0][-1]
+    starting_plateau = starting_end + 1 
+    ends[:starting_plateau] = True
+
+    # Final plateau (or climbing final region)
     last_r2 = len(x) - 1
-    if np.isin(tight_continuous[-1], last_r2).any():
-        last_r2 = tight_continuous[-1][0]
+    if rdiff[last_r2] <= tol_rdiff:
+        ending_r2 = np.where(rdiff > tol_rdiff)[0][-1]
+        last_r2 = ending_r2 - 1
+    else:
+        last_r2 = argmin_d1
+    ends[last_r2:] = True
+    return ends
 
-    return starting_plateau, last_r2
-
-def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
+def find_plateaus(x, window=3, nbins=256, pval_cutoff=0.002):
     """
-    NOTE: CHANGE pval_cutoff to 0.05 later
+    NOTE: CHANGE pval_cutoff to 0.05 or 0.10 later
     """
-    # TODO: Try to minimize the rolling MAD. Also, plot both rolling STD and
-    #       MAD side-by-side keeping in mind the idea of minimization.
-
     # Rolling statistics
     rolling_std = _rolling_std(x, window=window)
     rolling_mad = _rolling_mad(x, window=window)
     diff_std_mad = rolling_std - rolling_mad
-
-    local_threshold = threshold_sauvola(rolling_std)
-    corrected = rolling_std - local_threshold
     
     # Test if the distribution is unimodal (p=1)  
     _, pval = diptest(rolling_std)
@@ -388,27 +419,32 @@ def find_plateaus2(x, window=3, nbins=256, pval_cutoff=0.002):  #0.05 ?
     # Find the threshold value
     if pval < pval_cutoff:
         # In case of significant multimodality
+        local_threshold = threshold_sauvola(rolling_std)
+        corrected = rolling_std - local_threshold
         threshold = threshold_triangle(corrected, nbins=nbins)
         plateaus = corrected < threshold
     else:
         threshold = threshold_triangle(rolling_std, nbins=nbins)
         plateaus = rolling_std < threshold
+    print(f"{'Threshold:':<20}{threshold:0.4E}")
     
-    #test = diff_std_mad < 5.0E-05
-    #plateaus = np.logical_and(plateaus, test)
+    # Discard plateaus at both ends
+    ends = _flat_ends(x, diff_std_mad)
+    plateaus = np.logical_and(plateaus, ~ends)
 
-    test1, test2 = _ends_plateau(x)
-    plateaus[:test1] = False
-    plateaus[test2:] = False
-
-#    crossings = np.where(np.diff(np.sign(corrected)))[0]
-#    plateaus[crossings] = False
-
-#    not_too_flat = rolling_std > 1.0E-06
-#    plateaus = np.logical_and(plateaus, not_too_flat)
+    # EXPERIMENTAL (mainly intended to prevent discarding plateaus beyond the
+    # maximum of rolling_std when only a small noisy segment remains directly
+    # before it)
+    test = diff_std_mad < 5.0E-05
+    plateaus = np.logical_and(plateaus, test)
 
     # Discard shorter plateaus
-    plateaus = _long_plateaus(plateaus)
+    plateaus = _long_segments(plateaus)
 #    print(continuous_ranges(np.where(plateaus)[0]))
     
-    return plateaus, rolling_std, diff_std_mad
+    # Discard regions beyond the max of rolling_std if nothing before it
+    rstd_argmax = np.argmax(rolling_std)
+    if plateaus[:rstd_argmax].any():
+        plateaus[rstd_argmax:] = False
+
+    return plateaus, ends, rolling_std, diff_std_mad

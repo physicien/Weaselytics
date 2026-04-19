@@ -346,7 +346,13 @@ def _long_segments(x, min_len=10):
 def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
                tol_rdiff=1.0E-04):
     """
-    Identify the flat regions at both ends of `x`.
+    Identify the plateau regions at both ends of `x`, where `x` is the array of
+    autocorrelation coefficients ,`r2`, as a function of a given parameter. In
+    situations where the values of `x` increase again toward 1 after hitting
+    their minimum (instead of continuing to decrease toward 0), this final
+    region is also identified. Here, we assume that the left (right) side
+    corresponds to parameter values for which the baseline is most rigid
+    (flexible).
 
     Parameters
     ----------
@@ -359,19 +365,24 @@ def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
         Standard deviation for the Gaussian kernel used to smooth the data.
         Default is 15.
     tol0 : float, optional
-        Threshold used to find the first plateau of `x`. Defauls is 1.0E-03.
+        Threshold applied to detect the first plateau of `x`, i.e., the region
+        where the baseline exhibits the lowest flexibility. This parameter
+        specifies the maximum allowed decrease from the value at which this
+        plateau begins. Default is 1.0E-03.
     tol1 : float, optional
-        Threshold used to find plateaus on the first derivative of the smoothed
-        `x`. Default is 1.0E-05.
+        Threshold applied to detect plateaus in the first derivative of the
+        smoothed data. Default is 1.0E-05.
     tol_rdiff : float, optional
-        Threshold on `rdiff` used to find the last plateau of `x`. Default is
-        1.0E-04.
+        Threshold applied to `rdiff` to locate the final plateau of `x`, i.e.,
+        the segment where the baseline has the greatest flexibility. This
+        parameter represents the maximum height of a point on that last plateau.
+        Default is 1.0E-04.
 
     Returns
     -------
     ends : array-like, shape (N,)
-        The boolean array in which the first and last plateaus of `x` are
-        indicated by the value `True`. 
+        The boolean array whose `True` entries mark the regions to be excluded
+        at both ends of `x`.
 
     """
     # Smoothed data and derivatives

@@ -388,7 +388,7 @@ def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
     # Smoothed data and derivatives
     smooth_d0 = gaussian_filter1d(x, smoothing_window)
     smooth_d1 = np.gradient(smooth_d0)
-    argmin_d1 = np.argmin(smooth_d1)
+    argmin_x = np.argmin(x)
 
     # Initialization of the array to return
     ends = np.full(len(x), False, dtype=bool)
@@ -398,9 +398,9 @@ def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
     tight_continuous = continuous_ranges(tight_d1_flats)
 
     # Initial plateau
-    starting_r2 = np.median(smooth_d0[tight_continuous[0]])   # mean or median?
+    starting_r2 = np.median(smooth_d0[tight_continuous[0]])
     starting_end = np.where(
-            np.absolute(starting_r2 - x[:argmin_d1]) < tol0)[0][-1]
+            np.absolute(starting_r2 - x[:argmin_x]) < tol0)[0][-1]
     starting_plateau = starting_end + 1 
     ends[:starting_plateau] = True
 
@@ -410,7 +410,7 @@ def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
         ending_r2 = np.where(rdiff > tol_rdiff)[0][-1]
         last_r2 = ending_r2 - 1
     else:
-        last_r2 = np.argmin(x)
+        last_r2 = argmin_x
     ends[last_r2:] = True
     return ends
 

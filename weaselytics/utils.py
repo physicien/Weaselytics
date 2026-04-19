@@ -375,8 +375,8 @@ def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
     tol_rdiff : float, optional
         Threshold applied to `rdiff` to locate the final plateau of `x`, i.e.,
         the segment where the baseline has the greatest flexibility. This
-        parameter represents the maximum height of a point on that last plateau.
-        Default is 1.0E-04.
+        parameter represents the maximum deviation of a point on that last
+        plateau. Default is 1.0E-04.
 
     Returns
     -------
@@ -410,7 +410,7 @@ def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
         ending_r2 = np.where(rdiff > tol_rdiff)[0][-1]
         last_r2 = ending_r2 - 1
     else:
-        last_r2 = argmin_d1
+        last_r2 = np.argmin(x)
     ends[last_r2:] = True
     return ends
 

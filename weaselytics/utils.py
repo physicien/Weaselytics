@@ -417,6 +417,12 @@ def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
 def find_plateaus(x, window=3, nbins=256, pval_cutoff=0.002):
     """
     NOTE: CHANGE pval_cutoff to 0.05 or 0.10 later
+
+    NOTE: When both ends of the dataset lie near 0, enabling `fit_parabola=True`
+          seems to make the first plateau significantly more unstable. However,
+          turning this option off (`False`) does not completely eliminate these
+          instabilities.
+
     """
     # Rolling statistics
     rolling_std = _rolling_std(x, window=window)

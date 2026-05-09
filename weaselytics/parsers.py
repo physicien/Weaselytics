@@ -20,7 +20,7 @@ class ParsedData:
     Attributes
     ----------
     path : str
-        Path of the file to be parsed.
+        Path of the parsed file.
     data : array-like, shape (2,N)
         Array containing the x-y data extracted from the file.
 

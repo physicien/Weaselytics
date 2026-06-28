@@ -59,7 +59,7 @@ def export_csv(x, y, path="./file.txt"):
     df.to_csv(filename+".csv", index=False, header=header)
     return None
 
-def export_dist(mol, g_fit, sn_fiti, path):
+def export_dist(mol, g_fit, sn_fit, path):
     """
     Export the statistics of the fitted distribution for a peak to a csv file.
 

@@ -358,7 +358,7 @@ def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
 
     #if name is given - csv generation
     if mol and path:
-        export_dist(mol, path, p_lsq_g, p_lsq_sn)
+        export_dist(mol, p_lsq_g, p_lsq_sn, path)
 
     return x_robust, y_robust_g, y_robust_sn
 

@@ -12,9 +12,10 @@ from scipy.ndimage import gaussian_filter1d
 from pybaselines import Baseline
 
 from weaselytics.peakfitting import peaks_params
-from weaselytics.utils import (r2_dw, continuous_ranges, find_flat, merge_intervals,
-                   end_window, find_plateaus
-                   )
+from weaselytics.utils import (
+    r2_dw, continuous_ranges, find_flat, merge_intervals,
+    end_window, find_plateaus,
+)
 from weaselytics.plot import r2_plots
 
 def _relevant_regions(s, x, tol=6.):
@@ -468,7 +469,7 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
     # Make sure that the method being passed is allowed
     allowed_methods = {"beads": _beads, "custom_beads": _custom_beads}
     if method not in allowed_methods:
-        raise ValueError("method '{method}' is not implemented")
+        raise ValueError(f"method '{method}' is not implemented")
 
     algo = allowed_methods[method]
  
@@ -649,7 +650,7 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     # Make sure that the method being passed is allowed
     allowed_methods = {"beads": _beads, "custom_beads": _custom_beads}
     if method not in allowed_methods:
-        raise ValueError("method '{method}' is not implemented")
+        raise ValueError(f"method '{method}' is not implemented")
     algo = allowed_methods[method]
 
     # Limits the range and splits the signal

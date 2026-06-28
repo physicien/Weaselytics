@@ -44,3 +44,10 @@ Issues = "https://github.com/physicien/Weaselytics/issues"
 
 [project.scripts]
 weaselytics = "weaselytics.weaselytics:main"
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-cov"]
+
+[tool.setuptools.packages.find]
+include = ["weaselytics*"]
+exclude = ["weaselytics.tests*", "weaselytics.tests.*"]

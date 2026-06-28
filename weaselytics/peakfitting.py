@@ -62,8 +62,10 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
     """
     _, raw_params_p = find_peaks(s,prominence=0.0)
     _, raw_params_n = find_peaks(-s,prominence=0.0)
-    max_prom_p = raw_params_p["prominences"].max()
-    max_prom_n = raw_params_n["prominences"].max()
+    max_prom_p = (raw_params_p["prominences"].max()
+                  if len(raw_params_p["prominences"]) > 0 else 0.0)
+    max_prom_n = (raw_params_n["prominences"].max()
+                  if len(raw_params_n["prominences"]) > 0 else 0.0)
     # In case of low noisy signal
     if adapt:
         if max_prom_p <= 1:

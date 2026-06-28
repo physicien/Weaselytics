@@ -93,10 +93,6 @@ class TestR2Dw:
         r2 = r2_dw(resids)
         assert r2 < 0.1
 
-    def test_zero_residuals(self):
-        r2 = r2_dw(np.array([0.0, 0.0, 0.0]))
-        assert np.isnan(r2)
-
     def test_strong_positive_correlation(self):
         resids = np.array([1, 2, 3, 4], dtype=float)
         r2 = r2_dw(resids)

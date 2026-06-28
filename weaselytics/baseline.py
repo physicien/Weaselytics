@@ -3,20 +3,24 @@
 """
 Functions to perform the baseline correction.
 """
-import os
+import time  #@EB temporary?
+
 import numpy as np
-import time                             #@EB temporary?
-import matplotlib.pyplot as plt
-from scipy.signal import argrelmin, argrelmax#, medfilt
-from scipy.ndimage import gaussian_filter1d
 from pybaselines import Baseline
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import argrelmax, argrelmin  #, medfilt
 
 from weaselytics.peakfitting import peaks_params
-from weaselytics.utils import (
-    r2_dw, continuous_ranges, find_flat, merge_intervals,
-    end_window, find_plateaus,
-)
 from weaselytics.plot import r2_plots
+from weaselytics.utils import (
+    continuous_ranges,
+    end_window,
+    find_flat,
+    find_plateaus,
+    merge_intervals,
+    r2_dw,
+)
+
 
 def _relevant_regions(s, x, tol=6.):
     """
@@ -131,7 +135,7 @@ def _log_transform(s, epsilon=1):
     500-10000 guideline reported by Navarro-Huerta et al. [1] was most likely
     derived purely from the particular signals they had at their disposal,
     rather than being grounded in a substantive theoretical argument.
-    
+
     References
     ----------
     [1] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in complex
@@ -319,7 +323,7 @@ def _custom_beads(baseline_fitter, s, regions=((None,None),), sampling=1,
             lam=None,
             method_kwargs=beads_kwargs
             )
-    
+
     noise_fit = (params['y_fit'] - params['baseline_fit']
                  - params['method_params']['signal'])
     params['noise'] = np.interp(baseline_fitter.x, params['x_fit'], noise_fit)
@@ -348,7 +352,7 @@ def _r2(algo, baseline_fitter, y, p, param="freq_cutoff", **kwargs):
         "freq_cutoff".
     **kwargs
         Additional keyword arguments.
-        
+
     Returns
     -------
     r2 : float
@@ -383,16 +387,16 @@ def _r2_array(algo, baseline_fitter, signal, param_range,
         "freq_cutoff".
     **kwargs
         Additional keyword arguments.
-    
+
     Returns
     -------
     vr2 : numpy.ndarray, shape (M,)
         The calculated array of r2.
 
     """
-    r2_func = lambda x: _r2(algo, baseline_fitter, signal, x, param=param,
-                            **kwargs)
-    vr2_func = np.vectorize(r2_func)
+    def _r2_wrapper(x):
+        return _r2(algo, baseline_fitter, signal, x, param=param, **kwargs)
+    vr2_func = np.vectorize(_r2_wrapper)
     vr2 = vr2_func(param_range)
     return vr2
 
@@ -465,14 +469,14 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
 
     """
     tic = time.perf_counter()
- 
+
     # Make sure that the method being passed is allowed
     allowed_methods = {"beads": _beads, "custom_beads": _custom_beads}
     if method not in allowed_methods:
         raise ValueError(f"method '{method}' is not implemented")
 
     algo = allowed_methods[method]
- 
+
     baseline_fitter = Baseline(x_data=x[:scut])
 
     # log transform of the signal
@@ -480,7 +484,7 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
     print(f"{'Used points:':<20}{len(z):d}")
 
     fcut_range = np.geomspace(0.00001, 0.5, num=num, endpoint=False)
- 
+
     # y-data
     r2_val = _r2_array(algo, baseline_fitter, z, fcut_range, param=param,
                        **kwargs)
@@ -499,7 +503,7 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
     max_d1 = argrelmax(smooth_d1)[0]
     d1_min = np.argmin(smooth_d1)
     #EB not general at all...
-    lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0] 
+    lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0]
 
     # Proto-plateaus from d1 and d2
     tight_d1_flats = find_flat(smooth_d1, tol1_0)
@@ -543,13 +547,13 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
     else:
         case = 2
         arg_l = anchors[np.argmin(np.absolute(smooth_d1[anchors]))]
-    
+
     ##########################################################################
     # Shift relative to the chosen anchor
     slope_arg = np.where(np.absolute(smooth_d1) >= slope_thresh)[0]
     try:
         cutoff = slope_arg[slope_arg >= arg_l][0]
-    except:
+    except IndexError:
         print("WARNING: slope_arg < arg_l.")
         cutoff = arg_l
 
@@ -646,7 +650,7 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     """
     if asymmetry <= 0:
         raise ValueError('asymmetry must be greater than 0')
-    
+
     # Make sure that the method being passed is allowed
     allowed_methods = {"beads": _beads, "custom_beads": _custom_beads}
     if method not in allowed_methods:
@@ -687,7 +691,7 @@ def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
     # @EB TO CHANGE WHEN I KNOW HOW TO DO IT...
     if alpha is None:
         alpha=1.0
-        method_kwargs.update({"alpha": alpha})  
+        method_kwargs.update({"alpha": alpha})
 
     # Change parabola_len for the final baseline correction
     if parabola_len is None:

@@ -5,8 +5,9 @@ Parser for common spectral data.
 """
 
 import re
-from pathlib import Path
+
 import numpy as np
+
 
 class ParsedData:
     """

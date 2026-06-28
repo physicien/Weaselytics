@@ -1,4 +1,5 @@
 import numpy as np
+
 from weaselytics.parsers import ParsedData
 
 

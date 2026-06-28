@@ -1,9 +1,11 @@
 import os
+
 import numpy as np
 import pytest
 
 os.environ["MPLBACKEND"] = "Agg"
 import matplotlib
+
 matplotlib.use("Agg")
 
 

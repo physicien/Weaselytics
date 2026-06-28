@@ -4,12 +4,19 @@ weaselytics - A library to extract and analyse chromatographic data.
 ====================================================================
 """
 
-from weaselytics.parsers import ParsedData
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("weaselytics")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
+
 from weaselytics.baseline import auto_beads
+from weaselytics.export import export_csv, export_dist, export_txt
+from weaselytics.parsers import ParsedData
 from weaselytics.peakfitting import fit_peak, gauss, skew_norm
-from weaselytics.utils import smooth_SG
-from weaselytics.export import export_txt, export_csv, export_dist
 from weaselytics.plot import plot, r2_plots
+from weaselytics.utils import smooth_SG
 
 __all__ = [
     "ParsedData",

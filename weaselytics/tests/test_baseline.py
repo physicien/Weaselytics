@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
-from weaselytics.baseline import auto_beads, _beads, _custom_beads
 from pybaselines import Baseline
+
+from weaselytics.baseline import _beads, _custom_beads, auto_beads
 
 
 class TestBeads:

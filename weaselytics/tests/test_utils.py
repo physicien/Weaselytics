@@ -1,17 +1,18 @@
 import numpy as np
 import pytest
+
 from weaselytics.utils import (
-    smooth_SG,
-    end_window,
-    rm_ends_outliers,
     _durbin_watson,
-    r2_dw,
+    _long_segments,
+    _rolling_mad,
+    _rolling_std,
     continuous_ranges,
+    end_window,
     find_flat,
     merge_intervals,
-    _rolling_std,
-    _rolling_mad,
-    _long_segments,
+    r2_dw,
+    rm_ends_outliers,
+    smooth_SG,
 )
 
 

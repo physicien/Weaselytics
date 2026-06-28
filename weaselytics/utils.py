@@ -5,16 +5,17 @@ Helper functions to perform various signal preprocessin operations.
 """
 import numpy as np
 import pandas as pd
+from diptest import diptest
+from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 from scipy.stats import median_abs_deviation
-from skimage.filters import threshold_triangle, threshold_sauvola
-from scipy.ndimage import gaussian_filter1d
-from diptest import diptest
+from skimage.filters import threshold_sauvola, threshold_triangle
+
 
 def end_window(data, window_min=3, window_max=20):
     """
     Calculate the size of the local window used to detect endpoint outliers.
-    
+
     Parameters
     ----------
     data : numpy.ndarray
@@ -43,7 +44,7 @@ def rm_ends_outliers(data, window_min=5, window_max=100):
     Check whether the first and last elements of the input data are outliers.
     If either of them is classified as an outlier, substitute it with the
     median computed from a local window of data points whose size is
-    ``window_min <= round(0.01*len(s)) <= window_max``. 
+    ``window_min <= round(0.01*len(s)) <= window_max``.
 
     Parameters
     ----------
@@ -170,7 +171,7 @@ def continuous_ranges(x):
 
     Parameters
     ----------
-    x : array-like 
+    x : array-like
         The array to split.
 
     Returns
@@ -201,7 +202,7 @@ def find_flat(x, include_tol, exclude_tol=0, mode='absolute'):
             Takes the absolute value of the array.
         'signed'
             Takes signed values of the array.
-        
+
     Returns
     -------
     plateaus : array-like
@@ -210,7 +211,7 @@ def find_flat(x, include_tol, exclude_tol=0, mode='absolute'):
     Raises
     ------
     ValueError
-        Raised if `exclude_tol` in not smaller than `include_tol`, or if the 
+        Raised if `exclude_tol` in not smaller than `include_tol`, or if the
         `mode` being passed is not allowed.
 
     """
@@ -246,7 +247,7 @@ def merge_intervals(intervals):
     merged_intervals : numpy.ndarray, shape (M,2) for M <= N
         The two dimensional array containing the start and stop indices for
         each non-overlapping intervals.
-        
+
     """
     sortedIntervals = sorted(intervals, key=lambda x: x[0])
     merged = []
@@ -275,7 +276,7 @@ def _rolling_std(x, window=3):
     -------
     rolling_std : array-like, shape (N,)
         The rolling standard deviation.
-    
+
     """
     data = {'value': x}
     df = pd.DataFrame(data)
@@ -301,7 +302,7 @@ def _rolling_mad(x, window=3):
     -------
     rolling_mad : array-like, shape (N,)
         The rolling median absolute deviation of the data.
-    
+
     """
     data = {'value': x}
     df = pd.DataFrame(data)
@@ -401,7 +402,7 @@ def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
     starting_r2 = np.median(smooth_d0[tight_continuous[0]])
     starting_end = np.where(
             np.absolute(starting_r2 - x[:argmin_x]) < tol0)[0][-1]
-    starting_plateau = starting_end + 1 
+    starting_plateau = starting_end + 1
     ends[:starting_plateau] = True
 
     # Final plateau (or climbing final region)
@@ -428,8 +429,8 @@ def find_plateaus(x, window=3, nbins=256, pval_cutoff=0.002):
     rolling_std = _rolling_std(x, window=window)
     rolling_mad = _rolling_mad(x, window=window)
     diff_std_mad = rolling_std - rolling_mad
-    
-    # Test if the distribution is unimodal (p=1)  
+
+    # Test if the distribution is unimodal (p=1)
     _, pval = diptest(rolling_std)
     print(f"{'pval:':<20}{pval:0.4f}")
 
@@ -444,7 +445,7 @@ def find_plateaus(x, window=3, nbins=256, pval_cutoff=0.002):
         threshold = threshold_triangle(rolling_std, nbins=nbins)
         plateaus = rolling_std < threshold
     print(f"{'Threshold:':<20}{threshold:0.4E}")
-    
+
     # Discard plateaus at both ends
     ends = _flat_ends(x, diff_std_mad)
     plateaus = np.logical_and(plateaus, ~ends)
@@ -458,7 +459,7 @@ def find_plateaus(x, window=3, nbins=256, pval_cutoff=0.002):
     # Discard shorter plateaus
     plateaus = _long_segments(plateaus)
 #    print(continuous_ranges(np.where(plateaus)[0]))
-    
+
     # Discard regions beyond the max of rolling_std if nothing before it
     rstd_argmax = np.argmax(rolling_std)
     if plateaus[:rstd_argmax].any():

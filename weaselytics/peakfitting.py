@@ -4,11 +4,12 @@
 Functions to perform Peak fitting.
 """
 import numpy as np
-from scipy.special import erf
-from scipy.signal import find_peaks, peak_widths
 from scipy.optimize import least_squares
+from scipy.signal import find_peaks, peak_widths
+from scipy.special import erf
 
 from weaselytics.export import export_dist
+
 
 def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
                  rel_height_p=0.5, rel_height_n=0.5, width=None, adapt=False):
@@ -35,13 +36,13 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
         Selects the relative height at which the width of a positive peak is
         determined, expressed as a fraction of its prominence. A value of 1.0
         measures the peak’s width at its lowest contour level, whereas 0.5
-        measures it at half the prominence height. The value must be at 
+        measures it at half the prominence height. The value must be at
         least 0. Default is 0.5.
     rel_height_n : float, optional
         Selects the relative height at which the width of a negative peak is
         determined, expressed as a fraction of its prominence. A value of 1.0
         measures the peak’s width at its lowest contour level, whereas 0.5
-        measures it at half the prominence height. The value must be at 
+        measures it at half the prominence height. The value must be at
         least 0. Default is 0.5.
     width : number or ndarray or sequence, optional
         Required width of peaks in samples. Either a number, `None`, an array
@@ -76,7 +77,7 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
             rel_prom_p = 5*rel_prom_p
     prom_p = rel_prom_p * max_prom_p
     prom_n = rel_prom_n * max_prom_n
- 
+
     peaks_p, _ = find_peaks(s, prominence=prom_p, width=width)
     peaks_n, _ = find_peaks(-s, prominence=prom_n, height=height_n,
                              width=width)
@@ -84,7 +85,7 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
     widths_n = peak_widths(-s, peaks_n, rel_height=rel_height_n)[0]
 
     unsorted_peaks = np.append(peaks_p, peaks_n)
-    unsorted_widths = np.append(widths_p, widths_n) 
+    unsorted_widths = np.append(widths_p, widths_n)
     index_array = np.argsort(unsorted_peaks)
 
     peaks = unsorted_peaks[index_array]
@@ -194,7 +195,7 @@ def _lsq_gauss_fit(x, y):
     Use non-linear least squares to fit a Gaussian distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below
     0.1. For further information, see [1].
-    
+
     Parameters
     ----------
     x : numpy.ndarray
@@ -244,7 +245,7 @@ def _lsq_skew_norm_fit(x, y):
     Use non-linear least squares to fit a Skew normal distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below
     0.1. For further information, see [1].
-    
+
     Parameters
     ----------
     x : numpy.ndarray
@@ -322,7 +323,7 @@ def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
         The y-values of the Gaussian distribution.
     y_robust_sn : array-like, shape (N,)
         The y-values of the Skew-Normal distribution.
-        
+
     """
     if x0:
         xmin = x0

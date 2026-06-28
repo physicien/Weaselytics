@@ -5,9 +5,11 @@ Plotting functions.
 """
 
 import os
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
+
 
 def plot(x, y, y_sm=None, s=None, bl=None, x_fit=None, y_fit_g=None,
          y_fit_sn=None, case=0, show_plot=False, print_plot=False,
@@ -49,7 +51,7 @@ def plot(x, y, y_sm=None, s=None, bl=None, x_fit=None, y_fit_g=None,
         If True, the plot will be exported as an image. Default is False.
     path : str, optional
         Path of the data file.
- 
+
     Returns
     -------
     None
@@ -151,7 +153,6 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, ends, sec_p,
 
     """
     #TODO: Cleanup this function...
-    infls = np.where(np.diff(np.sign(sm_d2)))[0]
     accepted = np.zeros(len(x))
     accepted[sec_p] = 1
 
@@ -169,34 +170,17 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, ends, sec_p,
                         color='green', alpha=0.3,
                         transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
-#    axs[0].semilogx(x, sm_d0, marker='', ls='-',
-#                    label=r'$r^2_\text{smooth}$',ms=3)
 
     axs[1].fill_between(x, 0, 1,
                         where=tol1_0,
-                        color="none", ec="white", alpha=0.3, fc="purple", 
+                        color="none", ec="white", alpha=0.3, fc="purple",
                         hatch="//", hatch_linewidth=4,
                         transform=axs[1].get_xaxis_transform())
-#    axs[1].fill_between(x, 0, 1,
-#                        where=np.absolute(sm_d1) < tol1_1,
-#                        color='orange', alpha=0.3,
-#                        transform=axs[1].get_xaxis_transform())
-    #axs[1].semilogx(x, sm_d1, marker='.', ls='',label=r'1',ms=3)
-    #axs[1].semilogx(x, sm_d2, marker='.', ls='',label=r'2',ms=3)
-#    axs[1].semilogx(x, sm_d0, marker='.', ls='', label=r'rolling_std', ms=3,
-#                    c='green')
     axs[1].semilogx(x, sm_d1, ls='-', label=r'corrected')
     axs[1].semilogx(x, sm_d2, ls='-', label=r'smooth')
 
-#    axs[2].fill_between(x, 0, 1,
-#                        where=np.absolute(sm_d2) < tol2,
-#                        color='blue', alpha=0.1,
-#                        transform=axs[2].get_xaxis_transform())
-#    axs[2].semilogx(x, sm_d2, label='Second Derivative')
     for ax in axs.flat:
-    #    for i, infl in enumerate(infls, 1):
-    #        ax.axvline(x=x[infl], c='k', lw=0.5)#, label=f'Inflection Point {i}')
-        ax.axvline(x=freq_cutoff,c='tab:red',ls='dashed'),
+        ax.axvline(x=freq_cutoff, c='tab:red', ls='dashed')
         ax.label_outer()
     #for md1 in min_d1:
     #    axs[1].axvline(x=x[md1],ymax=0.5,c='tab:pink',ls='dashed')

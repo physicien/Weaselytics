@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from weaselytics.peakfitting import gauss, skew_norm, peaks_params, fit_peak
+
+from weaselytics.peakfitting import fit_peak, gauss, peaks_params, skew_norm
 
 
 class TestGauss:

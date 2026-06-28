@@ -1,15 +1,14 @@
 #!/usr/bin/python3
 
-import sys
 import argparse
-import numpy as np
+import sys
 
-from weaselytics.parsers import ParsedData
-from weaselytics.peakfitting import gauss, skew_norm, fit_peak
-from weaselytics.utils import smooth_SG
 from weaselytics.baseline import auto_beads
-from weaselytics.export import export_txt, export_csv
+from weaselytics.export import export_csv, export_txt
+from weaselytics.parsers import ParsedData
+from weaselytics.peakfitting import fit_peak
 from weaselytics.plot import plot
+from weaselytics.utils import smooth_SG
 
 
 def main():
@@ -24,7 +23,10 @@ def main():
     parser.add_argument('-p', '--print', default=0, action='store_true',
                         help='print the plots')
     parser.add_argument('-e', '--export_bldata', default=0, action='store_true',
-                        help='export the baseline corrected data to filename_bl.txt')
+                        help=(
+                            'export the baseline corrected data'
+                            ' to filename_bl.txt'
+                        ))
     parser.add_argument('-o', '--output_csv', default=0, action='store_true',
                         help='output data to <ARG>.csv')
     parser.add_argument('-os', '--output_stats', type=str,
@@ -46,13 +48,13 @@ def main():
     do_bl = args.nobaseline
     do_sm = args.dosmoothing
 
-    if args.startx is not None and args.endx is not None and args.startx == args.endx:
-        print("Warning. x0 and x1 are equal. Exit.")
-        sys.exit(1)
-
-    if args.startx is not None and args.endx is not None and args.startx > args.endx:
-        print("Warning. x1 is larger than x0. Exit.")
-        sys.exit(1)
+    if args.startx is not None and args.endx is not None:
+        if args.startx == args.endx:
+            print("Warning. x0 and x1 are equal. Exit.")
+            sys.exit(1)
+        if args.startx > args.endx:
+            print("Warning. x1 is larger than x0. Exit.")
+            sys.exit(1)
 
     if args.startx:
         if args.startx < 0:

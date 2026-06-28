@@ -1,4 +1,5 @@
 import numpy as np
+
 from weaselytics.plot import plot, r2_plots
 
 

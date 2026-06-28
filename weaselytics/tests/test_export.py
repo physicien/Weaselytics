@@ -1,7 +1,9 @@
 import os
+
 import numpy as np
 import pandas as pd
-from weaselytics.export import export_txt, export_csv, export_dist
+
+from weaselytics.export import export_csv, export_dist, export_txt
 
 
 class TestExportTxt:

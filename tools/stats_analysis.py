@@ -1,9 +1,11 @@
 #!/usr/bin/python3
 
-import pandas as pd
-import numpy as np
 import math
+
+import numpy as np
+import pandas as pd
 from scipy import stats as st
+
 #from uncertainties_pandas import UncertaintyArray, UncertaintyDtype
 #from uncertainties import ufloat
 #from uncertainties import unumpy as unp
@@ -44,7 +46,7 @@ def weighted_avg_and_std(values, weights):
     """
     Return the weighted standard deviation.
 
-    The weights are in effect first normalized so that they 
+    The weights are in effect first normalized so that they
     sum to 1 (and so they must not all be 0).
 
     values, weights -- NumPy ndarrays with the same shape.
@@ -82,7 +84,7 @@ def chauvenets_criterions(df):
         sigma_x = igb[(igb["solvent"]==solvent)&(igb["mol"]==mol)
                       &(igb["distribution"]==distribution)]["sigma_wav"]
         x = df.iloc[i]["x0"]
-        expt_id = df.iloc[i]["id"]
+#        expt_id = df.iloc[i]["id"]
 
         #Probability represented by one tail of the normal distribution
         P_z = 1 - (1/(4*n_obs))

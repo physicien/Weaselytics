@@ -6,8 +6,10 @@ Functions to export data to various file formats.
 
 import os
 import re
+
 import numpy as np
 import pandas as pd
+
 
 def export_txt(x, y, path="./file.txt"):
     """
@@ -70,7 +72,7 @@ def export_dist(mol, g_fit, sn_fit, path):
     g_fit : ndarray with shape (3,)
         Parameters for a Gaussian distribution with the following fields
         defined:
-        
+
         amp : float
             The maximum height of the distribution.
         x0 : float

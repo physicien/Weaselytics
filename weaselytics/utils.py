@@ -79,7 +79,7 @@ def rm_ends_outliers(data, window_min=5, window_max=100):
     return s
 
 def _durbin_watson(resids, axis=0):
-    """
+    r"""
     Calculate the Durbin-Watson statistic.
 
     Parameters

@@ -11,11 +11,20 @@ authors = [
 description = "Python package to extract and analyse chromatographic data."
 readme = "README.md"
 requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "seaborn",
+    "pandas",
+    "pybaselines @ git+https://github.com/derb12/pybaselines@development",
+    "scikit-image",
+    "diptest",
+]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
@@ -32,3 +41,6 @@ license-files = ["LICEN[CS]E*"]
 [project.urls]
 Homepage = "https://github.com/physicien/Weaselytics"
 Issues = "https://github.com/physicien/Weaselytics/issues"
+
+[project.scripts]
+weaselytics = "weaselytics.weaselytics:main"

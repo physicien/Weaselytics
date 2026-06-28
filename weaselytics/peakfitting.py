@@ -8,7 +8,7 @@ from scipy.special import erf
 from scipy.signal import find_peaks, peak_widths
 from scipy.optimize import least_squares
 
-from export import export_dist
+from weaselytics.export import export_dist
 
 def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
                  rel_height_p=0.5, rel_height_n=0.5, width=None, adapt=False):

@@ -11,11 +11,11 @@ from scipy.signal import argrelmin, argrelmax#, medfilt
 from scipy.ndimage import gaussian_filter1d
 from pybaselines import Baseline
 
-from peakfitting import peaks_params
-from utils import (r2_dw, continuous_ranges, find_flat, merge_intervals,
+from weaselytics.peakfitting import peaks_params
+from weaselytics.utils import (r2_dw, continuous_ranges, find_flat, merge_intervals,
                    end_window, find_plateaus
                    )
-from plot import r2_plots
+from weaselytics.plot import r2_plots
 
 def _relevant_regions(s, x, tol=6.):
     """
@@ -143,7 +143,7 @@ def _log_transform(s, epsilon=1):
 
 def _beads(baseline_fitter, s, freq_cutoff=0.005, asymmetry=1.0,
            fit_parabola=True, alpha=1.0, parabola_len=3, **kwargs):
-    """
+    r"""
     Baseline estimation and denoising with sparsity (BEADS).
 
     Parameters

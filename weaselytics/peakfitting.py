@@ -11,8 +11,11 @@ from scipy.special import erf
 from weaselytics.export import export_dist
 
 
-def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
-                 rel_height_p=0.5, rel_height_n=0.5, width=None, adapt=False):
+def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
+                 rel_prom_n: float = 0.8, height_n: float = 0.1,
+                 rel_height_p: float = 0.5, rel_height_n: float = 0.5,
+                 width: int | None = None,
+                 adapt: bool = False) -> tuple[np.ndarray, np.ndarray]:
     """
     Find the center and width for every peak of the chromatogram (including
     the negative ones).
@@ -92,7 +95,7 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
     widths = unsorted_widths[index_array]
     return peaks, widths
 
-def gauss(x, params):
+def gauss(x: np.ndarray, params: np.ndarray) -> np.ndarray:
     """
     Generate a Gaussian distribution based on `params`.
 
@@ -129,7 +132,7 @@ def gauss(x, params):
     dist = amp*np.exp(-0.5*((x-x0)**2)/sigma**2)
     return dist
 
-def skew_norm(x, params):
+def skew_norm(x: np.ndarray, params: np.ndarray) -> np.ndarray:
     """
     Generate a Skew normal distribution based on `params`.
 
@@ -166,7 +169,8 @@ def skew_norm(x, params):
     dist = amp*2*norm*cdf
     return dist
 
-def _lsq_eq(p, fct, x, y):
+def _lsq_eq(p: np.ndarray, fct: callable, x: np.ndarray,
+            y: np.ndarray) -> np.ndarray:
     """
     Compute the vector of residuals in order to solve the least-squares
     problem.
@@ -190,7 +194,7 @@ def _lsq_eq(p, fct, x, y):
     """
     return fct(x,p) - y
 
-def _lsq_gauss_fit(x, y):
+def _lsq_gauss_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """
     Use non-linear least squares to fit a Gaussian distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below
@@ -240,7 +244,7 @@ def _lsq_gauss_fit(x, y):
     s = res_robust.x
     return s
 
-def _lsq_skew_norm_fit(x, y):
+def _lsq_skew_norm_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """
     Use non-linear least squares to fit a Skew normal distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below
@@ -292,7 +296,10 @@ def _lsq_skew_norm_fit(x, y):
     s = res_robust.x
     return s
 
-def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
+def fit_peak(s: np.ndarray, x: np.ndarray, x0: float | None = None,
+             x1: float | None = None, mol: str | None = None,
+             path: str | None = None
+             ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Fit robustly the most prominent peak on `x` with both Gaussian and
     Skew-Normal distributions.

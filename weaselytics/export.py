@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 
-def export_txt(x, y, path="./file.txt"):
+def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt") -> None:
     """
     Export the data to a txt file after the baseline correction.
 
@@ -36,7 +36,7 @@ def export_txt(x, y, path="./file.txt"):
     np.savetxt(filename+"_bl.txt", ajusted_data, delimiter='\t', header=header)
     return None
 
-def export_csv(x, y, path="./file.txt"):
+def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt") -> None:
     """
     Export the data to a csv file.
 
@@ -61,7 +61,8 @@ def export_csv(x, y, path="./file.txt"):
     df.to_csv(filename+".csv", index=False, header=header)
     return None
 
-def export_dist(mol, g_fit, sn_fit, path):
+def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
+                path: str) -> None:
     """
     Export the statistics of the fitted distribution for a peak to a csv file.
 

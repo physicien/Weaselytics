@@ -11,9 +11,13 @@ import numpy as np
 import seaborn as sns
 
 
-def plot(x, y, y_sm=None, s=None, bl=None, x_fit=None, y_fit_g=None,
-         y_fit_sn=None, case=0, show_plot=False, print_plot=False,
-         path="./file.txt"):
+def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
+         s: np.ndarray | None = None, bl: np.ndarray | None = None,
+         x_fit: np.ndarray | None = None,
+         y_fit_g: np.ndarray | None = None,
+         y_fit_sn: np.ndarray | None = None, case: int = 0,
+         show_plot: bool = False, print_plot: bool = False,
+         path: str = "./file.txt") -> None:
     """
     Plot the signal and its various modified variations.
 
@@ -101,9 +105,13 @@ def plot(x, y, y_sm=None, s=None, bl=None, x_fit=None, y_fit_g=None,
     plt.close()
     return None
 
-def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, ends, sec_p,
-             tol1_0, tol1_1, tol2, freq_cutoff, fcut_r2, case=0,
-             show_plot=False, print_plot=False, path="./file.txt"):
+def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
+             sm_d1: np.ndarray, sm_d2: np.ndarray, min_d1: np.ndarray,
+             max_d1: np.ndarray, ends: np.ndarray, sec_p: np.ndarray,
+             tol1_0: np.ndarray, tol1_1: float, tol2: float,
+             freq_cutoff: float, fcut_r2: float, case: int = 0,
+             show_plot: bool = False, print_plot: bool = False,
+             path: str = "./file.txt") -> None:
     """
     Plot the autocorrelation and its first two derivatives.
 

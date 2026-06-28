@@ -4,6 +4,7 @@
 Functions to perform the baseline correction.
 """
 import time  #@EB temporary?
+from collections.abc import Callable
 
 import numpy as np
 from pybaselines import Baseline
@@ -22,7 +23,8 @@ from weaselytics.utils import (
 )
 
 
-def _relevant_regions(s, x, tol=6.):
+def _relevant_regions(s: np.ndarray, x: np.ndarray, tol: float = 6.
+                      ) -> tuple[np.ndarray | tuple, int | np.ndarray, int]:
     """
     Divide the signal into regions maximizing the contribution of the signal in
     the calculation of the autocorrelation plot. in order to find the optimal
@@ -104,7 +106,7 @@ def _relevant_regions(s, x, tol=6.):
         scut = len(s)
     return peak_regions, sampling, scut
 
-def _log_transform(s, epsilon=1):
+def _log_transform(s: np.ndarray, epsilon: float = 1) -> np.ndarray:
     """
     Log transformation used in the calculation of the autocorrelation for the
     BEADS algorithm. For further information, see [1].
@@ -146,8 +148,11 @@ def _log_transform(s, epsilon=1):
     log_s = np.log10(s - np.min(s) + epsilon)
     return log_s
 
-def _beads(baseline_fitter, s, freq_cutoff=0.005, asymmetry=1.0,
-           fit_parabola=True, alpha=1.0, parabola_len=3, **kwargs):
+def _beads(baseline_fitter: Baseline, s: np.ndarray,
+           freq_cutoff: float = 0.005, asymmetry: float = 1.0,
+           fit_parabola: bool = True, alpha: float = 1.0,
+           parabola_len: int = 3, **kwargs
+           ) -> tuple[np.ndarray, dict]:
     r"""
     Baseline estimation and denoising with sparsity (BEADS).
 
@@ -228,9 +233,13 @@ def _beads(baseline_fitter, s, freq_cutoff=0.005, asymmetry=1.0,
             )
     return bl, params
 
-def _custom_beads(baseline_fitter, s, regions=((None,None),), sampling=1,
-                  freq_cutoff=0.005, asymmetry=1.0, fit_parabola=True,
-                  alpha=1.0, parabola_len=3, **kwargs):
+def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
+                  regions: tuple | np.ndarray = ((None, None),),
+                  sampling: int | np.ndarray = 1,
+                  freq_cutoff: float = 0.005, asymmetry: float = 1.0,
+                  fit_parabola: bool = True, alpha: float = 1.0,
+                  parabola_len: int = 3, **kwargs
+                  ) -> tuple[np.ndarray, dict]:
     """
     Customized variant of BEADS for fine tuned stiffness of the baseline in
     specific regions.
@@ -330,7 +339,8 @@ def _custom_beads(baseline_fitter, s, regions=((None,None),), sampling=1,
     params['signal'] = s - bl - params['noise']
     return bl, params
 
-def _r2(algo, baseline_fitter, y, p, param="freq_cutoff", **kwargs):
+def _r2(algo: Callable, baseline_fitter: Baseline, y: np.ndarray,
+         p: float, param: str = "freq_cutoff", **kwargs) -> float:
     """
     Calculate the autocorrelation, based on the Durbin-Watson statistics, of
     the baseline corrected signal for a given value of a given parameter used
@@ -365,8 +375,9 @@ def _r2(algo, baseline_fitter, y, p, param="freq_cutoff", **kwargs):
     r2 = r2_dw(y_corr)
     return r2
 
-def _r2_array(algo, baseline_fitter, signal, param_range,
-              param="freq_cutoff", **kwargs):
+def _r2_array(algo: Callable, baseline_fitter: Baseline,
+              signal: np.ndarray, param_range: np.ndarray,
+              param: str = "freq_cutoff", **kwargs) -> np.ndarray:
     """
     Calculate the array of `r2`, the Durbin-Watson autocorrelation of the
     baseline corrected signal, relative to a parameter on a specific range.
@@ -400,10 +411,14 @@ def _r2_array(algo, baseline_fitter, signal, param_range,
     vr2 = vr2_func(param_range)
     return vr2
 
-def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
-            tol0=1.0E-03, tol1_0=1.0E-05, tol1_1=5.0E-04, tol2=2.0E-06,
-            num=1000, show_plot=False, print_plot=False, path="./file.txt",
-            method="beads", param="freq_cutoff", **kwargs):
+def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
+            smoothing_window: int = 15, slope_thresh: float = 5.0E-05,
+            tol0: float = 1.0E-03, tol1_0: float = 1.0E-05,
+            tol1_1: float = 5.0E-04, tol2: float = 2.0E-06,
+            num: int = 1000, show_plot: bool = False,
+            print_plot: bool = False, path: str = "./file.txt",
+            method: str = "beads", param: str = "freq_cutoff", **kwargs
+            ) -> tuple[float, int]:
     """
     Find the optimal cutoff frequency.
 
@@ -577,9 +592,13 @@ def _fcutoff(s, x, scut, smoothing_window=15, slope_thresh=5.0E-05,
 
 ###############################################################################
 #BEADS baseline correction
-def auto_beads(s, x, freq_cutoff=None, show_plot=False, print_plot=False,
-               path="./file.txt", method="beads", asymmetry=1.0,
-               fit_parabola=True, alpha=None, parabola_len=3):
+def auto_beads(s: np.ndarray, x: np.ndarray,
+               freq_cutoff: float | None = None, show_plot: bool = False,
+               print_plot: bool = False, path: str = "./file.txt",
+               method: str = "beads", asymmetry: float = 1.0,
+               fit_parabola: bool = True, alpha: float | None = None,
+               parabola_len: int | None = 3
+               ) -> tuple[np.ndarray, dict, int]:
     """
     Automatic implementation of the Baseline estimation and denoising with
     sparsity (BEADS) algorithm.

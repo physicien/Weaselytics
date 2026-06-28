@@ -12,7 +12,8 @@ from scipy.stats import median_abs_deviation
 from skimage.filters import threshold_sauvola, threshold_triangle
 
 
-def end_window(data, window_min=3, window_max=20):
+def end_window(data: np.ndarray, window_min: int = 3,
+               window_max: int = 20) -> int:
     """
     Calculate the size of the local window used to detect endpoint outliers.
 
@@ -39,7 +40,8 @@ def end_window(data, window_min=3, window_max=20):
     return size
 
 
-def rm_ends_outliers(data, window_min=5, window_max=100):
+def rm_ends_outliers(data: np.ndarray, window_min: int = 5,
+                     window_max: int = 100) -> np.ndarray:
     """
     Check whether the first and last elements of the input data are outliers.
     If either of them is classified as an outlier, substitute it with the
@@ -79,7 +81,7 @@ def rm_ends_outliers(data, window_min=5, window_max=100):
         s[-1] = y1_med
     return s
 
-def _durbin_watson(resids, axis=0):
+def _durbin_watson(resids: np.ndarray, axis: int = 0) -> np.ndarray:
     r"""
     Calculate the Durbin-Watson statistic.
 
@@ -120,7 +122,7 @@ def _durbin_watson(resids, axis=0):
     dw = np.sum(diff_resids**2, axis=axis) / np.sum(resids**2, axis=axis)
     return dw
 
-def r2_dw(s):
+def r2_dw(s: np.ndarray) -> float:
     """
     Compute the squared values of `r`, the Durbin-Watson (DW) autocorrelation
     level.
@@ -140,7 +142,8 @@ def r2_dw(s):
     r2 = ((2-_durbin_watson(s))**2)/4
     return r2
 
-def smooth_SG(x, window_lenght, polyorder):
+def smooth_SG(x: np.ndarray, window_lenght: int,
+              polyorder: int) -> np.ndarray:
     """
     Apply a Savitzky-Golay filter to an array.
 
@@ -165,7 +168,7 @@ def smooth_SG(x, window_lenght, polyorder):
     smooth_data = savgol_filter(x,window_lenght,polyorder)
     return smooth_data
 
-def continuous_ranges(x):
+def continuous_ranges(x: np.ndarray) -> list[np.ndarray]:
     """
     Separate an array of integers into continuous segments.
 
@@ -182,7 +185,9 @@ def continuous_ranges(x):
     continuous = np.split(x, np.where(x[1:] != x[:-1] +1)[0] +1)
     return continuous
 
-def find_flat(x, include_tol, exclude_tol=0, mode='absolute'):
+def find_flat(x: np.ndarray, include_tol: float,
+              exclude_tol: float = 0,
+              mode: str = 'absolute') -> np.ndarray:
     """
     Find the plateaus of an array according to a certain threshold. A second
     threshold can also be used to exclude certain regions from the plateaus.
@@ -232,7 +237,7 @@ def find_flat(x, include_tol, exclude_tol=0, mode='absolute'):
     plateaus = np.where(include_condition)[0]
     return plateaus
 
-def merge_intervals(intervals):
+def merge_intervals(intervals: list[list[int]]) -> np.ndarray:
     """
     Merge overlapping intervals.
 
@@ -261,7 +266,7 @@ def merge_intervals(intervals):
     merged_intervals = np.array(merged)
     return merged_intervals
 
-def _rolling_std(x, window=3):
+def _rolling_std(x: np.ndarray, window: int = 3) -> np.ndarray:
     """
     Compute the rolling standard deviation of the data.
 
@@ -287,7 +292,7 @@ def _rolling_std(x, window=3):
     rolling_std = df['rolling_std'].to_numpy()
     return rolling_std
 
-def _rolling_mad(x, window=3):
+def _rolling_mad(x: np.ndarray, window: int = 3) -> np.ndarray:
     """
     Compute the rolling median absolute deviation of the data.
 
@@ -313,7 +318,7 @@ def _rolling_mad(x, window=3):
     rolling_mad = df['rolling_mad'].to_numpy()
     return rolling_mad
 
-def _long_segments(x, min_len=10):
+def _long_segments(x: np.ndarray, min_len: int = 10) -> np.ndarray:
     """
     Eliminate, in a discontinuous boolean array, the continuous segments of
     `True` values that are shorter than `min_len`.
@@ -344,8 +349,10 @@ def _long_segments(x, min_len=10):
     long_segments[segments] = True
     return long_segments
 
-def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
-               tol_rdiff=1.0E-04):
+def _flat_ends(x: np.ndarray, rdiff: np.ndarray,
+               smoothing_window: int = 15, tol0: float = 1.0E-03,
+               tol1: float = 1.0E-05,
+               tol_rdiff: float = 1.0E-04) -> np.ndarray:
     """
     Identify the plateau regions at both ends of `x`, where `x` is the array of
     autocorrelation coefficients ,`r2`, as a function of a given parameter. In
@@ -415,7 +422,9 @@ def _flat_ends(x, rdiff, smoothing_window=15, tol0=1.0E-03, tol1=1.0E-05,
     ends[last_r2:] = True
     return ends
 
-def find_plateaus(x, window=3, nbins=256, pval_cutoff=0.002):
+def find_plateaus(x: np.ndarray, window: int = 3, nbins: int = 256,
+                  pval_cutoff: float = 0.002
+                  ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     NOTE: CHANGE pval_cutoff to 0.05 or 0.10 later
 

@@ -11,7 +11,7 @@ from weaselytics.plot import plot
 from weaselytics.utils import smooth_SG
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         prog='weaselytics',
         description='Parse and analyse chromatographic data from .txt file'

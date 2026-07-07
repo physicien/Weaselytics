@@ -18,24 +18,24 @@ def main() -> None:
     )
 
     parser.add_argument("path", help="the .txt data file")
-    parser.add_argument('-s', '--show', default=0, action='store_true',
+    parser.add_argument('-s', '--show', action='store_true',
                         help='show the plot windows')
-    parser.add_argument('-p', '--print', default=0, action='store_true',
+    parser.add_argument('-p', '--print', action='store_true',
                         help='print the plots')
-    parser.add_argument('-e', '--export_bldata', default=0, action='store_true',
+    parser.add_argument('-e', '--export_bldata', action='store_true',
                         help=(
                             'export the baseline corrected data'
                             ' to filename_bl.txt'
                         ))
-    parser.add_argument('-o', '--output_csv', default=0, action='store_true',
+    parser.add_argument('-o', '--output_csv', action='store_true',
                         help='output data to <ARG>.csv')
     parser.add_argument('-os', '--output_stats', type=str,
                         help='output stats to filename_<ARG>.csv')
-    parser.add_argument('-n', '--nofit', default=1, action='store_false',
+    parser.add_argument('-n', '--nofit', action='store_false',
                         help='do not fit the chromatogram')
-    parser.add_argument('-nb', '--nobaseline', default=1, action='store_false',
+    parser.add_argument('-nb', '--nobaseline', action='store_false',
                         help='do not correct the baseline')
-    parser.add_argument('-sm', '--dosmoothing', default=0, action='store_true',
+    parser.add_argument('-sm', '--dosmoothing', action='store_true',
                         help='do not smooth the signal')
     parser.add_argument('-x0', '--startx', type=float,
                         help='start fitting the gaussian at x min')

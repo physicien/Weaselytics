@@ -158,75 +158,9 @@ def _beads(baseline_fitter: Baseline, s: np.ndarray,
            fit_parabola: bool = True, alpha: float = 1.0,
            parabola_len: int = 3, **kwargs
            ) -> tuple[np.ndarray, dict]:
-    r"""
-    Baseline estimation and denoising with sparsity (BEADS).
+    r"""Wrap ``pybaselines.Baseline.beads``.
 
-    Parameters
-    ----------
-    baseline_fitter : `Baseline` object
-        Contains the x-values of the signal to baseline correct and all
-        available baseline correction algorithms in pybaselines.
-    s :  array-like, shape (N,)
-        The y-values of the signal.
-    freq_cutoff : float, optional
-        The cutoff frequency of the high pass filter, normalized such that
-        0 < `freq_cutoff` < 0.5. Default is 0.005.
-    asymmetry : float, optional
-        A number greater than 0 that determines the weighting of negative
-        values compared to positive values in the cost function. For example,
-        if is 6.0, it will give negative values six times more impact on the
-        cost function that positive values. If set to 1 (the default), the
-        cost function is symmetric, and a value less than 1 will weigh positive
-        values more.
-    fit_parabola : bool, optional
-        If True (default), will fit a parabola to the data and subtract it
-        before performing the BEADS fit as suggested in [2]. This ensures the
-        endpoints of the fit data are close to 0, which is required by BEADS.
-        If the data is already close to 0 on both endpoints, set `fit_parabola`
-        to False (but it does not change anything in reality).
-    alpha : float, optional
-        #@EB will change in pybaselines. Default is 1.0.
-    parabola_len : int, optional
-        Size of the window used, at each ends of the data, to prevent issues
-        in fitting a parabola before the baseline correction[2] when the first
-        and/or last point is an outlier. Default is 3.
-    **kwargs
-        Additional keyword arguments.
-
-    Returns
-    -------
-    bl : numpy.ndarray, shape (N,)
-        The calculated baseline.
-    params : dict
-        A dictionary with the following items:
-
-        * 'signal': numpy.ndarray, shape (N,)
-            The pure signal portion of the input `data` without noise or the
-            baseline.
-        * 'tol_history': numpy.ndarray
-            An array containing the calculated tolerance values for each
-            iteration. The length of the array is the number of iterations
-            completed. If the last value in the array is greater than the input
-            `tol` value, then the function did not converge.
-        * 'fidelity': float
-            The fidelity term of the final fit, given as
-            :math:`0.5 * ||H(y - s)||_2^2`.
-        * 'penalty' : tuple[float, float, float]
-            The penalty terms of the final fit before multiplication with the
-            `lam_d` terms. These correspond to
-            :math:`\sum\limits_{i}^{N} \theta(s_i)`,
-            :math:`\sum\limits_{i}^{N - 1} \phi(\Delta^1 s_i)`, and
-            :math:`\sum\limits_{i}^{N - 2} \phi(\Delta^2 s_i)`, respectively.
-
-    References
-    ----------
-    .. [1] Ning, X., et al. Chromatogram baseline estimation and denoising
-        using sparsity (BEADS). Chemometrics and Intelligent Laboratory
-        Systems, 2014, 139, 156-167.
-    .. [2] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in
-        complex chromatograms using the BEADS algorithm. Journal of
-        Chromatography A, 2017, 1507, 1-10.
-
+    See `auto_beads` for parameter details.
     """
     bl, params = baseline_fitter.beads(
             s,
@@ -245,81 +179,25 @@ def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
                   fit_parabola: bool = True, alpha: float = 1.0,
                   parabola_len: int = 3, **kwargs
                   ) -> tuple[np.ndarray, dict]:
-    """
-    Customized variant of BEADS for fine tuned stiffness of the baseline in
-    specific regions.
+    """Customized BEADS with per-region stiffness control.
+
+    Extends `_beads` by splitting the signal into regions, each with its
+    own sampling density. See `auto_beads` for common parameter details.
 
     Parameters
     ----------
-    baseline_fitter : `Baseline` object
-        Contains the x-values of the signal to baseline correct and all
-        available baseline correction algorithms in pybaselines.
-    s :  array-like, shape (N,)
-        The y-values of the signal.
-    regions : array-line, shape (M,2), optional
-        The two dimensional array containing the start and stop indices for
-        each region containing a relevant peak. Each region is defined as
+    regions : array-like, shape (M,2), optional
+        Start and stop indices for each region containing a relevant peak.
         ``data[start:stop]``. If `None` (default), uses all points.
     sampling : int or array-like, optional
-        The sampling step size for each region defined in `regions`. Default
-        is 1.
-    freq_cutoff : float, optional
-        The cutoff frequency of the high pass filter, normalized such that
-        0 < `freq_cutoff` < 0.5. Default is 0.005.
-    asymmetry : float, optional
-        A number greater than 0 that determines the weighting of negative
-        values compared to positive values in the cost function. For example,
-        if is 6.0, it will give negative values six times more impact on the
-        cost function that positive values. If set to 1 (the default), the
-        cost function is symmetric, and a value less than 1 will weigh positive
-        values more.
-    fit_parabola : bool, optional
-        If True (default), will fit a parabola to the data and subtract it
-        before performing the BEADS fit as suggested in [2]. This ensures the
-        endpoints of the fit data are close to 0, which is required by BEADS.
-        If the data is already close to 0 on both endpoints, set `fit_parabola`
-        to False (but it does not change anything in reality).
-    alpha : float, optional
-        #@EB will change in pybaselines. Default is 1.0.
-    parabola_len : int, optional
-        Size of the window used, at each ends of the data, to prevent issues
-        in fitting a parabola before the baseline correction [2] when the first
-        and/or last point is an outlier. Default is 3.
-    **kwargs
-        Additional keyword arguments.
+        Sampling step size for each region in `regions`. Default 1.
 
     Returns
     -------
     bl : numpy.ndarray, shape (N,)
         The calculated baseline.
     params : dict
-        A dictionary with the following items:
-
-        * 'signal': numpy.ndarray, shape (N,)
-            The pure signal portion of the input `data` without noise or the
-            baseline.
-        * 'x_fit': numpy.ndarray, shape (P,)
-            The truncated x-values used for fitting the baseline.
-        * 'y_fit': numpy.ndarray, shape (P,)
-            The truncated y-values used for fitting the baseline.
-        * 'baseline_fit': numpy.ndarray, shape (P,)
-            The truncated baseline before interpolating from `P` points to `N`
-            points.
-        * 'method_params': dict
-            A dictionary containing the output parameters for the fit using the
-            selected `method`.
-
-    References
-    ----------
-    .. [1] Ning, X., et al. Chromatogram baseline estimation and denoising
-        using sparsity (BEADS). Chemometrics and Intelligent Laboratory
-        Systems, 2014, 139, 156-167.
-    .. [2] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in
-        complex chromatograms using the BEADS algorithm. Journal of
-        Chromatography A, 2017, 1507, 1-10.
-    .. [3] Liland, K., et al. Customized baseline correction. Chemometrics and
-        Intelligent Laboratory Systems, 2011, 109(1), 51-56.
-
+        See `auto_beads` for details.
     """
     if regions is None:
         regions = ((None, None),)

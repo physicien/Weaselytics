@@ -87,7 +87,7 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
                  ha="right",
                  color="tab:red"
                  )
-    if case:
+    if case != 0:
         plt.annotate(f"{'Case:'}{case:>3d}",
                     xy=(0.00,1.01),
                     xycoords=("axes fraction"),

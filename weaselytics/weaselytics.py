@@ -75,13 +75,14 @@ def main() -> None:
 
     output_dir = args.output_dir
 
+    plot_kwargs = {}
     if args.show or args.print:
-        plot_kwargs = {
-            "show_plot": args.show,
-            "print_plot": args.print,
-            "path": path,
-            "output_dir": output_dir,
-        }
+        plot_kwargs.update(
+            show_plot=args.show,
+            print_plot=args.print,
+            path=path,
+            output_dir=output_dir,
+        )
 
     if do_sm:
         ydata_sm = smooth_SG(ydata, 9, 0)

@@ -24,14 +24,14 @@ def main() -> None:
                         help='show the plot windows')
     parser.add_argument('-p', '--print', action='store_true',
                         help='print the plots')
-    parser.add_argument('-e', '--export_bldata', action='store_true',
+    parser.add_argument('-e', '--export-bldata', action='store_true',
                         help=(
                             'export the baseline corrected data'
                             ' to filename_bl.txt'
                         ))
-    parser.add_argument('-o', '--output_csv', action='store_true',
+    parser.add_argument('-o', '--output-csv', action='store_true',
                         help='output data to <ARG>.csv')
-    parser.add_argument('-os', '--output_stats', type=str,
+    parser.add_argument('-os', '--output-stats', type=str,
                         help='output stats to filename_<ARG>.csv')
     parser.add_argument('-n', '--nofit', action='store_true',
                         help='do not fit the chromatogram')
@@ -39,9 +39,9 @@ def main() -> None:
                         help='do not correct the baseline')
     parser.add_argument('-sm', '--dosmoothing', action='store_true',
                         help='do not smooth the signal')
-    parser.add_argument('-x0', '--startx', type=float,
+    parser.add_argument('-x0', '--start-x', type=float,
                         help='start fitting the gaussian at x min')
-    parser.add_argument('-x1', '--endx', type=float,
+    parser.add_argument('-x1', '--end-x', type=float,
                         help='end fitting the gaussian at x min')
     parser.add_argument('-od', '--output-dir', default='results',
                         help='output directory (default: results)')
@@ -52,21 +52,21 @@ def main() -> None:
     do_bl: bool = not args.nobaseline
     do_sm: bool = args.dosmoothing
 
-    if args.startx is not None and args.endx is not None:
-        if args.startx == args.endx:
+    if args.start_x is not None and args.end_x is not None:
+        if args.start_x == args.end_x:
             print("Warning. x0 and x1 are equal. Exit.")
             sys.exit(1)
-        if args.startx > args.endx:
+        if args.start_x > args.end_x:
             print("Warning. x1 is larger than x0. Exit.")
             sys.exit(1)
 
-    if args.startx:
-        if args.startx < 0:
+    if args.start_x:
+        if args.start_x < 0:
             print("Warning. x0 < 0. Exit.")
             sys.exit(1)
 
-    if args.endx:
-        if args.endx < 0:
+    if args.end_x:
+        if args.end_x < 0:
             print("Warning. x1 < 0. Exit.")
             sys.exit(1)
 
@@ -119,7 +119,7 @@ def main() -> None:
     if fit_data:
         x_robust, y_robust_g, y_robust_sn = fit_peak(
             mod_ydata, xdata,
-            x0=args.startx, x1=args.endx,
+            x0=args.start_x, x1=args.end_x,
             mol=args.output_stats, path=args.path,
             output_dir=output_dir,
         )

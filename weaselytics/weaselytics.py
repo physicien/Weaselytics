@@ -42,7 +42,7 @@ def main() -> None:
     parser.add_argument('-x1', '--endx', type=float,
                         help='end fitting the gaussian at x min')
     parser.add_argument('-od', '--output-dir', default='results',
-                        help='output directory for exported files (default: results)')
+                        help='output directory (default: results)')
 
     args = parser.parse_args()
 

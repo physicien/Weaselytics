@@ -109,7 +109,8 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
     solv_pattern = r"(^.+)__LPYE"   # not general...
     basename = os.path.basename(path)
     outname = os.path.splitext(basename)[0]
-    solvent = re.match(solv_pattern, basename).group(1) if re.match(solv_pattern, basename) else "unknown"
+    m = re.match(solv_pattern, basename)
+    solvent = m.group(1) if m else "unknown"
     data_gauss = {
             "mol": mol,
             "solvent": solvent,

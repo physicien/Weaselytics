@@ -2,7 +2,13 @@ import numpy as np
 import pytest
 from pybaselines import Baseline
 
-from weaselytics.baseline import _beads, _custom_beads, _r2, _r2_array, auto_beads
+from weaselytics.baseline import (
+    _beads,
+    _custom_beads,
+    _r2,
+    _r2_array,
+    auto_beads,
+)
 
 
 class TestBeads:

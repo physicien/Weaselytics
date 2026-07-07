@@ -14,6 +14,15 @@ from weaselytics.utils import smooth_SG
 
 
 def main() -> None:
+    """
+    CLI entry point for the Weaselytics workflow.
+
+    Raises
+    ------
+    ValueError
+        Raised if ``--start-x`` and ``--end-x`` are equal, reversed order, or
+        negative.
+    """
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog='weaselytics',
         description='Parse and analyse chromatographic data from .txt file'

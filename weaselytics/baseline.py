@@ -373,6 +373,11 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         Dictionary of internal variables needed to produce the r2 diagnostic
         plot. Empty dict if no plotting was requested.
 
+    Raises
+    ------
+    ValueError
+        Raised if `method` is not one of the allowed methods.
+
     """
     tic = time.perf_counter()
 
@@ -558,6 +563,12 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         The case rule from which `fcut` have been selected. Not necessarily
         useful in the current implementation, but it is advisable to keep it
         until proven otherwise.
+
+    Raises
+    ------
+    ValueError
+        Raised if `asymmetry` is not greater than 0, if `method` is not one of
+        the allowed methods, or if `freq_cutoff` is not in (0, 0.5).
 
     References
     ----------

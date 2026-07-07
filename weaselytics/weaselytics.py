@@ -73,19 +73,8 @@ def main() -> None:
 
     output_dir: str = args.output_dir
 
-    plot_kwargs: dict = {}
-    if args.show or args.print:
-        plot_kwargs.update(
-            show_plot=args.show,
-            print_plot=args.print,
-            path=path,
-            output_dir=output_dir,
-        )
-
     if do_sm:
         ydata_sm: np.ndarray = smooth_SG(ydata, 9, 0)
-        if args.show or args.print:
-            plot_kwargs['y_sm'] = ydata_sm
         mod_ydata: np.ndarray = ydata_sm
     else:
         mod_ydata = ydata
@@ -98,10 +87,6 @@ def main() -> None:
             method="custom_beads"
         )
         signal = params["signal"]
-        if args.show or args.print:
-            plot_kwargs['bl'] = baseline
-            plot_kwargs['case'] = case
-            plot_kwargs['s'] = signal
         mod_ydata = signal
 
     if args.export_bldata and do_bl:
@@ -117,14 +102,23 @@ def main() -> None:
             mol=args.output_stats, path=args.path,
             output_dir=output_dir,
         )
-        if args.show or args.print:
-            plot_kwargs['x_fit'] = x_robust
-            plot_kwargs['y_fit_g'] = y_robust_g
-            plot_kwargs['y_fit_sn'] = y_robust_sn
 
     if args.show or args.print:
+        plot_kwargs: dict = {
+            "show_plot": args.show,
+            "print_plot": args.print,
+            "path": path,
+            "output_dir": output_dir,
+        }
+        if do_sm:
+            plot_kwargs["y_sm"] = ydata_sm
+        if do_bl:
+            plot_kwargs.update(bl=baseline, case=case, s=signal)
+        if fit_data:
+            plot_kwargs.update(
+                x_fit=x_robust, y_fit_g=y_robust_g, y_fit_sn=y_robust_sn,
+            )
         plot(xdata, ydata, **plot_kwargs)
-        print("")
 
 
 if __name__ == "__main__":

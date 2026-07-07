@@ -93,9 +93,13 @@ def _relevant_regions(
         # Because values in regions must be less than len(data)
         if peak_regions[-1,-1] >= len(s):
             peak_regions[-1,-1] = len(s) - 1
+        # The region width covers 2×buffer per peak (= 2 × 0.85 × FWHM),
+        # so dividing by 2 converts it to buffer units. Combined with the
+        # division by rel_widths (FWHM), an isolated peak yields sampling≈1
+        # (keep all points). Without the /2, sampling would be ≈2, making
+        # the baseline unnecessarily stiff for isolated peaks.
         sampling = np.ceil((peak_regions[:,1]-peak_regions[:,0])/2
                            /np.min(rel_widths)).astype(int)
-        #@EB Why divided by 2?
 
     # Signal cutoff
     # TODO: Maybe it would be a good idea to cut the less relevant starting

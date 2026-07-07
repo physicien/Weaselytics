@@ -417,6 +417,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             tol1_1: float = 5.0E-04, tol2: float = 2.0E-06,
             num: int = 1000, show_plot: bool = False,
             print_plot: bool = False, path: str = "./file.txt",
+            output_dir: str = "results",
             method: str = "beads", param: str = "freq_cutoff", **kwargs
             ) -> tuple[float, int]:
     """
@@ -699,7 +700,8 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     if freq_cutoff is None:
         fcut, case = _fcutoff(s, x, scut,
                              show_plot=show_plot, print_plot=print_plot,
-                             path=path, method=method, **method_kwargs)
+                             path=path, output_dir=output_dir,
+                             method=method, **method_kwargs)
     else:
         if ((freq_cutoff <= 0) or (freq_cutoff >= 0.5)):
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")

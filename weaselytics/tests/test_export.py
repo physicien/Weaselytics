@@ -10,17 +10,21 @@ class TestExportTxt:
     def test_creates_file(self, tmp_path):
         x = np.array([0.0, 1.0, 2.0])
         y = np.array([0.1, 0.5, 0.1])
-        path = os.path.join(tmp_path, "data.txt")
+        mobile_phase = "TestCompound"
+        path = os.path.join(tmp_path, mobile_phase, "data.txt")
+        os.makedirs(os.path.dirname(path))
         export_txt(x, y, path=path, output_dir=str(tmp_path))
-        expected = os.path.join(tmp_path, "data_bl.txt")
+        expected = os.path.join(tmp_path, mobile_phase, "data_bl.txt")
         assert os.path.exists(expected)
 
     def test_content_format(self, tmp_path):
         x = np.array([0.0, 1.0])
         y = np.array([0.1, 0.5])
-        path = os.path.join(tmp_path, "data.txt")
+        mobile_phase = "TestCompound"
+        path = os.path.join(tmp_path, mobile_phase, "data.txt")
+        os.makedirs(os.path.dirname(path))
         export_txt(x, y, path=path, output_dir=str(tmp_path))
-        expected = os.path.join(tmp_path, "data_bl.txt")
+        expected = os.path.join(tmp_path, mobile_phase, "data_bl.txt")
         content = np.loadtxt(expected)
         np.testing.assert_allclose(content[:, 0], x)
         np.testing.assert_allclose(content[:, 1], y)
@@ -30,17 +34,21 @@ class TestExportCsv:
     def test_creates_file(self, tmp_path):
         x = np.array([0.0, 1.0, 2.0])
         y = np.array([0.1, 0.5, 0.1])
-        path = os.path.join(tmp_path, "data.txt")
+        mobile_phase = "TestCompound"
+        path = os.path.join(tmp_path, mobile_phase, "data.txt")
+        os.makedirs(os.path.dirname(path))
         export_csv(x, y, path=path, output_dir=str(tmp_path))
-        expected = os.path.join(tmp_path, "data.csv")
+        expected = os.path.join(tmp_path, mobile_phase, "data.csv")
         assert os.path.exists(expected)
 
     def test_content(self, tmp_path):
         x = np.array([0.0, 1.0])
         y = np.array([0.1, 0.5])
-        path = os.path.join(tmp_path, "data.txt")
+        mobile_phase = "TestCompound"
+        path = os.path.join(tmp_path, mobile_phase, "data.txt")
+        os.makedirs(os.path.dirname(path))
         export_csv(x, y, path=path, output_dir=str(tmp_path))
-        expected = os.path.join(tmp_path, "data.csv")
+        expected = os.path.join(tmp_path, mobile_phase, "data.csv")
         df = pd.read_csv(expected)
         np.testing.assert_allclose(df["time"].values, x)
         np.testing.assert_allclose(df["potential"].values, y)
@@ -51,9 +59,11 @@ class TestExportDist:
         mol = "test_mol"
         g_fit = np.array([1.0, 5.0, 0.5])
         sn_fit = np.array([1.0, 5.0, 0.5, 0.0])
-        path = os.path.join(tmp_path, "data__LPYE.txt")
+        mobile_phase = "TestCompound"
+        path = os.path.join(tmp_path, mobile_phase, "data__LPYE.txt")
+        os.makedirs(os.path.dirname(path))
         with open(path, "w") as f:
             f.write("dummy")
         export_dist(mol, g_fit, sn_fit, path, output_dir=str(tmp_path))
-        expected = os.path.join(tmp_path, "data__LPYE_test_mol.csv")
+        expected = os.path.join(tmp_path, mobile_phase, "data__LPYE_test_mol.csv")
         assert os.path.exists(expected)

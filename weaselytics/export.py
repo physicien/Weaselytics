@@ -34,8 +34,10 @@ def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
     ajusted_data = np.array([x, y]).T
     basename = os.path.splitext(os.path.basename(path))[0]
     header = line + basename + "\n\n\n\n\n\n"
-    os.makedirs(output_dir, exist_ok=True)
-    outpath = os.path.join(output_dir, basename + "_bl.txt")
+    mobile_phase = os.path.basename(os.path.dirname(path))
+    outdir = os.path.join(output_dir, mobile_phase) if mobile_phase else output_dir
+    os.makedirs(outdir, exist_ok=True)
+    outpath = os.path.join(outdir, basename + "_bl.txt")
     np.savetxt(outpath, ajusted_data, delimiter='\t', header=header)
     return None
 
@@ -62,8 +64,10 @@ def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
     basename = os.path.splitext(os.path.basename(path))[0]
     outdata = np.array([x, y]).T
     df = pd.DataFrame(outdata)
-    os.makedirs(output_dir, exist_ok=True)
-    outpath = os.path.join(output_dir, basename + ".csv")
+    mobile_phase = os.path.basename(os.path.dirname(path))
+    outdir = os.path.join(output_dir, mobile_phase) if mobile_phase else output_dir
+    os.makedirs(outdir, exist_ok=True)
+    outpath = os.path.join(outdir, basename + ".csv")
     df.to_csv(outpath, index=False, header=header)
     return None
 
@@ -134,7 +138,9 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
     mol_list.append(data_skew_norm)
     df = pd.DataFrame(mol_list)
     header = ["mol","solvent","distribution","A","x0","sigma","alpha"]
-    os.makedirs(output_dir, exist_ok=True)
-    outpath = os.path.join(output_dir, outname + "_" + mol + ".csv")
+    mobile_phase = os.path.basename(os.path.dirname(path))
+    outdir = os.path.join(output_dir, mobile_phase) if mobile_phase else output_dir
+    os.makedirs(outdir, exist_ok=True)
+    outpath = os.path.join(outdir, outname + "_" + mol + ".csv")
     df.to_csv(outpath, index=False, header=header)
     return None

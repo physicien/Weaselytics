@@ -102,8 +102,9 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
         plt.show()
     if print_plot:
         filename = os.path.splitext(os.path.basename(path))[0]
-        os.makedirs(output_dir, exist_ok=True)
-        plt.savefig(os.path.join(output_dir, filename + ".png"))
+        outdir = os.path.join(output_dir, "images")
+        os.makedirs(outdir, exist_ok=True)
+        plt.savefig(os.path.join(outdir, filename + ".png"))
     plt.close()
     return None
 
@@ -231,8 +232,9 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         plt.show()
     if print_plot:
         _filename = os.path.splitext(os.path.basename(path))[0]
-        os.makedirs(output_dir, exist_ok=True)
-        plt.savefig(os.path.join(output_dir, _filename + "_r2.png"))
+        outdir = os.path.join(output_dir, "r2_plots")
+        os.makedirs(outdir, exist_ok=True)
+        plt.savefig(os.path.join(outdir, _filename + "_r2.png"))
     plt.close()
     return None
 

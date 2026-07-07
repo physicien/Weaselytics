@@ -35,7 +35,10 @@ def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
     basename = os.path.splitext(os.path.basename(path))[0]
     header = line + basename + "\n\n\n\n\n\n"
     mobile_phase = os.path.basename(os.path.dirname(path))
-    outdir = os.path.join(output_dir, mobile_phase) if mobile_phase else output_dir
+    outdir = (
+        os.path.join(output_dir, mobile_phase)
+        if mobile_phase else output_dir
+    )
     os.makedirs(outdir, exist_ok=True)
     outpath = os.path.join(outdir, basename + "_bl.txt")
     np.savetxt(outpath, ajusted_data, delimiter='\t', header=header)
@@ -65,7 +68,10 @@ def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
     outdata = np.array([x, y]).T
     df = pd.DataFrame(outdata)
     mobile_phase = os.path.basename(os.path.dirname(path))
-    outdir = os.path.join(output_dir, mobile_phase) if mobile_phase else output_dir
+    outdir = (
+        os.path.join(output_dir, mobile_phase)
+        if mobile_phase else output_dir
+    )
     os.makedirs(outdir, exist_ok=True)
     outpath = os.path.join(outdir, basename + ".csv")
     df.to_csv(outpath, index=False, header=header)
@@ -139,7 +145,10 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
     df = pd.DataFrame(mol_list)
     header = ["mol","solvent","distribution","A","x0","sigma","alpha"]
     mobile_phase = os.path.basename(os.path.dirname(path))
-    outdir = os.path.join(output_dir, mobile_phase) if mobile_phase else output_dir
+    outdir = (
+        os.path.join(output_dir, mobile_phase)
+        if mobile_phase else output_dir
+    )
     os.makedirs(outdir, exist_ok=True)
     outpath = os.path.join(outdir, outname + "_" + mol + ".csv")
     df.to_csv(outpath, index=False, header=header)

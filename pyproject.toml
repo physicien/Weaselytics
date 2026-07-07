@@ -45,7 +45,8 @@ Issues = "https://github.com/physicien/Weaselytics/issues"
 weaselytics = "weaselytics.weaselytics:main"
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov"]
+dev = ["pytest>=7", "pytest-cov>=4", "ruff>=0.4"]
+test = ["pytest>=7", "pytest-cov>=4"]
 
 [tool.setuptools.packages.find]
 include = ["weaselytics*"]

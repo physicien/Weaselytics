@@ -75,7 +75,11 @@ def _relevant_regions(
     # Peak full width
     # NOTE: Assuming that `rel_widths` is the FWHM and that the peak is
     #       gaussian, `buffer` is equal to half of the full peak width.
-    buffer = np.ceil(0.85*rel_widths).astype(int)
+    #       For a Gaussian: FWHM ≈ 2.355σ. To capture ~95 % of the peak
+    #       area we need ±2σ from the center. That's 4σ total =
+    #       4 / 2.355 ≈ 1.7 × FWHM, so each side gets 0.85 × FWHM.
+    _FWHM_TO_HALF_PEAK = 0.85
+    buffer = np.ceil(_FWHM_TO_HALF_PEAK * rel_widths).astype(int)
     left_lim = rel_peaks - buffer
     right_lim = rel_peaks + buffer
     full_widths = np.array([left_lim,right_lim]).T

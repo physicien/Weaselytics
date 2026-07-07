@@ -134,13 +134,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         Indices of the `sm_d1` minimums.
     max_d1 : array-like, shape (v,)
         Indices of the `sm_d1` maximums.
-    last_start : int
-        Index of the last point assigned to the first plateau of `r2`.
-    sec_p : array-like, shape (M,)
+    ends : array-like, shape (N,), dtype bool
+        Boolean mask of the first plateau region of `r2`.
+    sec_p : array-like, shape (M,), dtype int
         Indices of the points assigned to secondary plateaus.
-    tol1_0 : float, optional
-        Tight threshold used to find plateaus on the first derivative of the
-        smoothed autocorrelation plot. Default is 1.0E-05.
+    tol1_0 : array-like, shape (N,), dtype bool
+        Boolean mask of the first plateau region of `sm_d1`.
     tol1_1 : float, optional
         Loose threshold used to find plateaus on the first derivative of the
         smoothed autocorrelation plot. Default is 5.0E-04.
@@ -161,6 +160,8 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         If True, the plot will be exported as an image. Default is False.
     path : str, optional
         Path of the data file.
+    output_dir : str, optional
+        Output directory for the exported plots. Default is "results".
 
     """
     #TODO: Cleanup this function...

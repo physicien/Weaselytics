@@ -344,8 +344,11 @@ def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
     params['signal'] = s - bl - params['noise']
     return bl, params
 
-def _r2(algo: Callable, baseline_fitter: Baseline, y: np.ndarray,
-         p: float, param: str = "freq_cutoff", **kwargs) -> float:
+def _r2(
+    algo: Callable[..., tuple[np.ndarray, dict]],
+    baseline_fitter: Baseline, y: np.ndarray,
+    p: float, param: str = "freq_cutoff", **kwargs
+) -> float:
     """
     Calculate the autocorrelation, based on the Durbin-Watson statistics, of
     the baseline corrected signal for a given value of a given parameter used
@@ -380,9 +383,12 @@ def _r2(algo: Callable, baseline_fitter: Baseline, y: np.ndarray,
     r2 = r2_dw(y_corr)
     return r2
 
-def _r2_array(algo: Callable, baseline_fitter: Baseline,
-              signal: np.ndarray, param_range: np.ndarray,
-              param: str = "freq_cutoff", **kwargs) -> np.ndarray:
+def _r2_array(
+    algo: Callable[..., tuple[np.ndarray, dict]],
+    baseline_fitter: Baseline,
+    signal: np.ndarray, param_range: np.ndarray,
+    param: str = "freq_cutoff", **kwargs
+) -> np.ndarray:
     """
     Calculate the array of `r2`, the Durbin-Watson autocorrelation of the
     baseline corrected signal, relative to a parameter on a specific range.

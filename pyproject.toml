@@ -12,14 +12,14 @@ description = "Python package to extract and analyse chromatographic data."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "numpy",
-    "scipy",
-    "matplotlib",
-    "seaborn",
-    "pandas",
+    "numpy>=1.22",
+    "scipy>=1.8",
+    "matplotlib>=3.11.0",
+    "seaborn>=0.13.0",
+    "pandas>=3.0.0",
     "pybaselines @ git+https://github.com/derb12/pybaselines@development",
-    "scikit-image",
-    "diptest",
+    "scikit-image>=0.26.0",
+    "diptest>=0.11.0",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

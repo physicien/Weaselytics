@@ -50,7 +50,7 @@ test = ["pytest>=7", "pytest-cov>=4"]
 
 [tool.setuptools.packages.find]
 include = ["weaselytics*"]
-exclude = ["weaselytics.tests*", "weaselytics.tests.*"]
+exclude = ["weaselytics.tests*"]
 
 [tool.ruff]
 target-version = "py311"

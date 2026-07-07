@@ -6,10 +6,13 @@ Functions to export data to various file formats.
 
 import os
 import re
+
 import numpy as np
 import pandas as pd
 
-def export_txt(x, y, path="./file.txt"):
+
+def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
+               output_dir: str = "results") -> None:
     """
     Export the data to a txt file after the baseline correction.
 
@@ -29,12 +32,20 @@ def export_txt(x, y, path="./file.txt"):
     """
     line = "Baseline corrected chromatogram of: "
     ajusted_data = np.array([x, y]).T
-    filename = os.path.splitext(os.path.basename(path))[0]
-    header = line + filename + "\n\n\n\n\n\n"
-    np.savetxt(filename+"_bl.txt", ajusted_data, delimiter=' ', header=header)
+    basename = os.path.splitext(os.path.basename(path))[0]
+    header = line + basename + "\n\n\n\n\n\n"
+    mobile_phase = os.path.basename(os.path.dirname(path))
+    outdir = (
+        os.path.join(output_dir, mobile_phase)
+        if mobile_phase else output_dir
+    )
+    os.makedirs(outdir, exist_ok=True)
+    outpath = os.path.join(outdir, basename + "_bl.txt")
+    np.savetxt(outpath, ajusted_data, delimiter='\t', header=header)
     return None
 
-def export_csv(x, y, path="./file.txt"):
+def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
+               output_dir: str = "results") -> None:
     """
     Export the data to a csv file.
 
@@ -53,13 +64,21 @@ def export_csv(x, y, path="./file.txt"):
 
     """
     header = ["time","potential"]
-    filename = os.path.splitext(os.path.basename(path))[0]
+    basename = os.path.splitext(os.path.basename(path))[0]
     outdata = np.array([x, y]).T
     df = pd.DataFrame(outdata)
-    df.to_csv(filename+".csv", index=False, header=header)
+    mobile_phase = os.path.basename(os.path.dirname(path))
+    outdir = (
+        os.path.join(output_dir, mobile_phase)
+        if mobile_phase else output_dir
+    )
+    os.makedirs(outdir, exist_ok=True)
+    outpath = os.path.join(outdir, basename + ".csv")
+    df.to_csv(outpath, index=False, header=header)
     return None
 
-def export_dist(mol, g_fit, sn_fiti, path):
+def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
+                path: str, output_dir: str = "results") -> None:
     """
     Export the statistics of the fitted distribution for a peak to a csv file.
 
@@ -70,7 +89,7 @@ def export_dist(mol, g_fit, sn_fiti, path):
     g_fit : ndarray with shape (3,)
         Parameters for a Gaussian distribution with the following fields
         defined:
-        
+
         amp : float
             The maximum height of the distribution.
         x0 : float
@@ -98,9 +117,10 @@ def export_dist(mol, g_fit, sn_fiti, path):
 
     """
     solv_pattern = r"(^.+)__LPYE"   # not general...
-    filename = os.path.basename(path)
-    outname = re.match(r"(^.+).txt", filename).group(1)
-    solvent = re.match(solv_pattern, filename).group(1)
+    basename = os.path.basename(path)
+    outname = os.path.splitext(basename)[0]
+    m = re.match(solv_pattern, basename)
+    solvent = m.group(1) if m else "unknown"
     data_gauss = {
             "mol": mol,
             "solvent": solvent,
@@ -124,5 +144,12 @@ def export_dist(mol, g_fit, sn_fiti, path):
     mol_list.append(data_skew_norm)
     df = pd.DataFrame(mol_list)
     header = ["mol","solvent","distribution","A","x0","sigma","alpha"]
-    df.to_csv(outname+"_"+mol+".csv", index=False, header=header)
+    mobile_phase = os.path.basename(os.path.dirname(path))
+    outdir = (
+        os.path.join(output_dir, mobile_phase)
+        if mobile_phase else output_dir
+    )
+    os.makedirs(outdir, exist_ok=True)
+    outpath = os.path.join(outdir, outname + "_" + mol + ".csv")
+    df.to_csv(outpath, index=False, header=header)
     return None

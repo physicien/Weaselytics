@@ -4,14 +4,18 @@
 Functions to perform Peak fitting.
 """
 import numpy as np
-from scipy.special import erf
-from scipy.signal import find_peaks, peak_widths
 from scipy.optimize import least_squares
+from scipy.signal import find_peaks, peak_widths
+from scipy.special import erf
 
-from export import export_dist
+from weaselytics.export import export_dist
 
-def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
-                 rel_height_p=0.5, rel_height_n=0.5, width=None, adapt=False):
+
+def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
+                 rel_prom_n: float = 0.8, height_n: float = 0.1,
+                 rel_height_p: float = 0.5, rel_height_n: float = 0.5,
+                 width: int | None = None,
+                 adapt: bool = False) -> tuple[np.ndarray, np.ndarray]:
     """
     Find the center and width for every peak of the chromatogram (including
     the negative ones).
@@ -35,13 +39,13 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
         Selects the relative height at which the width of a positive peak is
         determined, expressed as a fraction of its prominence. A value of 1.0
         measures the peak’s width at its lowest contour level, whereas 0.5
-        measures it at half the prominence height. The value must be at 
+        measures it at half the prominence height. The value must be at
         least 0. Default is 0.5.
     rel_height_n : float, optional
         Selects the relative height at which the width of a negative peak is
         determined, expressed as a fraction of its prominence. A value of 1.0
         measures the peak’s width at its lowest contour level, whereas 0.5
-        measures it at half the prominence height. The value must be at 
+        measures it at half the prominence height. The value must be at
         least 0. Default is 0.5.
     width : number or ndarray or sequence, optional
         Required width of peaks in samples. Either a number, `None`, an array
@@ -62,8 +66,10 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
     """
     _, raw_params_p = find_peaks(s,prominence=0.0)
     _, raw_params_n = find_peaks(-s,prominence=0.0)
-    max_prom_p = raw_params_p["prominences"].max()
-    max_prom_n = raw_params_n["prominences"].max()
+    max_prom_p = (raw_params_p["prominences"].max()
+                  if len(raw_params_p["prominences"]) > 0 else 0.0)
+    max_prom_n = (raw_params_n["prominences"].max()
+                  if len(raw_params_n["prominences"]) > 0 else 0.0)
     # In case of low noisy signal
     if adapt:
         if max_prom_p <= 1:
@@ -74,7 +80,7 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
             rel_prom_p = 5*rel_prom_p
     prom_p = rel_prom_p * max_prom_p
     prom_n = rel_prom_n * max_prom_n
- 
+
     peaks_p, _ = find_peaks(s, prominence=prom_p, width=width)
     peaks_n, _ = find_peaks(-s, prominence=prom_n, height=height_n,
                              width=width)
@@ -82,14 +88,14 @@ def peaks_params(s, rel_prom_p=0.05, rel_prom_n=0.8, height_n=0.1,
     widths_n = peak_widths(-s, peaks_n, rel_height=rel_height_n)[0]
 
     unsorted_peaks = np.append(peaks_p, peaks_n)
-    unsorted_widths = np.append(widths_p, widths_n) 
+    unsorted_widths = np.append(widths_p, widths_n)
     index_array = np.argsort(unsorted_peaks)
 
     peaks = unsorted_peaks[index_array]
     widths = unsorted_widths[index_array]
     return peaks, widths
 
-def gauss(x, params):
+def gauss(x: np.ndarray, params: np.ndarray) -> np.ndarray:
     """
     Generate a Gaussian distribution based on `params`.
 
@@ -126,7 +132,7 @@ def gauss(x, params):
     dist = amp*np.exp(-0.5*((x-x0)**2)/sigma**2)
     return dist
 
-def skew_norm(x, params):
+def skew_norm(x: np.ndarray, params: np.ndarray) -> np.ndarray:
     """
     Generate a Skew normal distribution based on `params`.
 
@@ -163,7 +169,8 @@ def skew_norm(x, params):
     dist = amp*2*norm*cdf
     return dist
 
-def _lsq_eq(p, fct, x, y):
+def _lsq_eq(p: np.ndarray, fct: callable, x: np.ndarray,
+            y: np.ndarray) -> np.ndarray:
     """
     Compute the vector of residuals in order to solve the least-squares
     problem.
@@ -187,12 +194,12 @@ def _lsq_eq(p, fct, x, y):
     """
     return fct(x,p) - y
 
-def _lsq_gauss_fit(x, y):
+def _lsq_gauss_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """
     Use non-linear least squares to fit a Gaussian distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below
     0.1. For further information, see [1].
-    
+
     Parameters
     ----------
     x : numpy.ndarray
@@ -237,12 +244,12 @@ def _lsq_gauss_fit(x, y):
     s = res_robust.x
     return s
 
-def _lsq_skew_norm_fit(x, y):
+def _lsq_skew_norm_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """
     Use non-linear least squares to fit a Skew normal distribution to data. The
     procedure was made robust by assuming that inlier residuals remain below
     0.1. For further information, see [1].
-    
+
     Parameters
     ----------
     x : numpy.ndarray
@@ -289,7 +296,11 @@ def _lsq_skew_norm_fit(x, y):
     s = res_robust.x
     return s
 
-def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
+def fit_peak(s: np.ndarray, x: np.ndarray, x0: float | None = None,
+             x1: float | None = None, mol: str | None = None,
+             path: str | None = None,
+             output_dir: str = "results"
+             ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Fit robustly the most prominent peak on `x` with both Gaussian and
     Skew-Normal distributions.
@@ -320,7 +331,7 @@ def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
         The y-values of the Gaussian distribution.
     y_robust_sn : array-like, shape (N,)
         The y-values of the Skew-Normal distribution.
-        
+
     """
     if x0:
         xmin = x0
@@ -358,7 +369,7 @@ def fit_peak(s, x, x0=None, x1=None, mol=None, path=None):
 
     #if name is given - csv generation
     if mol and path:
-        export_dist(mol, path, p_lsq_g, p_lsq_sn)
+        export_dist(mol, p_lsq_g, p_lsq_sn, path, output_dir=output_dir)
 
     return x_robust, y_robust_g, y_robust_sn
 

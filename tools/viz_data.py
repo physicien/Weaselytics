@@ -1,6 +1,7 @@
 #!/usr/bin/python3
-import pandas as pd
 import argparse
+
+import pandas as pd
 
 pd.set_option('display.max_rows', None)
 

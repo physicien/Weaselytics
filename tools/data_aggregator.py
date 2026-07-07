@@ -1,8 +1,9 @@
 #!/usr/bin/python3
-import pandas as pd
 import argparse
 import os
 import re
+
+import pandas as pd
 
 #create parser
 parser = argparse.ArgumentParser(prog='data_aggregator',\

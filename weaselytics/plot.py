@@ -5,13 +5,20 @@ Plotting functions.
 """
 
 import os
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
 
-def plot(x, y, y_sm=None, s=None, bl=None, x_fit=None, y_fit_g=None,
-         y_fit_sn=None, case=0, show_plot=False, print_plot=False,
-         path="./file.txt"):
+
+def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
+         s: np.ndarray | None = None, bl: np.ndarray | None = None,
+         x_fit: np.ndarray | None = None,
+         y_fit_g: np.ndarray | None = None,
+         y_fit_sn: np.ndarray | None = None, case: int = 0,
+         show_plot: bool = False, print_plot: bool = False,
+         path: str = "./file.txt",
+         output_dir: str = "results") -> None:
     """
     Plot the signal and its various modified variations.
 
@@ -49,7 +56,7 @@ def plot(x, y, y_sm=None, s=None, bl=None, x_fit=None, y_fit_g=None,
         If True, the plot will be exported as an image. Default is False.
     path : str, optional
         Path of the data file.
- 
+
     Returns
     -------
     None
@@ -95,13 +102,20 @@ def plot(x, y, y_sm=None, s=None, bl=None, x_fit=None, y_fit_g=None,
         plt.show()
     if print_plot:
         filename = os.path.splitext(os.path.basename(path))[0]
-        plt.savefig(f"images/{filename}.png")
+        outdir = os.path.join(output_dir, "images")
+        os.makedirs(outdir, exist_ok=True)
+        plt.savefig(os.path.join(outdir, filename + ".png"))
     plt.close()
     return None
 
-def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
-             tol1_0, tol1_1, tol2, freq_cutoff, fcut_r2, case=0,
-             show_plot=False, print_plot=False, path="./file.txt"):
+def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
+             sm_d1: np.ndarray, sm_d2: np.ndarray, min_d1: np.ndarray,
+             max_d1: np.ndarray, ends: np.ndarray, sec_p: np.ndarray,
+             tol1_0: np.ndarray, tol1_1: float, tol2: float,
+             freq_cutoff: float, fcut_r2: float, case: int = 0,
+             show_plot: bool = False, print_plot: bool = False,
+             path: str = "./file.txt",
+             output_dir: str = "results") -> None:
     """
     Plot the autocorrelation and its first two derivatives.
 
@@ -150,18 +164,17 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
         Path of the data file.
 
     """
-    #TODO:
-    infls = np.where(np.diff(np.sign(sm_d2)))[0]
+    #TODO: Cleanup this function...
     accepted = np.zeros(len(x))
     accepted[sec_p] = 1
 
     #@EB
     #fig = plt.figure(figsize=[6.4,9.6],num="Autocorrelation plots")
     fig = plt.figure(figsize=[9.4,9.6],num="Autocorrelation plots")
-    gs = fig.add_gridspec(3, hspace=0)
+    gs = fig.add_gridspec(2, hspace=0)
     axs = gs.subplots(sharex=True)
     axs[0].fill_between(x, 0, 1,
-                        where= x <= x[last_start],
+                        where= ends,
                         color='red', alpha=0.1,
                         transform=axs[0].get_xaxis_transform())
     axs[0].fill_between(x, 0, 1,
@@ -169,29 +182,17 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
                         color='green', alpha=0.3,
                         transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
-    axs[0].semilogx(x, sm_d0, marker='', ls='-',
-                    label=r'$r^2_\text{smooth}$',ms=3)
 
     axs[1].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d1) < tol1_0,
-                        color="none", ec="white", alpha=0.3, fc="purple", 
+                        where=tol1_0,
+                        color="none", ec="white", alpha=0.3, fc="purple",
                         hatch="//", hatch_linewidth=4,
                         transform=axs[1].get_xaxis_transform())
-    axs[1].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d1) < tol1_1,
-                        color='orange', alpha=0.3,
-                        transform=axs[1].get_xaxis_transform())
-    axs[1].semilogx(x, sm_d1, label='First Derivative')
+    axs[1].semilogx(x, sm_d1, ls='-', label=r'corrected')
+    axs[1].semilogx(x, sm_d2, ls='-', label=r'smooth')
 
-    axs[2].fill_between(x, 0, 1,
-                        where=np.absolute(sm_d2) < tol2,
-                        color='blue', alpha=0.1,
-                        transform=axs[2].get_xaxis_transform())
-    axs[2].semilogx(x, sm_d2, label='Second Derivative')
     for ax in axs.flat:
-    #    for i, infl in enumerate(infls, 1):
-    #        ax.axvline(x=x[infl], c='k', lw=0.5)#, label=f'Inflection Point {i}')
-        ax.axvline(x=freq_cutoff,c='tab:red',ls='dashed'),
+        ax.axvline(x=freq_cutoff, c='tab:red', ls='dashed')
         ax.label_outer()
     #for md1 in min_d1:
     #    axs[1].axvline(x=x[md1],ymax=0.5,c='tab:pink',ls='dashed')
@@ -209,26 +210,31 @@ def r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1, last_start, sec_p,
                 ha='left',
                 color='tab:red'
                 )
-    axs[2].set_xlabel('Cutoff frequency')
+#    axs[2].set_xlabel('Cutoff frequency')
     axs[0].set_ylabel(r'$r^2_{y-b}$')
-    axs[1].set_ylabel(r"$r^2_{y-b}$'")
-    axs[2].set_ylabel(r"$r^2_{y-b}$''")
+    axs[1].set_ylabel(r"Rolling Std($r^2_{y-b}$)")
+#    axs[1].set_ylabel(r"$r^2_{y-b}$'")
+#    axs[2].set_ylabel(r"$r^2_{y-b}$''")
 
     # How do we find the right inflection point?
     # @EB Ajuster le calcul suivant?
-    infl_min = np.argmin(sm_d1[infls])
-    r2_ymin = r2[infls[infl_min-1]]-0.05  #only for the r2 plot limit
-    axs[0].set_ylim(r2_ymin,1.0)
+#    infl_min = np.argmin(sm_d1[infls])
+#    r2_ymin = r2[infls[infl_min-1]]-0.05  #only for the r2 plot limit
+    p1_ymax = 2E-3#np.max(sm_d1[tol1_0])*2.50
+    p1_ymin = -1E-4#-0.05*p1_ymax
+#    axs[0].set_ylim(r2_ymin,1.0)
+    axs[1].set_ylim(bottom=p1_ymin, top=p1_ymax)
     axs[1].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
-    axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
+    #axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
     axs[0].legend()
     plt.tight_layout()
     if show_plot:
         plt.show()
     if print_plot:
-        # @EB temporaty
         _filename = os.path.splitext(os.path.basename(path))[0]
-        plt.savefig(f"r2_plots/{_filename}_r2.png")
+        outdir = os.path.join(output_dir, "r2_plots")
+        os.makedirs(outdir, exist_ok=True)
+        plt.savefig(os.path.join(outdir, _filename + "_r2.png"))
     plt.close()
     return None
 

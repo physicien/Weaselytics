@@ -91,7 +91,7 @@ def _lsq_eq(
     p: np.ndarray,
     func: Callable[[np.ndarray, np.ndarray], np.ndarray],
     x: np.ndarray, y: np.ndarray,
-) -> np.ndarray:
+    ) -> np.ndarray:
     """
     Compute the vector of residuals in order to solve the least-squares
     problem.
@@ -115,35 +115,33 @@ def _lsq_eq(
     """
     return func(x,p) - y
 
-def _lsq_gauss_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """
-    Use non-linear least squares to fit a Gaussian distribution to data. The
-    procedure was made robust by assuming that inlier residuals remain below
-    0.1. For further information, see [1].
+def _lsq_fit(
+    func: Callable[[np.ndarray, np.ndarray], np.ndarray],
+    x: np.ndarray, y: np.ndarray,
+    n_params: int,
+    tau_offset: Callable[[float], float] | float,
+    ) -> np.ndarray:
+    """Shared robust least-squares fitting for peak distributions.
+
+    Finds the main peak, builds initial guess and bounds, then runs
+    ``scipy.optimize.least_squares`` with a soft_l1 loss.
 
     Parameters
     ----------
-    x : numpy.ndarray
-        The independent variable where the data is measured.
-    y : numpy.ndarray
-        The dependent variable where the data is measured.
+    func : callable
+        Model function ``f(x, params)``.
+    x, y : numpy.ndarray
+        Data to fit.
+    n_params : int
+        Number of parameters (3 for Gaussian, 4 for Skew-Normal).
+    tau_offset : callable or float
+        How far from ``tau0`` to set the ``x0`` bounds.  If callable it
+        receives ``sigma0`` (computed from the main peak width).
 
     Returns
     -------
-    s : ndarray with shape (3,)
-        Solution found, `s`, with the following fields defined:
-
-        amp : float
-            The maximum height of the distribution.
-        x0 : float
-            The center of the distribution.
-        sigma : float
-            The standard deviation of the distribution.
-
-    References
-    ----------
-    [1] https://scipy-cookbook.readthedocs.io/items/robust_regression.html
-
+    s : numpy.ndarray
+        Optimised parameters.
     """
     peaks, widths = peaks_params(y)
     main_index = np.absolute(y[peaks]).argmax()
@@ -153,75 +151,52 @@ def _lsq_gauss_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     tau0 = x[peak]
     sigma0 = x[peak + int(widths[main_index]/2)] - x[peak]
     p0 = [A0, tau0, sigma0]
-    if A0 < 0:
-        bA = [-np.inf,0]
-    else:
-        bA = [0,np.inf]
-    bounds = ([bA[0],tau0-0.1,0],[bA[1],tau0+0.1,np.inf])
+    if n_params == 4:
+        p0.append(0)
 
-    res_robust = least_squares(_lsq_eq, p0, loss="soft_l1",
-                              f_scale=0.1, args=(gauss,x,y),
-                               bounds=bounds)
-    s = res_robust.x
-    return s
+    offset = tau_offset(sigma0) if callable(tau_offset) else tau_offset
+
+    if A0 < 0:
+        bA = [-np.inf, 0]
+    else:
+        bA = [0, np.inf]
+
+    lower = [bA[0], tau0 - offset, 0]
+    upper = [bA[1], tau0 + offset, np.inf]
+    if n_params == 4:
+        lower.append(-np.inf)
+        upper.append(np.inf)
+
+    res_robust = least_squares(
+        _lsq_eq, p0, loss="soft_l1", f_scale=0.1, args=(func, x, y),
+        bounds=(lower, upper),
+    )
+    return res_robust.x
+
+
+def _lsq_gauss_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Fit a Gaussian distribution via robust least-squares.
+
+    See `_lsq_fit` for details.
+    """
+    return _lsq_fit(gauss, x, y, n_params=3, tau_offset=0.1)
+
 
 def _lsq_skew_norm_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Fit a Skew-Normal distribution via robust least-squares.
+
+    See `_lsq_fit` for details.
     """
-    Use non-linear least squares to fit a Skew normal distribution to data. The
-    procedure was made robust by assuming that inlier residuals remain below
-    0.1. For further information, see [1].
+    return _lsq_fit(skew_norm, x, y, n_params=4, tau_offset=lambda s: s)
 
-    Parameters
-    ----------
-    x : numpy.ndarray
-        The independent variable where the data is measured.
-    y : numpy.ndarray
-        The dependent variable where the data is measured.
-
-    Returns
-    -------
-    s : ndarray with shape (4,)
-        Solution found, `s`, with the following fields defined:
-
-        amp : float
-            The maximum height of the distribution.
-        loc : float
-            The location parameter of the distribution.
-        scale : float
-            The scale parameter of the distribution.
-        alpha : float
-            The shape parameter of the distribution.
-
-    References
-    ----------
-    [1] https://scipy-cookbook.readthedocs.io/items/robust_regression.html
-
-    """
-    peaks, widths = peaks_params(y)
-    main_index = np.absolute(y[peaks]).argmax()
-    peak = peaks[main_index]
-
-    A0 = y[peak]
-    tau0 = x[peak]
-    sigma0 = x[peak + int(widths[main_index]/2)] - x[peak]
-    p0 = [A0, tau0, sigma0, 0]
-    if A0 < 0:
-        bA = [-np.inf,0]
-    else:
-        bA = [0,np.inf]
-    bounds = ([bA[0],tau0-sigma0,0,-np.inf],[bA[1],tau0+sigma0,np.inf,np.inf])
-
-    res_robust = least_squares(_lsq_eq, p0, loss="soft_l1",
-                               f_scale=0.1, args=(skew_norm,x,y),
-                               bounds=bounds)
-    s = res_robust.x
-    return s
-
-def fit_peak(s: np.ndarray, x: np.ndarray, x0: float | None = None,
-             x1: float | None = None, mol: str | None = None,
-             path: str | None = None,
-             output_dir: str = "results"
-             ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def fit_peak(
+    s: np.ndarray, x: np.ndarray,
+    x0: float | None = None,
+    x1: float | None = None,
+    mol: str | None = None,
+    path: str | None = None,
+    output_dir: str = "results",
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Fit robustly the most prominent peak on `x` with both Gaussian and
     Skew-Normal distributions.

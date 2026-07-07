@@ -24,6 +24,8 @@ def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
         The y data.
     path : str, optional
         File path of the original data.
+    output_dir : str, optional
+        Output directory for exported files. Default is "results".
 
     Returns
     -------
@@ -57,6 +59,8 @@ def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
         The y data.
     path : str, optional
         File path of the original data.
+    output_dir : str, optional
+        Output directory for exported files. Default is "results".
 
     Returns
     -------
@@ -110,6 +114,8 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
             The shape parameter of the distribution.
     path : str
         File path of the original data.
+    output_dir : str, optional
+        Output directory for exported files. Default is "results".
 
     Returns
     -------

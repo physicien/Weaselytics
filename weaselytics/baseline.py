@@ -11,7 +11,6 @@ from pybaselines import Baseline
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import argrelmax, argrelmin  #, medfilt
 
-from weaselytics.peakfitting import peaks_params
 from weaselytics.plot import r2_plots
 from weaselytics.utils import (
     continuous_ranges,
@@ -19,6 +18,7 @@ from weaselytics.utils import (
     find_flat,
     find_plateaus,
     merge_intervals,
+    peaks_params,
     r2_dw,
 )
 
@@ -426,11 +426,9 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             smoothing_window: int = 15, slope_thresh: float = 5.0E-05,
             tol0: float = 1.0E-03, tol1_0: float = 1.0E-05,
             tol1_1: float = 5.0E-04, tol2: float = 2.0E-06,
-            num: int = 1000, show_plot: bool = False,
-            print_plot: bool = False, path: str = "./file.txt",
-            output_dir: str = "results",
+            num: int = 1000,
             method: str = "beads", param: str = "freq_cutoff", **kwargs
-            ) -> tuple[float, int]:
+            ) -> tuple[float, int, dict]:
     """
     Find the optimal cutoff frequency.
 
@@ -470,12 +468,6 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     num : int, optional
         Number of x-values spanning the frequency range to evaluate r2.
         Default is 1000.
-    show_plot : bool, optional
-        If True, the plot will be shown to the screen. Default is False.
-    print_plot : bool, optional
-        If True, the plot will be exported as an image. Default is False.
-    path : str, optional
-        Path of the data file.
     method : Callable
        The callable method corresponding to the input string.
     param : str, optional
@@ -493,6 +485,9 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         The case rule from which `fcut` have been selected. Not necessarily
         useful in the current implementation, but it is advisable to keep it
         until proven otherwise.
+    plot_data : dict
+        Dictionary of internal variables needed to produce the r2 diagnostic
+        plot. Empty dict if no plotting was requested.
 
     """
     tic = time.perf_counter()
@@ -593,14 +588,24 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     fi_r2_val = _r2(algo, baseline_fitter, z, fcut, param=param, **kwargs)
     print(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
 
-    # r2 plot
-    if show_plot or print_plot:
-        r2_plots(fcut_range, r2_val, smooth_d0, test, test3, min_d1,
-                 max_d1, ends, secondary_plateaus, test_plateaus,
-                 tol1_1, tol2, fcut, fi_r2_val, case=case, show_plot=show_plot,
-                 print_plot=print_plot, path=path, output_dir=output_dir)
-
-    return fcut, case
+    plot_data = {
+        "fcut_range": fcut_range,
+        "r2_val": r2_val,
+        "smooth_d0": smooth_d0,
+        "test": test,
+        "test3": test3,
+        "min_d1": min_d1,
+        "max_d1": max_d1,
+        "ends": ends,
+        "secondary_plateaus": secondary_plateaus,
+        "test_plateaus": test_plateaus,
+        "tol1_1": tol1_1,
+        "tol2": tol2,
+        "fcut": fcut,
+        "fi_r2_val": fi_r2_val,
+        "case": case,
+    }
+    return fcut, case, plot_data
 
 ###############################################################################
 #BEADS baseline correction
@@ -717,15 +722,27 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
 
     # Cutoff frequency
     if freq_cutoff is None:
-        fcut, case = _fcutoff(s, x, scut,
-                             show_plot=show_plot, print_plot=print_plot,
-                             path=path, output_dir=output_dir,
-                             method=method, **method_kwargs)
+        fcut, case, plot_data = _fcutoff(
+            s, x, scut, method=method, **method_kwargs)
     else:
         if ((freq_cutoff <= 0) or (freq_cutoff >= 0.5)):
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")
         fcut = freq_cutoff
         case = 0
+        plot_data = {}
+    if show_plot or print_plot:
+        r2_plots(
+            plot_data["fcut_range"], plot_data["r2_val"],
+            plot_data["smooth_d0"], plot_data["test"],
+            plot_data["test3"], plot_data["min_d1"],
+            plot_data["max_d1"], plot_data["ends"],
+            plot_data["secondary_plateaus"], plot_data["test_plateaus"],
+            plot_data["tol1_1"], plot_data["tol2"],
+            plot_data["fcut"], plot_data["fi_r2_val"],
+            case=plot_data["case"],
+            show_plot=show_plot, print_plot=print_plot,
+            path=path, output_dir=output_dir,
+        )
     method_kwargs = {**method_kwargs, "freq_cutoff": fcut}
 
     # Change alpha for the final baseline correction

@@ -12,20 +12,18 @@ class TestExportTxt:
         y = np.array([0.1, 0.5, 0.1])
         path = os.path.join(tmp_path, "data.txt")
         export_txt(x, y, path=path)
-        expected = os.path.join(os.getcwd(), "data_bl.txt")
+        expected = os.path.join(tmp_path, "data_bl.txt")
         assert os.path.exists(expected)
-        os.remove(expected)
 
     def test_content_format(self, tmp_path):
         x = np.array([0.0, 1.0])
         y = np.array([0.1, 0.5])
         path = os.path.join(tmp_path, "data.txt")
         export_txt(x, y, path=path)
-        expected = os.path.join(os.getcwd(), "data_bl.txt")
+        expected = os.path.join(tmp_path, "data_bl.txt")
         content = np.loadtxt(expected)
         np.testing.assert_allclose(content[:, 0], x)
         np.testing.assert_allclose(content[:, 1], y)
-        os.remove(expected)
 
 
 class TestExportCsv:
@@ -34,20 +32,18 @@ class TestExportCsv:
         y = np.array([0.1, 0.5, 0.1])
         path = os.path.join(tmp_path, "data.txt")
         export_csv(x, y, path=path)
-        expected = os.path.join(os.getcwd(), "data.csv")
+        expected = os.path.join(tmp_path, "data.csv")
         assert os.path.exists(expected)
-        os.remove(expected)
 
     def test_content(self, tmp_path):
         x = np.array([0.0, 1.0])
         y = np.array([0.1, 0.5])
         path = os.path.join(tmp_path, "data.txt")
         export_csv(x, y, path=path)
-        expected = os.path.join(os.getcwd(), "data.csv")
+        expected = os.path.join(tmp_path, "data.csv")
         df = pd.read_csv(expected)
         np.testing.assert_allclose(df["time"].values, x)
         np.testing.assert_allclose(df["potential"].values, y)
-        os.remove(expected)
 
 
 class TestExportDist:
@@ -59,6 +55,5 @@ class TestExportDist:
         with open(path, "w") as f:
             f.write("dummy")
         export_dist(mol, g_fit, sn_fit, path)
-        expected = os.path.join(os.getcwd(), "data__LPYE_test_mol.csv")
+        expected = os.path.join(tmp_path, "data__LPYE_test_mol.csv")
         assert os.path.exists(expected)
-        os.remove(expected)

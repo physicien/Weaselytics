@@ -31,9 +31,10 @@ def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt") -> None:
     """
     line = "Baseline corrected chromatogram of: "
     ajusted_data = np.array([x, y]).T
-    filename = os.path.splitext(os.path.basename(path))[0]
-    header = line + filename + "\n\n\n\n\n\n"
-    np.savetxt(filename+"_bl.txt", ajusted_data, delimiter='\t', header=header)
+    basename = os.path.splitext(os.path.basename(path))[0]
+    header = line + basename + "\n\n\n\n\n\n"
+    outpath = os.path.join(os.path.dirname(path), basename + "_bl.txt")
+    np.savetxt(outpath, ajusted_data, delimiter='\t', header=header)
     return None
 
 def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt") -> None:
@@ -55,10 +56,11 @@ def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt") -> None:
 
     """
     header = ["time","potential"]
-    filename = os.path.splitext(os.path.basename(path))[0]
+    basename = os.path.splitext(os.path.basename(path))[0]
     outdata = np.array([x, y]).T
     df = pd.DataFrame(outdata)
-    df.to_csv(filename+".csv", index=False, header=header)
+    outpath = os.path.join(os.path.dirname(path), basename + ".csv")
+    df.to_csv(outpath, index=False, header=header)
     return None
 
 def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
@@ -101,9 +103,9 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
 
     """
     solv_pattern = r"(^.+)__LPYE"   # not general...
-    filename = os.path.basename(path)
-    outname = os.path.splitext(filename)[0]
-    solvent = re.match(solv_pattern, filename).group(1) if re.match(solv_pattern, filename) else "unknown"
+    basename = os.path.basename(path)
+    outname = os.path.splitext(basename)[0]
+    solvent = re.match(solv_pattern, basename).group(1) if re.match(solv_pattern, basename) else "unknown"
     data_gauss = {
             "mol": mol,
             "solvent": solvent,
@@ -127,5 +129,6 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
     mol_list.append(data_skew_norm)
     df = pd.DataFrame(mol_list)
     header = ["mol","solvent","distribution","A","x0","sigma","alpha"]
-    df.to_csv(outname+"_"+mol+".csv", index=False, header=header)
+    outpath = os.path.join(os.path.dirname(path), outname + "_" + mol + ".csv")
+    df.to_csv(outpath, index=False, header=header)
     return None

@@ -96,7 +96,7 @@ def main() -> None:
     if do_bl:
         baseline, params, case = auto_beads(
             mod_ydata, xdata, freq_cutoff=None,
-            show_plot=args.show, print_plot=args.print, path=args.path,
+            show_plot=args.show, print_plot=args.print, path=path,
             output_dir=output_dir,
             method="custom_beads"
         )
@@ -113,7 +113,7 @@ def main() -> None:
         x_robust, y_robust_g, y_robust_sn = fit_peak(
             mod_ydata, xdata,
             x0=args.start_x, x1=args.end_x,
-            mol=args.output_stats, path=args.path,
+            mol=args.output_stats, path=path,
             output_dir=output_dir,
         )
 

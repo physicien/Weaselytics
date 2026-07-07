@@ -54,21 +54,15 @@ def main() -> None:
 
     if args.start_x is not None and args.end_x is not None:
         if args.start_x == args.end_x:
-            print("Warning. x0 and x1 are equal. Exit.")
-            sys.exit(1)
+            raise ValueError("x0 and x1 are equal.")
         if args.start_x > args.end_x:
-            print("Warning. x1 is larger than x0. Exit.")
-            sys.exit(1)
+            raise ValueError("x1 is larger than x0.")
 
-    if args.start_x:
-        if args.start_x < 0:
-            print("Warning. x0 < 0. Exit.")
-            sys.exit(1)
+    if args.start_x and args.start_x < 0:
+        raise ValueError("x0 < 0.")
 
-    if args.end_x:
-        if args.end_x < 0:
-            print("Warning. x1 < 0. Exit.")
-            sys.exit(1)
+    if args.end_x and args.end_x < 0:
+        raise ValueError("x1 < 0.")
 
     path: str = args.path
     print(path)
@@ -134,4 +128,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)

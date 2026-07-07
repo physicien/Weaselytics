@@ -133,7 +133,7 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
     data_skew_norm = {
             "mol": mol,
             "solvent": solvent,
-            "distribution": "Gaussian",
+            "distribution": "Skew-Normal",
             "A": sn_fit[0],
             "x0": sn_fit[1],
             "sigma": abs(sn_fit[2]),

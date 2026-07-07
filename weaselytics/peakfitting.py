@@ -343,8 +343,8 @@ def fit_peak(s: np.ndarray, x: np.ndarray, x0: float | None = None,
     else:
         xmax = max(x)
 
-    xdata = x[(x > xmin) & (x < xmax)]
-    ydata = s[(x > xmin) & (x < xmax)]
+    xdata = x[(x >= xmin) & (x <= xmax)]
+    ydata = s[(x >= xmin) & (x <= xmax)]
 
     x_robust = np.arange(xdata.min() - 0.1, xdata.max() + 0.1, 0.001)
 

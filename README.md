@@ -17,7 +17,7 @@ weaselytics [OPTION] filename
 
 ```console
 weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb] [-sm]
-            [-x0 STARTX] [-x1 ENDX]
+            [-x0 STARTX] [-x1 ENDX] [-od OUTPUT_DIR]
             path
 ```
 
@@ -36,6 +36,7 @@ weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb] [-sm]
 | `-sm` | Enable signal smoothing |
 | `-x0` | Start fitting at `x0` min |
 | `-x1` | End fitting at `x1` min |
+| `-od` | Output directory for exported files (default: `results`) |
 
 ## Library usage
 
@@ -79,6 +80,7 @@ Contributed by Emmanuel Bourret
 ## TO DO
 
 - Generalize hardcoded `__LPYE__` pattern in `export_dist`
+- Make `ParsedData` parser more general (support different delimiters, extra columns, headers)
 - Clean up `#@EB`, `#@TEMP`, `#TODO` markers
 - Add `examples/` directory with sample output images
 - Add proper sample chromatogram data for demos

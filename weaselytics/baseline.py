@@ -25,7 +25,7 @@ from weaselytics.utils import (
 
 def _relevant_regions(
     s: np.ndarray, x: np.ndarray, tol: float = 6.
-) -> tuple[np.ndarray | None, int | np.ndarray | None, int]:
+) -> tuple[np.ndarray | None, np.ndarray, int]:
     """
     Divide the signal into regions maximizing the contribution of the signal in
     the calculation of the autocorrelation plot. in order to find the optimal
@@ -47,9 +47,8 @@ def _relevant_regions(
         The two dimensional array containing the start and stop indices for
         each region containing a relevant peak. Each region is defined as
         ``data[start:stop]``. `None` means no relevant peaks found.
-    sampling : int or array-like of shape (M,2), or None
+    sampling : array-like of shape (M,)
         The sampling step size for each region defined in `peak_regions`.
-        `None` if no relevant peaks.
     scut : int
         Index of the last data point in `s` (signal cutoff) relevant to the
         calculation of the autocorrelation.
@@ -89,7 +88,7 @@ def _relevant_regions(
     peak_regions = merge_intervals(np.copy(large_peaks))
     if len(peak_regions) == 0:
         peak_regions = None
-        sampling = None
+        sampling = np.array([1])
     else:
         # Because values in regions must be less than len(data)
         if peak_regions[-1,-1] >= len(s):

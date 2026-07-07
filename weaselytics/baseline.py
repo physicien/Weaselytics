@@ -689,8 +689,15 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         raise ValueError(f"method '{method}' is not implemented")
     algo = allowed_methods[method]
 
-    # Limits the range and splits the signal
-    peak_regions, sampling, scut= _relevant_regions(s, x)
+    # Limits the range and splits the signal.
+    # Only needed when freq_cutoff is auto-selected (needs scut) or when
+    # using custom_beads (needs regions/sampling).
+    if method == "custom_beads" or freq_cutoff is None:
+        peak_regions, sampling, scut = _relevant_regions(s, x)
+    else:
+        peak_regions = None
+        sampling = None
+        scut = None
 
     # NOTE: The value of `alpha` doesn't need to change when looking for the
     #       best r**2 because of the log transform

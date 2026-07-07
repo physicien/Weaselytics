@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 
 
-def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt") -> None:
+def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
+               output_dir: str = "results") -> None:
     """
     Export the data to a txt file after the baseline correction.
 
@@ -33,11 +34,13 @@ def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt") -> None:
     ajusted_data = np.array([x, y]).T
     basename = os.path.splitext(os.path.basename(path))[0]
     header = line + basename + "\n\n\n\n\n\n"
-    outpath = os.path.join(os.path.dirname(path), basename + "_bl.txt")
+    os.makedirs(output_dir, exist_ok=True)
+    outpath = os.path.join(output_dir, basename + "_bl.txt")
     np.savetxt(outpath, ajusted_data, delimiter='\t', header=header)
     return None
 
-def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt") -> None:
+def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
+               output_dir: str = "results") -> None:
     """
     Export the data to a csv file.
 
@@ -59,12 +62,13 @@ def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt") -> None:
     basename = os.path.splitext(os.path.basename(path))[0]
     outdata = np.array([x, y]).T
     df = pd.DataFrame(outdata)
-    outpath = os.path.join(os.path.dirname(path), basename + ".csv")
+    os.makedirs(output_dir, exist_ok=True)
+    outpath = os.path.join(output_dir, basename + ".csv")
     df.to_csv(outpath, index=False, header=header)
     return None
 
 def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
-                path: str) -> None:
+                path: str, output_dir: str = "results") -> None:
     """
     Export the statistics of the fitted distribution for a peak to a csv file.
 
@@ -129,6 +133,7 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
     mol_list.append(data_skew_norm)
     df = pd.DataFrame(mol_list)
     header = ["mol","solvent","distribution","A","x0","sigma","alpha"]
-    outpath = os.path.join(os.path.dirname(path), outname + "_" + mol + ".csv")
+    os.makedirs(output_dir, exist_ok=True)
+    outpath = os.path.join(output_dir, outname + "_" + mol + ".csv")
     df.to_csv(outpath, index=False, header=header)
     return None

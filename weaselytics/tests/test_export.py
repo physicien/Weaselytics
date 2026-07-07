@@ -11,7 +11,7 @@ class TestExportTxt:
         x = np.array([0.0, 1.0, 2.0])
         y = np.array([0.1, 0.5, 0.1])
         path = os.path.join(tmp_path, "data.txt")
-        export_txt(x, y, path=path)
+        export_txt(x, y, path=path, output_dir=str(tmp_path))
         expected = os.path.join(tmp_path, "data_bl.txt")
         assert os.path.exists(expected)
 
@@ -19,7 +19,7 @@ class TestExportTxt:
         x = np.array([0.0, 1.0])
         y = np.array([0.1, 0.5])
         path = os.path.join(tmp_path, "data.txt")
-        export_txt(x, y, path=path)
+        export_txt(x, y, path=path, output_dir=str(tmp_path))
         expected = os.path.join(tmp_path, "data_bl.txt")
         content = np.loadtxt(expected)
         np.testing.assert_allclose(content[:, 0], x)
@@ -31,7 +31,7 @@ class TestExportCsv:
         x = np.array([0.0, 1.0, 2.0])
         y = np.array([0.1, 0.5, 0.1])
         path = os.path.join(tmp_path, "data.txt")
-        export_csv(x, y, path=path)
+        export_csv(x, y, path=path, output_dir=str(tmp_path))
         expected = os.path.join(tmp_path, "data.csv")
         assert os.path.exists(expected)
 
@@ -39,7 +39,7 @@ class TestExportCsv:
         x = np.array([0.0, 1.0])
         y = np.array([0.1, 0.5])
         path = os.path.join(tmp_path, "data.txt")
-        export_csv(x, y, path=path)
+        export_csv(x, y, path=path, output_dir=str(tmp_path))
         expected = os.path.join(tmp_path, "data.csv")
         df = pd.read_csv(expected)
         np.testing.assert_allclose(df["time"].values, x)
@@ -54,6 +54,6 @@ class TestExportDist:
         path = os.path.join(tmp_path, "data__LPYE.txt")
         with open(path, "w") as f:
             f.write("dummy")
-        export_dist(mol, g_fit, sn_fit, path)
+        export_dist(mol, g_fit, sn_fit, path, output_dir=str(tmp_path))
         expected = os.path.join(tmp_path, "data__LPYE_test_mol.csv")
         assert os.path.exists(expected)

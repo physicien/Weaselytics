@@ -586,7 +586,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         r2_plots(fcut_range, r2_val, smooth_d0, test, test3, min_d1,
                  max_d1, ends, secondary_plateaus, test_plateaus,
                  tol1_1, tol2, fcut, fi_r2_val, case=case, show_plot=show_plot,
-                 print_plot=print_plot, path=path)
+                 print_plot=print_plot, path=path, output_dir=output_dir)
 
     return fcut, case
 
@@ -595,6 +595,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
 def auto_beads(s: np.ndarray, x: np.ndarray,
                freq_cutoff: float | None = None, show_plot: bool = False,
                print_plot: bool = False, path: str = "./file.txt",
+               output_dir: str = "results",
                method: str = "beads", asymmetry: float = 1.0,
                fit_parabola: bool = True, alpha: float | None = None,
                parabola_len: int | None = 3

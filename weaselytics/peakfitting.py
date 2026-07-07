@@ -298,7 +298,8 @@ def _lsq_skew_norm_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 def fit_peak(s: np.ndarray, x: np.ndarray, x0: float | None = None,
              x1: float | None = None, mol: str | None = None,
-             path: str | None = None
+             path: str | None = None,
+             output_dir: str = "results"
              ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Fit robustly the most prominent peak on `x` with both Gaussian and
@@ -368,7 +369,7 @@ def fit_peak(s: np.ndarray, x: np.ndarray, x0: float | None = None,
 
     #if name is given - csv generation
     if mol and path:
-        export_dist(mol, p_lsq_g, p_lsq_sn, path)
+        export_dist(mol, p_lsq_g, p_lsq_sn, path, output_dir=output_dir)
 
     return x_robust, y_robust_g, y_robust_sn
 

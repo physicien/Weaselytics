@@ -17,7 +17,8 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
          y_fit_g: np.ndarray | None = None,
          y_fit_sn: np.ndarray | None = None, case: int = 0,
          show_plot: bool = False, print_plot: bool = False,
-         path: str = "./file.txt") -> None:
+         path: str = "./file.txt",
+         output_dir: str = "results") -> None:
     """
     Plot the signal and its various modified variations.
 
@@ -101,7 +102,8 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
         plt.show()
     if print_plot:
         filename = os.path.splitext(os.path.basename(path))[0]
-        plt.savefig(f"images/{filename}.png")
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, filename + ".png"))
     plt.close()
     return None
 
@@ -111,7 +113,8 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
              tol1_0: np.ndarray, tol1_1: float, tol2: float,
              freq_cutoff: float, fcut_r2: float, case: int = 0,
              show_plot: bool = False, print_plot: bool = False,
-             path: str = "./file.txt") -> None:
+             path: str = "./file.txt",
+             output_dir: str = "results") -> None:
     """
     Plot the autocorrelation and its first two derivatives.
 
@@ -227,9 +230,9 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
     if show_plot:
         plt.show()
     if print_plot:
-        # @EB temporaty
         _filename = os.path.splitext(os.path.basename(path))[0]
-        plt.savefig(f"r2_plots/{_filename}_r2.png")
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, _filename + "_r2.png"))
     plt.close()
     return None
 

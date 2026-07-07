@@ -41,6 +41,8 @@ def main() -> None:
                         help='start fitting the gaussian at x min')
     parser.add_argument('-x1', '--endx', type=float,
                         help='end fitting the gaussian at x min')
+    parser.add_argument('-od', '--output-dir', default='results',
+                        help='output directory for exported files (default: results)')
 
     args = parser.parse_args()
 
@@ -71,11 +73,14 @@ def main() -> None:
     parsed = ParsedData(path)
     xdata, ydata = parsed.data
 
+    output_dir = args.output_dir
+
     if args.show or args.print:
         plot_kwargs = {
             "show_plot": args.show,
             "print_plot": args.print,
-            "path": path
+            "path": path,
+            "output_dir": output_dir,
         }
 
     if do_sm:
@@ -90,6 +95,7 @@ def main() -> None:
         baseline, params, case = auto_beads(
             mod_ydata, xdata, freq_cutoff=None,
             show_plot=args.show, print_plot=args.print, path=args.path,
+            output_dir=output_dir,
             method="custom_beads"
         )
         signal = params["signal"]
@@ -100,16 +106,17 @@ def main() -> None:
         mod_ydata = signal
 
     if args.export_bldata and do_bl:
-        export_txt(xdata, mod_ydata, path=path)
+        export_txt(xdata, mod_ydata, path=path, output_dir=output_dir)
 
     if args.output_csv:
-        export_csv(xdata, ydata, path=path)
+        export_csv(xdata, ydata, path=path, output_dir=output_dir)
 
     if fit_data:
         x_robust, y_robust_g, y_robust_sn = fit_peak(
             mod_ydata, xdata,
             x0=args.startx, x1=args.endx,
-            mol=args.output_stats, path=args.path
+            mol=args.output_stats, path=args.path,
+            output_dir=output_dir,
         )
         if args.show or args.print:
             plot_kwargs['x_fit'] = x_robust

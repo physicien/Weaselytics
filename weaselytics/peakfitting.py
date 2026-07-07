@@ -3,6 +3,8 @@
 """
 Functions to perform Peak fitting.
 """
+from collections.abc import Callable
+
 import numpy as np
 from scipy.optimize import least_squares
 from scipy.signal import find_peaks, peak_widths
@@ -169,8 +171,11 @@ def skew_norm(x: np.ndarray, params: np.ndarray) -> np.ndarray:
     dist = amp*2*norm*cdf
     return dist
 
-def _lsq_eq(p: np.ndarray, fct: callable, x: np.ndarray,
-            y: np.ndarray) -> np.ndarray:
+def _lsq_eq(
+    p: np.ndarray,
+    fct: Callable[[np.ndarray, np.ndarray], np.ndarray],
+    x: np.ndarray, y: np.ndarray,
+) -> np.ndarray:
     """
     Compute the vector of residuals in order to solve the least-squares
     problem.

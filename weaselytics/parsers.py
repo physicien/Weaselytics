@@ -55,8 +55,8 @@ class ParsedData:
         """
         xlist = list()
         ylist = list()
-        pattern = r"^([+-]?\d+\.?\d*[eE]?[-+]?\d*)\s+" + \
-                    r"([+-]?\d+\.?\d*[eE]?[-+]?\d*)"
+        pattern = r"^([+-]?\d+\.?\d*[eE]?[-+]?\d+)\s+" + \
+                    r"([+-]?\d+\.?\d*[eE]?[-+]?\d+)"
 
         # Read the file
         with open(path, 'r') as f:
@@ -64,10 +64,10 @@ class ParsedData:
 
         # Extract data from each line
         for line in lines:
-            if re.match(pattern, line):
-                xy = re.split(r"\s+", line)
-                xlist.append(float(xy[0]))
-                ylist.append(float(xy[1]))
+            m = re.match(pattern, line)
+            if m:
+                xlist.append(float(m.group(1)))
+                ylist.append(float(m.group(2)))
         data = np.array([xlist, ylist])
         return data
 

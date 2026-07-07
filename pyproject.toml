@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "weaselytics"
-version = "0.0.1"
+version = "0.1.0"
 authors = [
   { name="Emmanuel Bourret", email="emmanuel.bourret@umontreal.ca" },
 ]

@@ -9,7 +9,7 @@ from importlib.metadata import PackageNotFoundError, version
 try:
     __version__ = version("weaselytics")
 except PackageNotFoundError:
-    __version__ = "0.0.0"
+    __version__ = "0.1.0"
 
 from weaselytics.baseline import auto_beads
 from weaselytics.export import export_csv, export_dist, export_txt

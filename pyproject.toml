@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 77.0.3"]
+requires = ["setuptools >= 64"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -14,9 +14,9 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.22",
     "scipy>=1.8",
-    "matplotlib>=3.11.0",
+    "matplotlib>=3.5",
     "seaborn>=0.13.0",
-    "pandas>=3.0.0",
+    "pandas>=2.0",
     "pybaselines @ git+https://github.com/derb12/pybaselines@development",
     "scikit-image>=0.26.0",
     "diptest>=0.11.0",
@@ -50,7 +50,9 @@ test = ["pytest>=7", "pytest-cov>=4"]
 
 [tool.setuptools.packages.find]
 include = ["weaselytics*"]
-exclude = ["weaselytics.tests", "weaselytics.tests.*"]
+
+[tool.setuptools.package_data]
+weaselytics = ["tests/data/*"]
 
 [tool.ruff]
 target-version = "py311"

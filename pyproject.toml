@@ -51,7 +51,7 @@ test = ["pytest>=7", "pytest-cov>=4"]
 [tool.setuptools.packages.find]
 include = ["weaselytics*"]
 
-[tool.setuptools.package_data]
+[tool.setuptools.package-data]
 weaselytics = ["tests/data/*"]
 
 [tool.ruff]

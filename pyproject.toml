@@ -35,8 +35,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Chemistry",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-license = "MIT"
-license-files = ["LICEN[CS]E*"]
+license = {text = "BSD-3-Clause"}
 
 [project.urls]
 Homepage = "https://github.com/physicien/Weaselytics"

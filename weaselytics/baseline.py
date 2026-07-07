@@ -726,7 +726,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")
         fcut = freq_cutoff
         case = 0
-    method_kwargs["freq_cutoff"] = fcut
+    method_kwargs = {**method_kwargs, "freq_cutoff": fcut}
 
     # Change alpha for the final baseline correction
     # @EB TO CHANGE WHEN I KNOW HOW TO DO IT...

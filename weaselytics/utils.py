@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # coding: utf-8
 """
 Helper functions to perform various signal preprocessing operations.

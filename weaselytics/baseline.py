@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # coding: utf-8
 """
 Functions to perform the baseline correction.

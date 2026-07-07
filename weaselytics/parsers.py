@@ -31,12 +31,9 @@ class ParsedData:
 
     """
 
-    path: str
-    data: np.ndarray
-
     def __init__(self, path: str) -> None:
-        self.path = path
-        self.data = self.read_data(path)
+        self.path: str = path
+        self.data: np.ndarray = self.read_data(path)
 
     def read_data(self, path: str) -> np.ndarray:
         """

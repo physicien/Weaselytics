@@ -730,10 +730,10 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     tic = time.perf_counter()                               #@TEMP
 
     baseline_fitter = Baseline(x_data=x)
-    baseline, p = algo(baseline_fitter, s, **method_kwargs)
+    baseline, params = algo(baseline_fitter, s, **method_kwargs)
 
     toc = time.perf_counter()                               #@TEMP
 
     print(f"Baseline correction in {toc-tic:0.4f} seconds") #@TEMP
-    return baseline, p, case
+    return baseline, params, case
 

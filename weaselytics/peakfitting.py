@@ -173,7 +173,7 @@ def skew_norm(x: np.ndarray, params: np.ndarray) -> np.ndarray:
 
 def _lsq_eq(
     p: np.ndarray,
-    fct: Callable[[np.ndarray, np.ndarray], np.ndarray],
+    func: Callable[[np.ndarray, np.ndarray], np.ndarray],
     x: np.ndarray, y: np.ndarray,
 ) -> np.ndarray:
     """
@@ -184,12 +184,12 @@ def _lsq_eq(
     ----------
     p : array-like with shape (n,)
         Set of independent variables defining the function.
-    fct : callable
+    func : callable
         Function used to solve the least-squares problem.
     x : numpy.ndarray
-        Range on the x-axis to fit `fct`.
+        Range on the x-axis to fit `func`.
     y : numpy.ndarray
-        Values on which to fit `fct` for each point of the x-axis range.
+        Values on which to fit `func` for each point of the x-axis range.
 
     Returns
     -------
@@ -197,7 +197,7 @@ def _lsq_eq(
         A function to feed to the `scipy.optimize.least_squares` method.
 
     """
-    return fct(x,p) - y
+    return func(x,p) - y
 
 def _lsq_gauss_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """

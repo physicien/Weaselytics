@@ -234,7 +234,7 @@ def _beads(baseline_fitter: Baseline, s: np.ndarray,
     return bl, params
 
 def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
-                  regions: tuple | np.ndarray = ((None, None),),
+                  regions: tuple | np.ndarray | None = None,
                   sampling: int | np.ndarray = 1,
                   freq_cutoff: float = 0.005, asymmetry: float = 1.0,
                   fit_parabola: bool = True, alpha: float = 1.0,
@@ -254,8 +254,7 @@ def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
     regions : array-line, shape (M,2), optional
         The two dimensional array containing the start and stop indices for
         each region containing a relevant peak. Each region is defined as
-        ``data[start:stop]``. Default is ((None, None),), which will use all
-        points.
+        ``data[start:stop]``. If `None` (default), uses all points.
     sampling : int or array-like, optional
         The sampling step size for each region defined in `regions`. Default
         is 1.
@@ -317,6 +316,9 @@ def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
         Intelligent Laboratory Systems, 2011, 109(1), 51-56.
 
     """
+    if regions is None:
+        regions = ((None, None),)
+
     beads_kwargs = {'freq_cutoff': freq_cutoff,
                     'fit_parabola': fit_parabola,
                     'asymmetry': asymmetry,

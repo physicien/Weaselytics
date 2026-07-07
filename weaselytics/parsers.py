@@ -20,19 +20,12 @@ class ParsedData:
 
     Attributes
     ----------
-    path : str
-        Path of the parsed file.
     data : array-like, shape (2,N)
         Array containing the x-y data extracted from the file.
-
-    NOTE
-    ----
-    Do I really need to keep `self.path`?
 
     """
 
     def __init__(self, path: str) -> None:
-        self.path: str = path
         self.data: np.ndarray = self.read_data(path)
 
     def read_data(self, path: str) -> np.ndarray:

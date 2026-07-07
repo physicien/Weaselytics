@@ -24,10 +24,6 @@ class TestParsedData:
         ])
         np.testing.assert_allclose(y, expected)
 
-    def test_stores_path(self, sample_txt_path):
-        parsed = ParsedData(sample_txt_path)
-        assert parsed.path == sample_txt_path
-
     def test_raises_on_nonexistent_file(self):
         import pytest
         with pytest.raises(FileNotFoundError):

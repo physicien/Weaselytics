@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # coding: utf-8
 """
-Helper functions to perform various signal preprocessin operations.
+Helper functions to perform various signal preprocessing operations.
 """
 import numpy as np
 import pandas as pd
@@ -142,7 +142,7 @@ def r2_dw(s: np.ndarray) -> float:
     r2 = ((2-_durbin_watson(s))**2)/4
     return r2
 
-def smooth_SG(x: np.ndarray, window_lenght: int,
+def smooth_SG(x: np.ndarray, window_length: int,
               polyorder: int) -> np.ndarray:
     """
     Apply a Savitzky-Golay filter to an array.
@@ -153,11 +153,11 @@ def smooth_SG(x: np.ndarray, window_lenght: int,
         The data to be filtered. If `x` is not a single or double precision
         floating point array, it will be converted to type ``numpy.float64``
         before filtering.
-    window_lenght : int
+    window_length : int
         The length of the filter window (i.e., the number of coefficients).
     polyorder : int
         The order of the polynomial used to fit the samples. `polyorder` must
-        be less than `window_lenght`.
+        be less than `window_length`.
 
     Returns
     -------
@@ -165,7 +165,7 @@ def smooth_SG(x: np.ndarray, window_lenght: int,
         The filtered data.
 
     """
-    smooth_data = savgol_filter(x,window_lenght,polyorder)
+    smooth_data = savgol_filter(x,window_length,polyorder)
     return smooth_data
 
 def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,

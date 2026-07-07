@@ -36,7 +36,7 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
         (default), will not be plotted.
     bl : array-like, shape (N,), optional
         The baseline obtained from the baseline correction algorithm. If set
-        to None (defautl), will not be plotted.
+        to None (default), will not be plotted.
     x_fit : array-like, shape (M,), optional
         The x-values used to fit a peak. If set to None (default), will not
         be plotted.
@@ -71,7 +71,7 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
         plt.plot(x, y_sm, ls='-.', c=palette[2], lw=1.5,
                  label='smoothed data')
     if s is not None:
-        plt.plot(x, s, ls='-', c=palette[5], lw=1.5, label='ajusted data')
+        plt.plot(x, s, ls='-', c=palette[5], lw=1.5, label='adjusted data')
     if bl is not None:
         plt.plot(x, bl, ls='--', c=palette[0], lw=2.0, label='baseline')
     if (x_fit is not None) and (y_fit_g is not None):

@@ -542,11 +542,11 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         to False (but it does not change anything in reality).
     alpha : float, optional
         #@EB will change in pybaselines. If None (default), will automatically
-        ajust the value (always to 1 for now).
+        adjust the value (always to 1 for now).
     parabola_len : int, optional
         Size of the window used, at each ends of the data, to prevent issues
         in fitting a parabola before the baseline correction[2] when the first
-        and/or last point is an outlier. If None, will be ajusted to the length
+        and/or last point is an outlier. If None, will be adjusted to the length
         of the data.
 
     Returns

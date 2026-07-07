@@ -33,7 +33,7 @@ def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
 
     """
     line = "Baseline corrected chromatogram of: "
-    ajusted_data = np.array([x, y]).T
+    adjusted_data = np.array([x, y]).T
     basename = os.path.splitext(os.path.basename(path))[0]
     header = line + basename + "\n\n\n\n\n\n"
     mobile_phase = os.path.basename(os.path.dirname(path))
@@ -43,7 +43,7 @@ def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
     )
     os.makedirs(outdir, exist_ok=True)
     outpath = os.path.join(outdir, basename + "_bl.txt")
-    np.savetxt(outpath, ajusted_data, delimiter='\t', header=header)
+    np.savetxt(outpath, adjusted_data, delimiter='\t', header=header)
     return None
 
 def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",

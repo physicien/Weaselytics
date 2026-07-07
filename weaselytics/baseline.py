@@ -84,7 +84,7 @@ def _relevant_regions(
 
     # Peak regions and sampling
     large_peaks = full_widths[ratio_w > 1]      # Ignore the narrowest peak
-    peak_regions = merge_intervals(np.copy(large_peaks))
+    peak_regions = merge_intervals(large_peaks)
     if len(peak_regions) == 0:
         peak_regions = None
         sampling = np.array([1])

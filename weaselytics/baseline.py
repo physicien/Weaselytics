@@ -352,8 +352,8 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     num : int, optional
         Number of x-values spanning the frequency range to evaluate r2.
         Default is 1000.
-    method : Callable
-       The callable method corresponding to the input string.
+    method : str
+        The method name passed to ``_beads`` or ``_custom_beads``.
     param : str, optional
         Label of the parameter to correlate with the value of r2. Default is
         "freq_cutoff".

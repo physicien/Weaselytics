@@ -102,8 +102,8 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
     """
     solv_pattern = r"(^.+)__LPYE"   # not general...
     filename = os.path.basename(path)
-    outname = re.match(r"(^.+).txt", filename).group(1)
-    solvent = re.match(solv_pattern, filename).group(1)
+    outname = os.path.splitext(filename)[0]
+    solvent = re.match(solv_pattern, filename).group(1) if re.match(solv_pattern, filename) else "unknown"
     data_gauss = {
             "mol": mol,
             "solvent": solvent,

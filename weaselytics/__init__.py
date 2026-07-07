@@ -18,11 +18,18 @@ from weaselytics.peakfitting import fit_peak, gauss, skew_norm
 from weaselytics.plot import plot, r2_plots
 from weaselytics.utils import smooth_SG
 
+
+def main() -> None:
+    from weaselytics.weaselytics import main as _main
+    _main()
+
+
 __all__ = [
     "ParsedData",
     "auto_beads",
     "fit_peak",
     "gauss",
+    "main",
     "skew_norm",
     "smooth_SG",
     "export_txt",

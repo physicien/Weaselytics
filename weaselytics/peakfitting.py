@@ -333,12 +333,12 @@ def fit_peak(s: np.ndarray, x: np.ndarray, x0: float | None = None,
         The y-values of the Skew-Normal distribution.
 
     """
-    if x0:
+    if x0 is not None:
         xmin = x0
     else:
         xmin = min(x)
 
-    if x1:
+    if x1 is not None:
         xmax = x1
     else:
         xmax = max(x)

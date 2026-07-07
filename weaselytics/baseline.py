@@ -703,14 +703,15 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     #       best r**2 because of the log transform
     # NOTE: The default setting of `parabola_len=3` is suitable to determine
     #       `fcut` since the signal is log-transformed beforehand.
+    #       regions and sampling are only relevant for custom_beads.
     method_kwargs = {
             "asymmetry": asymmetry,
             "fit_parabola": fit_parabola,
             "alpha": 1.0,
             "parabola_len": 3,
-            "regions": peak_regions,
-            "sampling": sampling
             }
+    if method == "custom_beads":
+        method_kwargs.update(regions=peak_regions, sampling=sampling)
 
     print(f"{'Data points:':<20}{len(s):d}")
 

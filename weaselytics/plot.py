@@ -74,10 +74,10 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
         plt.plot(x, s, ls='-', c=palette[5], lw=1.5, label='ajusted data')
     if bl is not None:
         plt.plot(x, bl, ls='--', c=palette[0], lw=2.0, label='baseline')
-    if ((x_fit is not None) & (y_fit_g is not None)):
+    if (x_fit is not None) and (y_fit_g is not None):
         plt.plot(x_fit, y_fit_g, ls='--', c=palette[2], lw=2.0,
                  label='robust gaussian fit')
-    if ((x_fit is not None) & (y_fit_sn is not None)):
+    if (x_fit is not None) and (y_fit_sn is not None):
         plt.plot(x_fit, y_fit_sn, ls='-.', c=palette[3], lw=2.0,
                  label='robust skew-normal fit')
 

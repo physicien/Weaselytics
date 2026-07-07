@@ -27,9 +27,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Scientific/Engineering :: Chemistry",
@@ -45,8 +42,8 @@ Issues = "https://github.com/physicien/Weaselytics/issues"
 weaselytics = "weaselytics.weaselytics:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "pytest-cov>=4", "ruff>=0.4"]
 test = ["pytest>=7", "pytest-cov>=4"]
+dev = ["weaselytics[test]", "ruff>=0.4"]
 
 [tool.setuptools.packages.find]
 include = ["weaselytics*"]

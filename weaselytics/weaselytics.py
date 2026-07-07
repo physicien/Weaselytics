@@ -3,6 +3,8 @@
 import argparse
 import sys
 
+import numpy as np
+
 from weaselytics.baseline import auto_beads
 from weaselytics.export import export_csv, export_txt
 from weaselytics.parsers import ParsedData
@@ -12,7 +14,7 @@ from weaselytics.utils import smooth_SG
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog='weaselytics',
         description='Parse and analyse chromatographic data from .txt file'
     )
@@ -44,11 +46,11 @@ def main() -> None:
     parser.add_argument('-od', '--output-dir', default='results',
                         help='output directory (default: results)')
 
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
-    fit_data = not args.nofit
-    do_bl = not args.nobaseline
-    do_sm = args.dosmoothing
+    fit_data: bool = not args.nofit
+    do_bl: bool = not args.nobaseline
+    do_sm: bool = args.dosmoothing
 
     if args.startx is not None and args.endx is not None:
         if args.startx == args.endx:
@@ -68,14 +70,16 @@ def main() -> None:
             print("Warning. x1 < 0. Exit.")
             sys.exit(1)
 
-    path = args.path
+    path: str = args.path
     print(path)
-    parsed = ParsedData(path)
+    parsed: ParsedData = ParsedData(path)
+    xdata: np.ndarray
+    ydata: np.ndarray
     xdata, ydata = parsed.data
 
-    output_dir = args.output_dir
+    output_dir: str = args.output_dir
 
-    plot_kwargs = {}
+    plot_kwargs: dict = {}
     if args.show or args.print:
         plot_kwargs.update(
             show_plot=args.show,
@@ -85,10 +89,10 @@ def main() -> None:
         )
 
     if do_sm:
-        ydata_sm = smooth_SG(ydata, 9, 0)
+        ydata_sm: np.ndarray = smooth_SG(ydata, 9, 0)
         if args.show or args.print:
             plot_kwargs['y_sm'] = ydata_sm
-        mod_ydata = ydata_sm
+        mod_ydata: np.ndarray = ydata_sm
     else:
         mod_ydata = ydata
 

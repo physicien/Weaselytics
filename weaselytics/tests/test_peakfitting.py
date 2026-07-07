@@ -1,7 +1,14 @@
 import numpy as np
 import pytest
 
-from weaselytics.peakfitting import fit_peak, gauss, peaks_params, skew_norm
+from weaselytics.peakfitting import (
+    _lsq_gauss_fit,
+    _lsq_skew_norm_fit,
+    fit_peak,
+    gauss,
+    peaks_params,
+    skew_norm,
+)
 
 
 class TestGauss:
@@ -73,3 +80,35 @@ class TestFitPeak:
         x_fit, y_g, y_sn = fit_peak(y, x, x0=3.0, x1=7.0)
         assert x_fit[0] >= 2.9
         assert x_fit[-1] <= 7.1
+
+
+class TestLsqFit:
+    def test_lsq_gauss_recovers_parameters(self):
+        x = np.linspace(0, 10, 201)
+        true = np.array([3.0, 5.0, 0.8])
+        y = gauss(x, true)
+        result = _lsq_gauss_fit(x, y)
+        np.testing.assert_allclose(result, true, atol=0.05)
+
+    def test_lsq_gauss_with_noise(self):
+        x = np.linspace(0, 10, 201)
+        true = np.array([3.0, 5.0, 0.8])
+        rng = np.random.default_rng(42)
+        y = gauss(x, true) + 0.02 * rng.normal(size=len(x))
+        result = _lsq_gauss_fit(x, y)
+        np.testing.assert_allclose(result, true, atol=0.15)
+
+    def test_lsq_skew_norm_recovers_parameters(self):
+        x = np.linspace(0, 10, 201)
+        true = np.array([3.0, 5.0, 0.8, 3.0])
+        y = skew_norm(x, true)
+        result = _lsq_skew_norm_fit(x, y)
+        np.testing.assert_allclose(result, true, atol=0.05)
+
+    def test_lsq_skew_norm_with_noise(self):
+        x = np.linspace(0, 10, 201)
+        true = np.array([3.0, 5.0, 0.8, 3.0])
+        rng = np.random.default_rng(42)
+        y = skew_norm(x, true) + 0.02 * rng.normal(size=len(x))
+        result = _lsq_skew_norm_fit(x, y)
+        np.testing.assert_allclose(result, true, atol=0.15)

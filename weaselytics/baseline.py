@@ -732,12 +732,12 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     # @EB TO CHANGE WHEN I KNOW HOW TO DO IT...
     if alpha is None:
         alpha=1.0
-        method_kwargs.update({"alpha": alpha})
+        method_kwargs["alpha"] = alpha
 
     # Change parabola_len for the final baseline correction
     if parabola_len is None:
         parabola_len=end_window(s)
-        method_kwargs.update({"parabola_len": parabola_len})
+        method_kwargs["parabola_len"] = parabola_len
 
     print(f"{'Cutoff frequency:':<20}{fcut:0.4E}")
     print(f"{'Asymmetry:':<20}{asymmetry:0.1f}")

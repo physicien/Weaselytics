@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import argparse
+import os
 import sys
 
 import numpy as np
@@ -19,6 +20,8 @@ def main() -> None:
 
     Raises
     ------
+    FileNotFoundError
+        Raised if the input path does not point to an existing file.
     ValueError
         Raised if ``--start-x`` and ``--end-x`` are equal, reversed order, or
         negative.
@@ -74,6 +77,8 @@ def main() -> None:
         raise ValueError("x1 < 0.")
 
     path: str = args.path
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"file not found: {path}")
     print(path)
     parsed: ParsedData = ParsedData(path)
     xdata: np.ndarray

@@ -17,6 +17,13 @@ class TestPlot:
         x, y = sample_data
         plot(x, y, show_plot=False, print_plot=False, path="/tmp/test.txt")
 
+    def test_plot_creates_file_on_print(self, sample_data, tmp_path):
+        x, y = sample_data
+        plot(x, y, print_plot=True, path="/tmp/test.txt",
+             output_dir=str(tmp_path))
+        expected = tmp_path / "images" / "test.png"
+        assert expected.exists()
+
 
 class TestR2Plots:
     def test_r2_plots_basic(self):
@@ -35,7 +42,7 @@ class TestR2Plots:
         r2_plots(x, r2, sm_d0, sm_d1, sm_d2, min_d1, max_d1,
                  ends, sec_p, tol1_1, 5e-4, 2e-6, 0.01, 0.5, case=1)
 
-    def test_r2_prints(self):
+    def test_r2_prints(self, tmp_path):
         x = np.geomspace(0.0001, 0.5, 100)
         r2 = np.random.default_rng(0).random(100)
         tol1_1 = np.zeros(100, dtype=bool)
@@ -43,4 +50,7 @@ class TestR2Plots:
                  np.array([], dtype=int), np.array([], dtype=int),
                  np.zeros(100, dtype=bool),
                  np.array([], dtype=int), tol1_1, 5e-4, 2e-6, 0.01, 0.5,
-                 print_plot=False, path="/tmp/test.txt")
+                 print_plot=True, path="/tmp/test.txt",
+                 output_dir=str(tmp_path))
+        expected = tmp_path / "r2_plots" / "test_r2.png"
+        assert expected.exists()

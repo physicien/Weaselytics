@@ -14,7 +14,7 @@ from weaselytics.baseline import (
 class TestBeads:
     def test_beads_returns_baseline_and_params(self):
         x = np.linspace(0, 10, 101)
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(100)
         y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
         y += 0.1 * (x - 5.0)
         y += 0.01 * rng.normal(size=len(x))
@@ -26,7 +26,7 @@ class TestBeads:
 
     def test_r2_returns_float(self):
         x = np.linspace(0, 10, 101)
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(101)
         y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
         y += 0.1 * (x - 5.0)
         y += 0.01 * rng.normal(size=len(x))
@@ -37,7 +37,7 @@ class TestBeads:
 
     def test_r2_different_cutoff_gives_different_result(self):
         x = np.linspace(0, 10, 101)
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(102)
         y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
         y += 0.1 * (x - 5.0)
         y += 0.01 * rng.normal(size=len(x))
@@ -48,7 +48,7 @@ class TestBeads:
 
     def test_r2_array_returns_correct_length(self):
         x = np.linspace(0, 10, 101)
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(103)
         y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
         y += 0.1 * (x - 5.0)
         y += 0.01 * rng.normal(size=len(x))
@@ -60,7 +60,7 @@ class TestBeads:
 
     def test_custom_beads_returns_baseline_and_params(self):
         x = np.linspace(0, 10, 101)
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(104)
         y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
         y += 0.1 * (x - 5.0)
         y += 0.01 * rng.normal(size=len(x))
@@ -75,7 +75,7 @@ class TestBeads:
 class TestAutoBeads:
     def test_with_explicit_freq_cutoff(self):
         x = np.linspace(0, 10, 101)
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(105)
         y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
         y += 0.1 * (x - 5.0)
         y += 0.01 * rng.normal(size=len(x))
@@ -88,7 +88,7 @@ class TestAutoBeads:
 
     def test_with_custom_beads_method(self):
         x = np.linspace(0, 10, 101)
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(106)
         y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
         y += 0.1 * (x - 5.0)
         y += 0.01 * rng.normal(size=len(x))
@@ -108,7 +108,7 @@ class TestAutoBeads:
 
     def test_raises_on_invalid_method(self):
         x = np.linspace(0, 10, 50)
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(107)
         y = rng.normal(size=50)
         msg = "method 'invalid' is not implemented"
         with pytest.raises(ValueError, match=msg):
@@ -116,7 +116,7 @@ class TestAutoBeads:
 
     def test_raises_on_invalid_freq_cutoff(self):
         x = np.linspace(0, 10, 50)
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(108)
         y = rng.normal(size=50)
         msg = "cutoff frequency must be 0 < freq_cutoff < 0.5"
         with pytest.raises(ValueError, match=msg):

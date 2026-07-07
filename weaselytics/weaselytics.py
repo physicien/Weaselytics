@@ -31,9 +31,9 @@ def main() -> None:
                         help='output data to <ARG>.csv')
     parser.add_argument('-os', '--output_stats', type=str,
                         help='output stats to filename_<ARG>.csv')
-    parser.add_argument('-n', '--nofit', action='store_false',
+    parser.add_argument('-n', '--nofit', action='store_true',
                         help='do not fit the chromatogram')
-    parser.add_argument('-nb', '--nobaseline', action='store_false',
+    parser.add_argument('-nb', '--nobaseline', action='store_true',
                         help='do not correct the baseline')
     parser.add_argument('-sm', '--dosmoothing', action='store_true',
                         help='do not smooth the signal')
@@ -46,8 +46,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    fit_data = args.nofit
-    do_bl = args.nobaseline
+    fit_data = not args.nofit
+    do_bl = not args.nobaseline
     do_sm = args.dosmoothing
 
     if args.startx is not None and args.endx is not None:

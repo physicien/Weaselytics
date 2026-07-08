@@ -1,0 +1,8 @@
+numpy>=1.22
+scipy>=1.8
+matplotlib>=3.5
+seaborn>=0.13.0
+pandas>=2.0
+pybaselines @ git+https://github.com/derb12/pybaselines@development
+scikit-image>=0.19.0
+diptest>=0.11.0

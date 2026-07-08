@@ -1,0 +1,10 @@
+Workflow:
+  - data/filename.txt from Steven
+  - data/filename.txt --> filename_bl.txt (see loop_bl.sbatch)
+    - confirm bl correction with plots and r2 plots
+  - data/filename_bl.txt --> all peak.csv (see loop_extract.sh)
+  - all peak.csv --> solvent_effect_data.csv (using data_aggregator.py)
+  - stats for each species (using stats_analysis.py)
+
+
+

@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools >= 64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "weaselytics"
+version = "0.1.0"
+authors = [
+  { name="Emmanuel Bourret", email="emmanuel.bourret@umontreal.ca" },
+]
+description = "Python package to extract and analyse chromatographic data."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.22",
+    "scipy>=1.8",
+    "matplotlib>=3.5",
+    "seaborn>=0.13.0",
+    "pandas>=2.0",
+    "pybaselines @ git+https://github.com/derb12/pybaselines@development",
+    "scikit-image>=0.19.0",
+    "diptest>=0.11.0",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+license = {text = "BSD-3-Clause"}
+
+[project.urls]
+Homepage = "https://github.com/physicien/Weaselytics"
+Issues = "https://github.com/physicien/Weaselytics/issues"
+
+[project.scripts]
+weaselytics = "weaselytics.weaselytics:main"
+
+[project.optional-dependencies]
+test = ["pytest>=7", "pytest-cov>=4"]
+dev = ["weaselytics[test]", "ruff>=0.4"]
+
+[tool.setuptools.packages.find]
+include = ["weaselytics*"]
+
+[tool.setuptools.package-data]
+weaselytics = ["tests/data/*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 80
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"weaselytics/tests/*" = ["E501"]
+
+[tool.ruff.format]
+quote-style = "single"

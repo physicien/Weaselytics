@@ -1,0 +1,560 @@
+# coding: utf-8
+"""
+Helper functions to perform various signal preprocessing operations.
+"""
+import numpy as np
+import pandas as pd
+from diptest import diptest
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks, peak_widths, savgol_filter
+from scipy.stats import median_abs_deviation
+from skimage.filters import threshold_sauvola, threshold_triangle
+
+
+def end_window(data: np.ndarray, window_min: int = 3,
+               window_max: int = 20) -> int:
+    """
+    Calculate the size of the local window used to detect endpoint outliers.
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        The data to be tested.
+    window_min : int, optional
+        Minimum width of the window. Default is 3.
+    window_max : int, optional
+        Maximum width of the window. Default is 20.
+
+    Returns
+    -------
+    size : int
+        Size of the window.
+
+    """
+    size = int(round(0.01*len(data)))
+    if size < window_min:
+        size = window_min
+    if size > window_max:
+        size = window_max
+    return size
+
+
+def rm_ends_outliers(data: np.ndarray, window_min: int = 5,
+                     window_max: int = 100) -> np.ndarray:
+    """
+    Check whether the first and last elements of the input data are outliers.
+    If either of them is classified as an outlier, substitute it with the
+    median computed from a local window of data points whose size is
+    ``window_min <= round(0.01*len(s)) <= window_max``.
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        The data to be tested.
+    window_min : int, optional
+        Minimum width of the window. Default is 5.
+    window_max : int, optional
+        Maximum width of the window. Default is 100.
+
+    Returns
+    -------
+    s : numpy.ndarray
+        The data with outliers removed from both ends.
+
+    """
+    s = np.copy(data)
+    size = round(0.01*len(data))
+    if size < window_min:
+        size = window_min
+    if size > window_max:
+        size = window_max
+    ymax = 0.01*np.abs(np.max(data)-np.min(data))
+    y0_med = np.median(data[:size])
+    diff0 = np.abs(data[0]-y0_med)
+    y1_med = np.median(data[-size:])
+    diff1 = np.abs(data[-1]-y1_med)
+
+    if diff0 > ymax:
+        s[0] = y0_med
+    if diff1 > ymax:
+        s[-1] = y1_med
+    return s
+
+def _durbin_watson(resids: np.ndarray, axis: int = 0) -> np.ndarray:
+    r"""
+    Calculate the Durbin-Watson statistic.
+
+    Parameters
+    ----------
+    resids : array-like
+        Data for which to compute the Durbin-Watson statistic. Usually
+        regression model residuals.
+    axis : int, optional
+        Axis to use if data has more than 1 dimension. Default is 0.
+
+    Returns
+    -------
+    dw : float, array-like
+        The Durbin-Watson statistic.
+
+    Notes
+    -----
+    The null hypothesis of the test is that there is no serial correlation
+    in the residuals.
+    The Durbin-Watson test statistic is defined as:
+
+    .. math::
+
+       \sum_{t=2}^T((e_t - e_{t-1})^2)/\sum_{t=1}^Te_t^2
+
+    The test statistic is approximately equal to 2*(1-r) where ``r`` is the
+    sample autocorrelation of the residuals. Thus, for r == 0, indicating no
+    serial correlation, the test statistic equals 2. This statistic will
+    always be between 0 and 4. The closer to 0 the statistic, the more
+    evidence for positive serial correlation. The closer to 4, the more
+    evidence for negative serial correlation.
+
+    Based on the implementation found in ``statsmodels.stats.stattools``.
+    """
+    resids = np.asarray(resids)
+    diff_resids = np.diff(resids, 1, axis=axis)
+    dw = np.sum(diff_resids**2, axis=axis) / np.sum(resids**2, axis=axis)
+    return dw
+
+def r2_dw(s: np.ndarray) -> float:
+    """
+    Compute the squared values of `r`, the Durbin-Watson (DW) autocorrelation
+    level.
+
+    Parameters
+    ----------
+    s : array-like
+        Data for which to compute the squared DW autocorrelation level. Usually
+        regression model residuals.
+
+    Returns
+    -------
+    r2 : float
+        The squared values of the DW autocorrelation level.
+
+    """
+    r2 = ((2-_durbin_watson(s))**2)/4
+    return r2
+
+def smooth_SG(x: np.ndarray, window_length: int,
+              polyorder: int) -> np.ndarray:
+    """
+    Apply a Savitzky-Golay filter to an array.
+
+    Parameters
+    ----------
+    x : array-like
+        The data to be filtered. If `x` is not a single or double precision
+        floating point array, it will be converted to type ``numpy.float64``
+        before filtering.
+    window_length : int
+        The length of the filter window (i.e., the number of coefficients).
+    polyorder : int
+        The order of the polynomial used to fit the samples. `polyorder` must
+        be less than `window_length`.
+
+    Returns
+    -------
+    smooth_data : ndarray, same shape as x
+        The filtered data.
+
+    """
+    smooth_data = savgol_filter(x,window_length,polyorder)
+    return smooth_data
+
+def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
+                 rel_prom_n: float = 0.8, height_n: float = 0.1,
+                 rel_height_p: float = 0.5, rel_height_n: float = 0.5,
+                 width: int | None = None,
+                 adapt: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Find the center and width for every peak of the chromatogram (including
+    the negative ones).
+
+    Parameters
+    ----------
+    s : numpy.ndarray
+        A signal with peaks.
+    rel_prom_p : float, optional
+        Required prominence of positive peaks relative to the highest positive
+        peak. Default is 0.05.
+    rel_prom_n : float, optional
+        Required prominence of negative peaks relative to the deepest negative
+        peak. Default is 0.5.
+    height_n : float, optional
+        Required height of negative peaks. Either a number, ``None``, an array
+        matching x or a 2-element sequence of the former. The first element is
+        always interpreted as the minimal and the second, if supplied, as the
+        maximal required height. Default is 0.1.
+    rel_height_p : float, optional
+        Selects the relative height at which the width of a positive peak is
+        determined, expressed as a fraction of its prominence. A value of 1.0
+        measures the peak's width at its lowest contour level, whereas 0.5
+        measures it at half the prominence height. The value must be at
+        least 0. Default is 0.5.
+    rel_height_n : float, optional
+        Selects the relative height at which the width of a negative peak is
+        determined, expressed as a fraction of its prominence. A value of 1.0
+        measures the peak's width at its lowest contour level, whereas 0.5
+        measures it at half the prominence height. The value must be at
+        least 0. Default is 0.5.
+    width : number or ndarray or sequence, optional
+        Required width of peaks in samples. Either a number, `None`, an array
+        matching x or a 2-element sequence of the former. The first element is
+        always interpreted as the minimal and the second, if supplied, as the
+        maximal required width. Default is `None`.
+    adapt : bool, optional
+        If True, lets the function change the value of `rel_prom_p` according
+        the the maximum prominence of the data.
+
+    Returns
+    -------
+    peaks : numpy.ndarray
+        Indices of peaks in `s` that satisfy all given conditions.
+    widths : numpy.ndarray
+        The widths for each peak in `s`.
+
+    """
+    _, raw_params_p = find_peaks(s,prominence=0.0)
+    _, raw_params_n = find_peaks(-s,prominence=0.0)
+    max_prom_p = (raw_params_p["prominences"].max()
+                  if len(raw_params_p["prominences"]) > 0 else 0.0)
+    max_prom_n = (raw_params_n["prominences"].max()
+                  if len(raw_params_n["prominences"]) > 0 else 0.0)
+    if adapt:
+        if max_prom_p <= 1:
+            rel_prom_p = 0.5
+        elif max_prom_p <= 2.5:
+            rel_prom_p = 0.08
+        elif max_prom_p <= 10.0:
+            rel_prom_p = 5*rel_prom_p
+    prom_p = rel_prom_p * max_prom_p
+    prom_n = rel_prom_n * max_prom_n
+
+    peaks_p, _ = find_peaks(s, prominence=prom_p, width=width)
+    peaks_n, _ = find_peaks(-s, prominence=prom_n, height=height_n,
+                             width=width)
+    widths_p = peak_widths(s, peaks_p, rel_height=rel_height_p)[0]
+    widths_n = peak_widths(-s, peaks_n, rel_height=rel_height_n)[0]
+
+    unsorted_peaks = np.append(peaks_p, peaks_n)
+    unsorted_widths = np.append(widths_p, widths_n)
+    index_array = np.argsort(unsorted_peaks)
+
+    peaks = unsorted_peaks[index_array]
+    widths = unsorted_widths[index_array]
+    return peaks, widths
+
+
+def continuous_ranges(x: np.ndarray) -> list[np.ndarray]:
+    """
+    Separate an array of integers into continuous segments.
+
+    Parameters
+    ----------
+    x : array-like
+        The array to split.
+
+    Returns
+    -------
+    continuous : list of ndarrays
+        A list of continuous sub-arrays.
+    """
+    continuous = np.split(x, np.where(x[1:] != x[:-1] +1)[0] +1)
+    return continuous
+
+def find_flat(x: np.ndarray, include_tol: float,
+              exclude_tol: float = 0,
+              mode: str = 'absolute') -> np.ndarray:
+    """
+    Find the plateaus of an array according to a certain threshold. A second
+    threshold can also be used to exclude certain regions from the plateaus.
+
+    Parameters
+    ----------
+    x : array-like
+        The array on which to find plateaus.
+    include_tol : float
+        The cutoff threshold of the values to be included in the plateaus.
+    exclude_tol : float, optional
+        A second threshold to exclude values from the plateaus. Its value
+        should be smaller than that of `include_tol`. Default is 0.
+    mode : str, optional
+        One of the following string values.
+        'absolute' (default)
+            Takes the absolute value of the array.
+        'signed'
+            Takes signed values of the array.
+
+    Returns
+    -------
+    plateaus : array-like
+        The array containing the position of the plateau regions of `x`.
+
+    Raises
+    ------
+    ValueError
+        Raised if `exclude_tol` in not smaller than `include_tol`, or if the
+        `mode` being passed is not allowed.
+
+    """
+    # Make sure that the mode being passed is allowed
+    allowed_modes = ["absolute", "signed"]
+    if mode not in allowed_modes:
+        raise  ValueError(f"mode '{mode}' is not supported")
+
+    if mode == "absolute":
+        array = np.absolute(x)
+    elif mode == "signed":
+        array = x
+
+    if exclude_tol > include_tol:
+        raise ValueError("exclude_tol must be smaller than include_tol")
+
+    include_condition = ((array < include_tol) & (array > exclude_tol))
+    plateaus = np.where(include_condition)[0]
+    return plateaus
+
+def merge_intervals(intervals: list[list[int]]) -> np.ndarray:
+    """
+    Merge overlapping intervals.
+
+    Parameters
+    ----------
+    intervals : array-like, shape (N,2)
+        The two dimensional array containing the start and stop indices for
+        each intervals of interest.
+
+    Returns
+    -------
+    merged_intervals : numpy.ndarray, shape (M,2) for M <= N
+        The two dimensional array containing the start and stop indices for
+        each non-overlapping intervals.
+
+    """
+    sortedIntervals = sorted(intervals, key=lambda x: x[0])
+    merged = []
+
+    for interval in sortedIntervals:
+        if not merged or interval[0] > merged[-1][1]:
+            merged.append(interval)
+        else:
+            merged[-1][1] = max(interval[1], merged[-1][1])
+
+    merged_intervals = np.array(merged)
+    return merged_intervals
+
+def _rolling_std(x: np.ndarray, window: int = 3) -> np.ndarray:
+    """
+    Compute the rolling standard deviation of the data.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+       Input array of the data.
+    window : int, optional
+        Size of the rolling window. Default is 3.
+
+    Returns
+    -------
+    rolling_std : array-like, shape (N,)
+        The rolling standard deviation.
+
+    """
+    data = {'value': x}
+    df = pd.DataFrame(data)
+    df['rolling_std'] = df['value'].rolling(window=window,
+                                            center=True,
+                                            min_periods=1
+                                            ).std()
+    rolling_std = df['rolling_std'].to_numpy()
+    return rolling_std
+
+def _rolling_mad(x: np.ndarray, window: int = 3) -> np.ndarray:
+    """
+    Compute the rolling median absolute deviation of the data.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+       Input array of the data.
+    window : int, optional
+        Size of the rolling window. Default is 3.
+
+    Returns
+    -------
+    rolling_mad : array-like, shape (N,)
+        The rolling median absolute deviation of the data.
+
+    """
+    data = {'value': x}
+    df = pd.DataFrame(data)
+    df['rolling_mad'] = df['value'].rolling(window=window,
+                                            center=True,
+                                            min_periods=1
+                                            ).apply(median_abs_deviation)
+    rolling_mad = df['rolling_mad'].to_numpy()
+    return rolling_mad
+
+def _long_segments(x: np.ndarray, min_len: int = 10) -> np.ndarray:
+    """
+    Eliminate, in a discontinuous boolean array, the continuous segments of
+    `True` values that are shorter than `min_len`.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+        The discontinuous boolean array.
+    min_len : int, optional
+        Minimal length of a continuous segment. Default is 10.
+
+    Returns
+    -------
+    long_segments : array-like, shape (N,)
+        The boolean array in which every contiguous segment of `True` values
+        has a length of at least `min_len`.
+
+    """
+    seg_list = []
+    segments = []
+    args_ini = np.nonzero(x)[0]
+    for seg in continuous_ranges(args_ini):
+        if len(seg) >= min_len:
+            seg_list.append(seg)
+    if seg_list:
+        segments = np.concatenate(seg_list)
+    long_segments = np.zeros(len(x), dtype=bool)
+    long_segments[segments] = True
+    return long_segments
+
+def _flat_ends(x: np.ndarray, rdiff: np.ndarray,
+               smoothing_window: int = 15, tol0: float = 1.0E-03,
+               tol1: float = 1.0E-05,
+               tol_rdiff: float = 1.0E-04) -> np.ndarray:
+    """
+    Identify the plateau regions at both ends of `x`, where `x` is the array of
+    autocorrelation coefficients ,`r2`, as a function of a given parameter. In
+    situations where the values of `x` increase again toward 1 after hitting
+    their minimum (instead of continuing to decrease toward 0), this final
+    region is also identified. Here, we assume that the left (right) side
+    corresponds to parameter values for which the baseline is most rigid
+    (flexible).
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+        The y-values of the data.
+    rdiff : array-like, shape (N,)
+        The difference between the rolling standard deviation and the rolling
+        median absolute deviation of `x`.
+    smoothing_window : int, optional
+        Standard deviation for the Gaussian kernel used to smooth the data.
+        Default is 15.
+    tol0 : float, optional
+        Threshold applied to detect the first plateau of `x`, i.e., the region
+        where the baseline exhibits the lowest flexibility. This parameter
+        specifies the maximum allowed decrease from the value at which this
+        plateau begins. Default is 1.0E-03.
+    tol1 : float, optional
+        Threshold applied to detect plateaus in the first derivative of the
+        smoothed data. Default is 1.0E-05.
+    tol_rdiff : float, optional
+        Threshold applied to `rdiff` to locate the final plateau of `x`, i.e.,
+        the segment where the baseline has the greatest flexibility. This
+        parameter represents the maximum deviation of a point on that last
+        plateau. Default is 1.0E-04.
+
+    Returns
+    -------
+    ends : array-like, shape (N,)
+        The boolean array whose `True` entries mark the regions to be excluded
+        at both ends of `x`.
+
+    """
+    # Smoothed data and derivatives
+    smooth_d0 = gaussian_filter1d(x, smoothing_window)
+    smooth_d1 = np.gradient(smooth_d0)
+    argmin_x = np.argmin(x)
+
+    # Initialization of the array to return
+    ends = np.full(len(x), False, dtype=bool)
+
+    # Proto-plateaus from d1
+    tight_d1_flats = find_flat(smooth_d1, tol1)
+    tight_continuous = continuous_ranges(tight_d1_flats)
+
+    # Initial plateau
+    starting_r2 = np.median(smooth_d0[tight_continuous[0]])
+    starting_end = np.where(
+            np.absolute(starting_r2 - x[:argmin_x]) < tol0)[0][-1]
+    starting_plateau = starting_end + 1
+    ends[:starting_plateau] = True
+
+    # Final plateau (or climbing final region)
+    last_r2 = len(x) - 1
+    if rdiff[last_r2] <= tol_rdiff:
+        ending_r2 = np.where(rdiff > tol_rdiff)[0][-1]
+        last_r2 = ending_r2 - 1
+    else:
+        last_r2 = argmin_x
+    ends[last_r2:] = True
+    return ends
+
+def find_plateaus(x: np.ndarray, window: int = 3, nbins: int = 256,
+                  pval_cutoff: float = 0.002
+                  ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    NOTE: CHANGE pval_cutoff to 0.05 or 0.10 later
+
+    NOTE: When both ends of the dataset lie near 0, enabling `fit_parabola=True`
+          seems to make the first plateau significantly more unstable. However,
+          turning this option off (`False`) does not completely eliminate these
+          instabilities.
+
+    """
+    # Rolling statistics
+    rolling_std = _rolling_std(x, window=window)
+    rolling_mad = _rolling_mad(x, window=window)
+    diff_std_mad = rolling_std - rolling_mad
+
+    # Test if the distribution is unimodal (p=1)
+    _, pval = diptest(rolling_std)
+    print(f"{'pval:':<20}{pval:0.4f}")
+
+    # Find the threshold value
+    if pval < pval_cutoff:
+        # In case of significant multimodality
+        local_threshold = threshold_sauvola(rolling_std)
+        corrected = rolling_std - local_threshold
+        threshold = threshold_triangle(corrected, nbins=nbins)
+        plateaus = corrected < threshold
+    else:
+        threshold = threshold_triangle(rolling_std, nbins=nbins)
+        plateaus = rolling_std < threshold
+    print(f"{'Threshold:':<20}{threshold:0.4E}")
+
+    # Discard plateaus at both ends
+    ends = _flat_ends(x, diff_std_mad)
+    plateaus = np.logical_and(plateaus, ~ends)
+
+    # EXPERIMENTAL (mainly intended to prevent discarding plateaus beyond the
+    # maximum of rolling_std when only a small noisy segment remains directly
+    # before it)
+    test = diff_std_mad < 5.0E-05
+    plateaus = np.logical_and(plateaus, test)
+
+    # Discard shorter plateaus
+    plateaus = _long_segments(plateaus)
+#    print(continuous_ranges(np.where(plateaus)[0]))
+
+    # Discard regions beyond the max of rolling_std if nothing before it
+    rstd_argmax = np.argmax(rolling_std)
+    if plateaus[:rstd_argmax].any():
+        plateaus[rstd_argmax:] = False
+
+    return plateaus, ends, rolling_std, diff_std_mad

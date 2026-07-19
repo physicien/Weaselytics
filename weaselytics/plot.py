@@ -158,7 +158,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
     cp_candidates : array-like, shape (N,), dtype bool, optional
         Mask of the candidate plateau regions returned by
         ``segmentation.trim_candidates``, overlaid on the
-        autocorrelation panel as a light solid fill. Default is None,
+        autocorrelation panel as hatched purple regions. Default is None,
         which disables the overlay.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
@@ -190,11 +190,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
 
     # Changepoint prototype overlay (issue #4): trimmed candidate
-    # plateau regions as a light solid fill
+    # plateau regions
     if cp_candidates is not None:
         axs[0].fill_between(x, 0, 1,
                             where=cp_candidates,
-                            color='tab:purple', alpha=0.15,
+                            color="none", ec="tab:purple", alpha=0.3,
+                            hatch="\\\\", hatch_linewidth=2,
                             label='CP candidates',
                             transform=axs[0].get_xaxis_transform())
 

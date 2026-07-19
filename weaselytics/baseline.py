@@ -851,7 +851,9 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         fcut = freq_cutoff
         case = 0
         plot_data = {}
-    if show_plot or print_plot:
+    # plot_data is empty when freq_cutoff is user-provided: there is no
+    # autocorrelation sweep, hence no r2 diagnostic plot to draw.
+    if (show_plot or print_plot) and plot_data:
         r2_plots(
             plot_data["fcut_range"], plot_data["r2_val"],
             plot_data["smooth_d0"], plot_data["test"],

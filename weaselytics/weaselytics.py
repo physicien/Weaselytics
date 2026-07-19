@@ -67,6 +67,12 @@ def main() -> None:
                             'number of worker processes for the'
                             ' autocorrelation sweep (default: 1, serial)'
                         ))
+    parser.add_argument('-fc', '--freq-cutoff', type=float, default=None,
+                        help=(
+                            'bypass the automatic selection and use this'
+                            ' cutoff frequency, 0 < freq_cutoff < 0.5'
+                            ' (default: automatic selection)'
+                        ))
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -105,7 +111,7 @@ def main() -> None:
 
     if do_bl:
         baseline, params, case = auto_beads(
-            mod_ydata, xdata, freq_cutoff=None,
+            mod_ydata, xdata, freq_cutoff=args.freq_cutoff,
             show_plot=args.show, print_plot=args.print, path=path,
             output_dir=output_dir,
             method="custom_beads",

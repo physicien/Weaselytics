@@ -90,32 +90,22 @@ Note that the residual per-plateau ambiguity (several plausible plateaus, e.g. t
 
 ## References
 
-<a name="navarro-huerta"></a>
-1. Navarro-Huerta, J.A., et al. Assisted baseline subtraction in complex chromatograms using the BEADS algorithm. Journal of Chromatography A, 2017, 1507, 1-10. https://doi.org/10.1016/j.chroma.2017.05.057
+1. <a name="navarro-huerta"></a>Navarro-Huerta, J.A., et al. Assisted baseline subtraction in complex chromatograms using the BEADS algorithm. Journal of Chromatography A, 2017, 1507, 1-10. https://doi.org/10.1016/j.chroma.2017.05.057
 
-<a name="hansen-oleary"></a>
-2. Hansen, P.C.; O'Leary, D.P. The use of the L-curve in the regularization of discrete ill-posed problems. SIAM Journal on Scientific Computing, 1993, 14(6), 1487-1503. https://doi.org/10.1137/0914086
+2. <a name="hansen-oleary"></a>Hansen, P.C.; O'Leary, D.P. The use of the L-curve in the regularization of discrete ill-posed problems. SIAM Journal on Scientific Computing, 1993, 14(6), 1487-1503. https://doi.org/10.1137/0914086
 
-<a name="hansen-pruning"></a>
-3. Hansen, P.C.; Jensen, T.K.; Rodriguez, G. An adaptive pruning algorithm for the discrete L-curve criterion. Journal of Computational and Applied Mathematics, 2007, 198(2), 483-492. https://doi.org/10.1016/j.cam.2005.09.026
+3. <a name="hansen-pruning"></a>Hansen, P.C.; Jensen, T.K.; Rodriguez, G. An adaptive pruning algorithm for the discrete L-curve criterion. Journal of Computational and Applied Mathematics, 2007, 198(2), 483-492. https://doi.org/10.1016/j.cam.2005.09.026
 
-<a name="schwarz"></a>
-4. Schwarz, G. Estimating the dimension of a model. The Annals of Statistics, 1978, 6(2), 461-464. https://doi.org/10.1214/aos/1176344136
+4. <a name="schwarz"></a>Schwarz, G. Estimating the dimension of a model. The Annals of Statistics, 1978, 6(2), 461-464. https://doi.org/10.1214/aos/1176344136
 
-<a name="yao"></a>
-5. Yao, Y.-C. Estimating the number of change-points via Schwarz' criterion. Statistics & Probability Letters, 1988, 6(3), 181-189. https://doi.org/10.1016/0167-7152(88)90118-6
+5. <a name="yao"></a>Yao, Y.-C. Estimating the number of change-points via Schwarz' criterion. Statistics & Probability Letters, 1988, 6(3), 181-189. https://doi.org/10.1016/0167-7152(88)90118-6
 
-<a name="jackson"></a>
-6. Jackson, B.; Scargle, J.D.; et al. An algorithm for optimal partitioning of data on an interval. IEEE Signal Processing Letters, 2005, 12(2), 105-108. https://doi.org/10.1109/LSP.2001.838216
+6. <a name="jackson"></a>Jackson, B.; Scargle, J.D.; et al. An algorithm for optimal partitioning of data on an interval. IEEE Signal Processing Letters, 2005, 12(2), 105-108. https://doi.org/10.1109/LSP.2001.838216
 
-<a name="killick"></a>
-7. Killick, R.; Fearnhead, P.; Eckley, I.A. Optimal detection of changepoints with a linear computational cost. Journal of the American Statistical Association, 2012, 107(500), 1590-1598. https://doi.org/10.1080/01621459.2012.737745
+7. <a name="killick"></a>Killick, R.; Fearnhead, P.; Eckley, I.A. Optimal detection of changepoints with a linear computational cost. Journal of the American Statistical Association, 2012, 107(500), 1590-1598. https://doi.org/10.1080/01621459.2012.737745
 
-<a name="truong"></a>
-8. Truong, C.; Oudre, L.; Vayatis, N. Selective review of offline change point detection methods. Signal Processing, 2020, 167, 107299. https://doi.org/10.1016/j.sigpro.2019.107299
+8. <a name="truong"></a>Truong, C.; Oudre, L.; Vayatis, N. Selective review of offline change point detection methods. Signal Processing, 2020, 167, 107299. https://doi.org/10.1016/j.sigpro.2019.107299
 
-<a name="ning"></a>
-9. Ning, X.; Selesnick, I.W.; Duval, L. Chromatogram baseline estimation and denoising using sparsity (BEADS). Chemometrics and Intelligent Laboratory Systems, 2014, 139, 156-167. https://doi.org/10.1016/j.chemolab.2014.09.014
+9. <a name="ning"></a>Ning, X.; Selesnick, I.W.; Duval, L. Chromatogram baseline estimation and denoising using sparsity (BEADS). Chemometrics and Intelligent Laboratory Systems, 2014, 139, 156-167. https://doi.org/10.1016/j.chemolab.2014.09.014
 
-<a name="durbin-watson"></a>
-10. Durbin, J.; Watson, G.S. Testing for serial correlation in least squares regression: I. Biometrika, 1950, 37(3-4), 409-428. https://doi.org/10.1093/biomet/37.3-4.409
+10. <a name="durbin-watson"></a>Durbin, J.; Watson, G.S. Testing for serial correlation in least squares regression: I. Biometrika, 1950, 37(3-4), 409-428. https://doi.org/10.1093/biomet/37.3-4.409

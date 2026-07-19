@@ -47,7 +47,13 @@ import weaselytics as wl
 data = wl.ParsedData("chromato.txt")
 x, y = data.data
 
+# Fixed cutoff frequency
 baseline, params, case = wl.auto_beads(y, x, freq_cutoff=0.01)
+
+# Automatic cutoff frequency, with the autocorrelation curve cached so
+# that reruns on the same signal skip the expensive BEADS sweep
+baseline, params, case = wl.auto_beads(y, x, freq_cutoff=None,
+                                       cache_dir="r2_cache")
 ```
 
 ## Requirements

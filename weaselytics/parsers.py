@@ -44,8 +44,13 @@ class ParsedData:
         """
         xlist = list()
         ylist = list()
-        pattern = r"^([+-]?\d+\.?\d*[eE]?[-+]?\d+)\s+" + \
-                    r"([+-]?\d+\.?\d*[eE]?[-+]?\d+)"
+        # A number is digits, an optional decimal part, and an optional
+        # complete exponent. Making the exponent parts individually
+        # optional either rejects bare integers like the t=0 timestamp
+        # (if the trailing digits are required) or accepts malformed
+        # values like '1.5e' (if they are not).
+        number = r"[+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?"
+        pattern = rf"^({number})\s+({number})"
 
         # Read the file
         with open(path, 'r') as f:

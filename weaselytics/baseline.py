@@ -2,6 +2,8 @@
 """
 Functions to perform the baseline correction.
 """
+import hashlib
+import os
 import time  #@EB temporary?
 from collections.abc import Callable
 
@@ -306,12 +308,132 @@ def _r2_array(
     vr2 = vr2_func(param_range)
     return vr2
 
+def _r2_cache_key(algo: Callable[..., tuple[np.ndarray, dict]],
+                  signal: np.ndarray, param_range: np.ndarray,
+                  param: str, kwargs: dict) -> str:
+    """
+    Compute the cache key identifying an autocorrelation curve.
+
+    The key is a hash of every input that determines the curve: the
+    (log-transformed, truncated) signal values, the parameter range,
+    the baseline algorithm, the correlated parameter and the keyword
+    arguments passed to the algorithm. Array-valued keyword arguments
+    (e.g. `regions` and `sampling` for ``_custom_beads``) are hashed
+    from their raw bytes.
+
+    Parameters
+    ----------
+    algo : Callable
+        The callable method used for the baseline correction.
+    signal : array-like, shape (N,)
+        The y-values of the signal.
+    param_range : array-like, shape (M,)
+        Range of values taken by `param`.
+    param : str
+        Label of the parameter to correlate with the value of r2.
+    kwargs : dict
+        Additional keyword arguments passed to `algo`.
+
+    Returns
+    -------
+    key : str
+        The hexadecimal digest identifying the curve.
+
+    """
+    sha = hashlib.sha1()
+    sha.update(np.ascontiguousarray(signal).tobytes())
+    sha.update(np.ascontiguousarray(param_range).tobytes())
+    sha.update(algo.__name__.encode())
+    sha.update(param.encode())
+    for name in sorted(kwargs):
+        value = kwargs[name]
+        sha.update(name.encode())
+        if isinstance(value, np.ndarray):
+            sha.update(str(value.shape).encode())
+            sha.update(np.ascontiguousarray(value).tobytes())
+        else:
+            sha.update(repr(value).encode())
+    key = sha.hexdigest()[:12]
+    return key
+
+def _r2_array_cached(
+    algo: Callable[..., tuple[np.ndarray, dict]],
+    baseline_fitter: Baseline,
+    signal: np.ndarray, param_range: np.ndarray,
+    param: str = "freq_cutoff", cache_dir: str | None = None,
+    path: str = "./file.txt", **kwargs
+) -> np.ndarray:
+    """
+    Compute the array of `r2` with an optional on-disk cache.
+
+    The autocorrelation sweep is by far the most expensive step of the
+    automatic selection of the cutoff frequency (seconds to minutes per
+    signal), while the downstream plateau detection runs in
+    milliseconds. Caching the curve to a ``.npz`` file therefore allows
+    iterating on the plateau detection over a whole dataset in seconds
+    instead of recomputing every BEADS sweep. The cache file name
+    combines the stem of `path` with a hash of every input that
+    determines the curve, so a stale cache can never be returned for
+    modified inputs.
+
+    Parameters
+    ----------
+    algo : Callable
+       The callable method corresponding to the input string.
+    baseline_fitter : `Baseline` object
+        Contains the x-values of the signal to baseline correct and all
+        available baseline correction algorithms in pybaselines.
+    signal : array-like, shape (N,)
+        The y-values of the signal.
+    param_range : array-like, shape (M,)
+        Range of values taken by `param` and at which r2 is evaluated.
+    param : str, optional
+        Label of the parameter to correlate with the value of r2.
+        Default is "freq_cutoff".
+    cache_dir : str, optional
+        Directory where the curves are cached. Default is None, which
+        disables caching entirely.
+    path : str, optional
+        Path of the data file, used to name the cache file. Default is
+        "./file.txt".
+    **kwargs
+        Additional keyword arguments.
+
+    Returns
+    -------
+    vr2 : numpy.ndarray, shape (M,)
+        The calculated (or cached) array of r2.
+
+    """
+    if cache_dir is None:
+        return _r2_array(algo, baseline_fitter, signal, param_range,
+                         param=param, **kwargs)
+
+    key = _r2_cache_key(algo, signal, param_range, param, kwargs)
+    stem = os.path.splitext(os.path.basename(path))[0]
+    cache_file = os.path.join(cache_dir, f"{stem}__r2__{key}.npz")
+
+    if os.path.isfile(cache_file):
+        with np.load(cache_file) as data:
+            vr2 = data["r2_val"]
+        print(f"{'r2 cache:':<20}loaded {cache_file}")
+        return vr2
+
+    vr2 = _r2_array(algo, baseline_fitter, signal, param_range,
+                    param=param, **kwargs)
+    os.makedirs(cache_dir, exist_ok=True)
+    np.savez(cache_file, fcut_range=param_range, r2_val=vr2)
+    print(f"{'r2 cache:':<20}saved {cache_file}")
+    return vr2
+
 def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             smoothing_window: int = 15, slope_thresh: float = 5.0E-05,
             tol0: float = 1.0E-03, tol1_0: float = 1.0E-05,
             tol1_1: float = 5.0E-04, tol2: float = 2.0E-06,
             num: int = 1000,
-            method: str = "beads", param: str = "freq_cutoff", **kwargs
+            method: str = "beads", param: str = "freq_cutoff",
+            cache_dir: str | None = None, path: str = "./file.txt",
+            **kwargs
             ) -> tuple[float, int, dict]:
     """
     Find the optimal cutoff frequency.
@@ -357,6 +479,12 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     param : str, optional
         Label of the parameter to correlate with the value of r2. Default is
         "freq_cutoff".
+    cache_dir : str, optional
+        Directory where the autocorrelation curves are cached. Default is
+        None, which disables caching.
+    path : str, optional
+        Path of the data file, used to name the cache file. Default is
+        "./file.txt".
     **kwargs
         Additional keyword arguments.
 
@@ -397,8 +525,9 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     fcut_range = np.geomspace(0.00001, 0.5, num=num, endpoint=False)
 
     # y-data
-    r2_val = _r2_array(algo, baseline_fitter, z, fcut_range, param=param,
-                       **kwargs)
+    r2_val = _r2_array_cached(algo, baseline_fitter, z, fcut_range,
+                              param=param, cache_dir=cache_dir, path=path,
+                              **kwargs)
     #####
     test_plateaus, ends, test, test3 = find_plateaus(r2_val)
 
@@ -504,7 +633,8 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
                output_dir: str = "results",
                method: str = "beads", asymmetry: float = 1.0,
                fit_parabola: bool = True, alpha: float | None = None,
-               parabola_len: int | None = 3
+               parabola_len: int | None = 3,
+               cache_dir: str | None = None
                ) -> tuple[np.ndarray, dict, int]:
     """
     Automatic implementation of the Baseline estimation and denoising with
@@ -552,6 +682,10 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         in fitting a parabola before the baseline correction[2] when the first
         and/or last point is an outlier. If None, will be adjusted to the length
         of the data.
+    cache_dir : str, optional
+        Directory where the autocorrelation curves used to select
+        `freq_cutoff` are cached as ``.npz`` files. Default is None, which
+        disables caching. Only relevant when `freq_cutoff` is None.
 
     Returns
     -------
@@ -618,7 +752,8 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     # Cutoff frequency
     if freq_cutoff is None:
         fcut, case, plot_data = _fcutoff(
-            s, x, scut, method=method, **method_kwargs)
+            s, x, scut, method=method, cache_dir=cache_dir, path=path,
+            **method_kwargs)
     else:
         if ((freq_cutoff <= 0) or (freq_cutoff >= 0.5)):
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")

@@ -7,6 +7,7 @@ from weaselytics.baseline import (
     _custom_beads,
     _r2,
     _r2_array,
+    _r2_array_cached,
     auto_beads,
 )
 
@@ -121,3 +122,69 @@ class TestAutoBeads:
         msg = "cutoff frequency must be 0 < freq_cutoff < 0.5"
         with pytest.raises(ValueError, match=msg):
             auto_beads(y, x, freq_cutoff=0.0)
+
+
+class TestR2ArrayCached:
+    def _setup(self):
+        x = np.linspace(0, 10, 101)
+        rng = np.random.default_rng(104)
+        y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
+        y += 0.1 * (x - 5.0)
+        y += 0.01 * rng.normal(size=len(x))
+        baseline_fitter = Baseline(x_data=x)
+        param_range = np.geomspace(0.001, 0.1, 10)
+        return baseline_fitter, y, param_range
+
+    def test_no_cache_dir_matches_uncached(self):
+        baseline_fitter, y, param_range = self._setup()
+        expected = _r2_array(_beads, baseline_fitter, y, param_range)
+        result = _r2_array_cached(_beads, baseline_fitter, y, param_range)
+        assert np.allclose(result, expected)
+
+    def test_cache_roundtrip(self, tmp_path):
+        baseline_fitter, y, param_range = self._setup()
+        cache_dir = str(tmp_path / "cache")
+        cold = _r2_array_cached(
+            _beads, baseline_fitter, y, param_range,
+            cache_dir=cache_dir, path="./sample.txt")
+        cache_files = list((tmp_path / "cache").glob("sample__r2__*.npz"))
+        assert len(cache_files) == 1
+        warm = _r2_array_cached(
+            _beads, baseline_fitter, y, param_range,
+            cache_dir=cache_dir, path="./sample.txt")
+        assert np.array_equal(cold, warm)
+        # No second file was written on the warm call
+        assert len(list((tmp_path / "cache").glob("*.npz"))) == 1
+
+    def test_cache_file_is_self_contained(self, tmp_path):
+        baseline_fitter, y, param_range = self._setup()
+        cache_dir = str(tmp_path / "cache")
+        r2_val = _r2_array_cached(
+            _beads, baseline_fitter, y, param_range,
+            cache_dir=cache_dir, path="./sample.txt")
+        cache_file = next((tmp_path / "cache").glob("*.npz"))
+        with np.load(cache_file) as data:
+            assert np.array_equal(data["fcut_range"], param_range)
+            assert np.array_equal(data["r2_val"], r2_val)
+
+    def test_different_kwargs_use_different_cache_files(self, tmp_path):
+        baseline_fitter, y, param_range = self._setup()
+        cache_dir = str(tmp_path / "cache")
+        _r2_array_cached(
+            _beads, baseline_fitter, y, param_range,
+            cache_dir=cache_dir, path="./sample.txt", asymmetry=1.0)
+        _r2_array_cached(
+            _beads, baseline_fitter, y, param_range,
+            cache_dir=cache_dir, path="./sample.txt", asymmetry=6.0)
+        assert len(list((tmp_path / "cache").glob("*.npz"))) == 2
+
+    def test_different_signal_uses_different_cache_file(self, tmp_path):
+        baseline_fitter, y, param_range = self._setup()
+        cache_dir = str(tmp_path / "cache")
+        _r2_array_cached(
+            _beads, baseline_fitter, y, param_range,
+            cache_dir=cache_dir, path="./sample.txt")
+        _r2_array_cached(
+            _beads, baseline_fitter, y + 0.1, param_range,
+            cache_dir=cache_dir, path="./sample.txt")
+        assert len(list((tmp_path / "cache").glob("*.npz"))) == 2

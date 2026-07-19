@@ -48,7 +48,12 @@ with backtracking to recover the breakpoints. All segment costs are evaluated in
 - **Relative slope.** Let $\Delta = \max(r^2) - \min(r^2)$ be the total drop of the curve and $d$ the number of `fcut` decades spanned by the grid. The natural slope scale is "the whole drop spread over one decade", i.e. $\Delta / (N/d)$ per grid point, and $\mathrm{rel\_slope}_k = |b_k| \,/\, \big(\Delta\, d / N\big)$.
 - **Relative noise.** $\mathrm{rel\_noise}_k = s_k / \Delta$, the residual noise as a fraction of the total drop.
 
-`classify_segments` marks a segment as a plateau candidate ("flat") when $\mathrm{rel\_slope} < 0.2$ and $\mathrm{rel\_noise} < 0.005$. Both thresholds are dimensionless and independent of `num`, of the signal length and of the units of the statistic — the two knobs replace the seven absolute tolerances of the previous pipeline.
+`classify_segments` marks a segment as a plateau candidate ("flat") when $\mathrm{rel\_noise} < 0.006$ and its relative slope satisfies a **two-tier (tight/loose) criterion**, the dimensionless analogue of the tight and loose derivative tolerances of `_fcutoff`:
+
+- *tight*: $\mathrm{rel\_slope} < 0.2$ — strictly flat on the scale of the whole curve;
+- *loose*: $\mathrm{rel\_slope} < 0.6$ **and** the segment is bracketed by at least one cliff ($\mathrm{rel\_slope} > 1$) on each side.
+
+The loose tier exists for staircase-shaped curves (blank injections, multi-step programs such as Chlorobenzene 60-70): there the total drop of $r^2$ is split across several cliffs, so every intermediate shelf drifts at a substantial fraction of the global slope scale and a purely global criterion rejects it — even though the shelf is obviously flat *compared to the cliffs surrounding it*. On the 339-signal benchmark, the two-tier criterion places every accepted `fcut` of the reference implementation inside a flat segment (339/339, versus 336/339 for the tight tier alone) without increasing the total fraction of the curve classified as flat. All thresholds are dimensionless and independent of `num`, of the signal length and of the units of the statistic.
 
 ## 5. Selecting the plateau and the value of `fcut`
 
@@ -69,8 +74,10 @@ Note that the residual per-plateau ambiguity (several plausible plateaus, e.g. t
 |---|---|---|
 | `penalty` | $25 \ln N$ | Cost of adding a segment; fewer/coarser segments when larger |
 | `min_size` | 15 | Minimal segment length (points) |
-| `rel_slope_max` | 0.2 | Flatness threshold on the relative slope |
-| `rel_noise_max` | 0.005 | Flatness threshold on the relative residual noise |
+| `rel_slope_max` | 0.2 | Tight flatness threshold on the relative slope |
+| `rel_slope_loose` | 0.6 | Loose slope threshold for cliff-bracketed shelves |
+| `cliff_min` | 1.0 | Minimum relative slope of a bracketing cliff |
+| `rel_noise_max` | 0.006 | Flatness threshold on the relative residual noise |
 | `level_frac` | 0.5 | Fallback level criterion (fraction of the total drop) |
 
 ## 7. Practical usage

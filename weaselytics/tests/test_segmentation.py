@@ -107,3 +107,41 @@ class TestSelectFcut:
         fcut, _, chosen = select_fcut(fcut_range, r2)
         assert fcut is None
         assert chosen is None
+
+
+class TestClassifySegmentsHysteresis:
+    def _staircase(self, with_final_cliff=True):
+        """Staircase curve: p_ini, cliff, drifting shelf, then
+        optionally a second cliff and a flat tail."""
+        rng = np.random.default_rng(11)
+        parts = [
+            np.full(300, 1.0),
+            np.linspace(1.0, 0.8, 30),
+            np.linspace(0.8, 0.65, 150),
+        ]
+        if with_final_cliff:
+            parts += [np.linspace(0.65, 0.3, 40), np.full(280, 0.3)]
+        y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
+        fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
+        return fcut_range, y
+
+    def _shelf_segment(self, fcut_range, y):
+        segments = classify_segments(
+            segment_features(fcut_range, y, pelt_linear(y)))
+        mid = 300 + 30 + 75  # middle of the shelf
+        return next(s for s in segments
+                    if s['start'] <= mid < s['end'])
+
+    def test_bracketed_shelf_is_flat(self):
+        fcut_range, y = self._staircase(with_final_cliff=True)
+        shelf = self._shelf_segment(fcut_range, y)
+        # The shelf drifts too much for the tight tier but is accepted
+        # by the loose, cliff-bracketed tier
+        assert shelf['rel_slope'] > 0.2
+        assert shelf['flat']
+
+    def test_unbracketed_shelf_is_not_flat(self):
+        fcut_range, y = self._staircase(with_final_cliff=False)
+        shelf = self._shelf_segment(fcut_range, y)
+        assert shelf['rel_slope'] > 0.2
+        assert not shelf['flat']

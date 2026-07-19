@@ -121,7 +121,7 @@ def main() -> None:
                         help='minimal segment length (default: 15)')
     parser.add_argument('--rel-slope-max', type=float, default=0.2,
                         help='flatness threshold on the relative slope')
-    parser.add_argument('--rel-noise-max', type=float, default=0.005,
+    parser.add_argument('--rel-noise-max', type=float, default=0.006,
                         help='flatness threshold on the relative noise')
     args = parser.parse_args()
 

@@ -186,16 +186,32 @@ def segment_features(fcut_range: np.ndarray, r2: np.ndarray,
 
 
 def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
-                      rel_noise_max: float = 0.005) -> list[dict]:
+                      rel_noise_max: float = 0.006,
+                      rel_slope_loose: float = 0.6,
+                      cliff_min: float = 1.0) -> list[dict]:
     """
     Mark each segment as flat (plateau candidate) or not.
 
-    A segment is flat when both its relative slope and its relative
-    residual noise are small. The residual-noise criterion is what
-    separates the quiet plateaus from the regions where the baseline
-    fit is unstable (e.g. the low-frequency instabilities of `p_ini` or
-    the chaotic tail), replacing the rolling-standard-deviation and
-    thresholding machinery of ``find_plateaus``.
+    A segment is flat when its relative residual noise is small and its
+    relative slope satisfies a two-tier (tight/loose) criterion, the
+    dimensionless analogue of the tight and loose derivative tolerances
+    of ``_fcutoff``:
+
+    - tight: ``rel_slope < rel_slope_max`` — strictly flat on the scale
+      of the whole curve;
+    - loose: ``rel_slope < rel_slope_loose`` *and* the segment is
+      bracketed by at least one cliff (``rel_slope > cliff_min``) on
+      each side. This accepts the drifting shelves of staircase-shaped
+      curves (blanks, multi-step programs), whose slope is substantial
+      on the global scale but small compared to the cliffs surrounding
+      them. On these morphologies the total drop is split over several
+      steps, so a purely global slope criterion rejects every shelf.
+
+    The residual-noise criterion is what separates the quiet plateaus
+    from the regions where the baseline fit is unstable (e.g. the
+    low-frequency instabilities of `p_ini` or the chaotic tail),
+    replacing the rolling-standard-deviation and thresholding machinery
+    of ``find_plateaus``.
 
     Parameters
     ----------
@@ -203,10 +219,17 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
         The segments returned by ``segment_features``. Modified in
         place: a boolean key ``flat`` is added to each dict.
     rel_slope_max : float, optional
-        Maximum relative slope of a flat segment. Default is 0.2.
+        Maximum relative slope of a strictly flat segment. Default is
+        0.2.
     rel_noise_max : float, optional
         Maximum relative residual noise of a flat segment. Default is
-        0.005.
+        0.006.
+    rel_slope_loose : float, optional
+        Maximum relative slope of a cliff-bracketed shelf. Default is
+        0.6.
+    cliff_min : float, optional
+        Minimum relative slope of a segment counting as a cliff for the
+        loose criterion. Default is 1.0.
 
     Returns
     -------
@@ -214,15 +237,20 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
         The input list with the added ``flat`` key.
 
     """
-    for seg in segments:
-        seg['flat'] = (seg['rel_slope'] < rel_slope_max
-                       and seg['rel_noise'] < rel_noise_max)
+    slopes = [seg['rel_slope'] for seg in segments]
+    for k, seg in enumerate(segments):
+        tight = seg['rel_slope'] < rel_slope_max
+        loose = (seg['rel_slope'] < rel_slope_loose
+                 and any(s > cliff_min for s in slopes[:k])
+                 and any(s > cliff_min for s in slopes[k + 1:]))
+        seg['flat'] = (seg['rel_noise'] < rel_noise_max
+                       and (tight or loose))
     return segments
 
 
 def select_fcut(fcut_range: np.ndarray, r2: np.ndarray,
                 penalty: float | None = None, min_size: int = 15,
-                rel_slope_max: float = 0.2, rel_noise_max: float = 0.005,
+                rel_slope_max: float = 0.2, rel_noise_max: float = 0.006,
                 level_frac: float = 0.5
                 ) -> tuple[float | None, list[dict], int | None]:
     """
@@ -253,7 +281,7 @@ def select_fcut(fcut_range: np.ndarray, r2: np.ndarray,
         Maximum relative slope of a flat segment. Default is 0.2.
     rel_noise_max : float, optional
         Maximum relative residual noise of a flat segment. Default is
-        0.005.
+        0.006.
     level_frac : float, optional
         Fallback level criterion: fraction of the total drop of `r2`
         above which the mean of a candidate plateau must lie. Default

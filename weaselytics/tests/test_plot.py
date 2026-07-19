@@ -54,3 +54,21 @@ class TestR2Plots:
                  output_dir=str(tmp_path))
         expected = tmp_path / "r2_plots" / "test_r2.png"
         assert expected.exists()
+
+    def test_r2_plots_with_changepoint_overlay(self, tmp_path):
+        x = np.geomspace(0.0001, 0.5, 100)
+        r2 = np.linspace(1.0, 0.0, 100)
+        cp_segments = [
+            {'start': 0, 'end': 40, 'flat': True},
+            {'start': 40, 'end': 70, 'flat': False},
+            {'start': 70, 'end': 100, 'flat': True},
+        ]
+        r2_plots(x, r2, r2, np.gradient(r2), np.gradient(np.gradient(r2)),
+                 np.array([10]), np.array([30]),
+                 np.zeros(100, dtype=bool), np.array([40, 41], dtype=int),
+                 np.zeros(100, dtype=bool), 5e-4, 2e-6, 0.01, 0.95,
+                 cp_segments=cp_segments, cp_chosen=0, cp_fcut=0.01,
+                 print_plot=True, path="/tmp/test_cp.txt",
+                 output_dir=str(tmp_path))
+        expected = tmp_path / "r2_plots" / "test_cp_r2.png"
+        assert expected.exists()

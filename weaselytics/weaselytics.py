@@ -62,6 +62,11 @@ def main() -> None:
                             'directory where the autocorrelation curves are'
                             ' cached (default: no caching)'
                         ))
+    parser.add_argument('-w', '--workers', type=int, default=1,
+                        help=(
+                            'number of worker processes for the'
+                            ' autocorrelation sweep (default: 1, serial)'
+                        ))
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -104,7 +109,8 @@ def main() -> None:
             show_plot=args.show, print_plot=args.print, path=path,
             output_dir=output_dir,
             method="custom_beads",
-            cache_dir=args.cache_dir
+            cache_dir=args.cache_dir,
+            workers=args.workers
         )
         signal = params["signal"]
         mod_ydata = signal

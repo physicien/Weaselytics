@@ -211,3 +211,31 @@ class TestR2ArrayCached:
         # One entry per data file is kept
         assert len(list((tmp_path / "cache").glob("sample__r2__*.npz"))) == 1
         assert len(list((tmp_path / "cache").glob("other__r2__*.npz"))) == 1
+
+
+class TestR2ArrayParallel:
+    def test_parallel_matches_serial(self):
+        x = np.linspace(0, 10, 101)
+        rng = np.random.default_rng(105)
+        y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
+        y += 0.1 * (x - 5.0)
+        y += 0.01 * rng.normal(size=len(x))
+        baseline_fitter = Baseline(x_data=x)
+        param_range = np.geomspace(0.001, 0.1, 10)
+        serial = _r2_array(_beads, baseline_fitter, y, param_range)
+        parallel = _r2_array(_beads, baseline_fitter, y, param_range,
+                             workers=2)
+        assert len(parallel) == len(param_range)
+        assert np.allclose(parallel, serial)
+
+    def test_more_workers_than_params(self):
+        x = np.linspace(0, 10, 101)
+        rng = np.random.default_rng(106)
+        y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
+        y += 0.01 * rng.normal(size=len(x))
+        baseline_fitter = Baseline(x_data=x)
+        param_range = np.geomspace(0.001, 0.1, 3)
+        serial = _r2_array(_beads, baseline_fitter, y, param_range)
+        parallel = _r2_array(_beads, baseline_fitter, y, param_range,
+                             workers=8)
+        assert np.allclose(parallel, serial)

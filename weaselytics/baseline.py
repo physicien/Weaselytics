@@ -6,6 +6,7 @@ import hashlib
 import os
 import time  #@EB temporary?
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 from pybaselines import Baseline
@@ -270,15 +271,50 @@ def _r2(
     r2 = r2_dw(y_corr)
     return r2
 
+def _r2_chunk(args: tuple) -> list[float]:
+    """
+    Evaluate `_r2` on a chunk of parameter values (worker helper).
+
+    Module-level function so that it can be pickled by the process pool
+    used in ``_r2_array``.
+
+    Parameters
+    ----------
+    args : tuple
+        The payload ``(algo, baseline_fitter, signal, chunk, param,
+        kwargs)`` where `chunk` is the sub-array of parameter values to
+        evaluate; the other elements are as in ``_r2``.
+
+    Returns
+    -------
+    r2_values : list of float
+        The r2 value for each parameter in `chunk`, in order.
+
+    """
+    algo, baseline_fitter, signal, chunk, param, kwargs = args
+    r2_values = [
+        _r2(algo, baseline_fitter, signal, p, param=param, **kwargs)
+        for p in chunk
+    ]
+    return r2_values
+
 def _r2_array(
     algo: Callable[..., tuple[np.ndarray, dict]],
     baseline_fitter: Baseline,
     signal: np.ndarray, param_range: np.ndarray,
-    param: str = "freq_cutoff", **kwargs
+    param: str = "freq_cutoff", workers: int = 1, **kwargs
 ) -> np.ndarray:
     """
     Calculate the array of `r2`, the Durbin-Watson autocorrelation of the
     baseline corrected signal, relative to a parameter on a specific range.
+
+    The M evaluations are independent, and this sweep dominates the
+    total runtime of the automatic cutoff-frequency selection (99.9% of
+    the compute in the reference run), so they can be distributed over a
+    pool of worker processes. Processes are required rather than threads
+    because the iterative baseline fits hold the GIL. The parameter
+    range is split into chunks of several evaluations each so that the
+    inter-process overhead stays negligible compared to the fits.
 
     Parameters
     ----------
@@ -294,6 +330,10 @@ def _r2_array(
     param : str, optional
         Label of the parameter to correlate with the value of r2. Default is
         "freq_cutoff".
+    workers : int, optional
+        Number of worker processes used to parallelize the sweep.
+        Default is 1, which keeps the evaluation serial in the current
+        process.
     **kwargs
         Additional keyword arguments.
 
@@ -303,10 +343,24 @@ def _r2_array(
         The calculated array of r2.
 
     """
-    def _r2_wrapper(x):
-        return _r2(algo, baseline_fitter, signal, x, param=param, **kwargs)
-    vr2_func = np.vectorize(_r2_wrapper)
-    vr2 = vr2_func(param_range)
+    if workers is None or workers <= 1:
+        def _r2_wrapper(x):
+            return _r2(algo, baseline_fitter, signal, x, param=param,
+                       **kwargs)
+        vr2_func = np.vectorize(_r2_wrapper)
+        vr2 = vr2_func(param_range)
+        return vr2
+
+    # Several chunks per worker to balance the varying cost of the fits
+    n_chunks = min(len(param_range), workers * 8)
+    chunks = [c for c in np.array_split(param_range, n_chunks) if len(c)]
+    payloads = [
+        (algo, baseline_fitter, signal, chunk, param, kwargs)
+        for chunk in chunks
+    ]
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(_r2_chunk, payloads))
+    vr2 = np.array([r2 for chunk_r2 in results for r2 in chunk_r2])
     return vr2
 
 def _r2_cache_key(algo: Callable[..., tuple[np.ndarray, dict]],
@@ -362,7 +416,7 @@ def _r2_array_cached(
     baseline_fitter: Baseline,
     signal: np.ndarray, param_range: np.ndarray,
     param: str = "freq_cutoff", cache_dir: str | None = None,
-    path: str = "./file.txt", **kwargs
+    path: str = "./file.txt", workers: int = 1, **kwargs
 ) -> np.ndarray:
     """
     Compute the array of `r2` with an optional on-disk cache.
@@ -400,6 +454,11 @@ def _r2_array_cached(
     path : str, optional
         Path of the data file, used to name the cache file. Default is
         "./file.txt".
+    workers : int, optional
+        Number of worker processes used to parallelize the sweep on a
+        cache miss (see ``_r2_array``). Does not affect the cache key,
+        since it changes who computes the curve, not the curve itself.
+        Default is 1 (serial).
     **kwargs
         Additional keyword arguments.
 
@@ -411,7 +470,7 @@ def _r2_array_cached(
     """
     if cache_dir is None:
         return _r2_array(algo, baseline_fitter, signal, param_range,
-                         param=param, **kwargs)
+                         param=param, workers=workers, **kwargs)
 
     key = _r2_cache_key(algo, signal, param_range, param, kwargs)
     stem = os.path.splitext(os.path.basename(path))[0]
@@ -424,7 +483,7 @@ def _r2_array_cached(
         return vr2
 
     vr2 = _r2_array(algo, baseline_fitter, signal, param_range,
-                    param=param, **kwargs)
+                    param=param, workers=workers, **kwargs)
     os.makedirs(cache_dir, exist_ok=True)
     # Keep at most one cached curve per data file: a new write replaces
     # any entry of the same stem computed from other inputs, so stale
@@ -444,7 +503,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             num: int = 1000,
             method: str = "beads", param: str = "freq_cutoff",
             cache_dir: str | None = None, path: str = "./file.txt",
-            **kwargs
+            workers: int = 1, **kwargs
             ) -> tuple[float, int, dict]:
     """
     Find the optimal cutoff frequency.
@@ -496,6 +555,9 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     path : str, optional
         Path of the data file, used to name the cache file. Default is
         "./file.txt".
+    workers : int, optional
+        Number of worker processes used to parallelize the r2 sweep.
+        Default is 1 (serial).
     **kwargs
         Additional keyword arguments.
 
@@ -538,7 +600,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     # y-data
     r2_val = _r2_array_cached(algo, baseline_fitter, z, fcut_range,
                               param=param, cache_dir=cache_dir, path=path,
-                              **kwargs)
+                              workers=workers, **kwargs)
     #####
     test_plateaus, ends, test, test3 = find_plateaus(r2_val)
 
@@ -656,7 +718,8 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
                method: str = "beads", asymmetry: float = 1.0,
                fit_parabola: bool = True, alpha: float | None = None,
                parabola_len: int | None = 3,
-               cache_dir: str | None = None
+               cache_dir: str | None = None,
+               workers: int = 1
                ) -> tuple[np.ndarray, dict, int]:
     """
     Automatic implementation of the Baseline estimation and denoising with
@@ -710,6 +773,10 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         is kept per data file (a new write replaces stale entries). Default
         is None, which disables caching. Only relevant when `freq_cutoff` is
         None.
+    workers : int, optional
+        Number of worker processes used to parallelize the autocorrelation
+        sweep that selects `freq_cutoff`. Default is 1 (serial). Only
+        relevant when `freq_cutoff` is None.
 
     Returns
     -------
@@ -777,7 +844,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     if freq_cutoff is None:
         fcut, case, plot_data = _fcutoff(
             s, x, scut, method=method, cache_dir=cache_dir, path=path,
-            **method_kwargs)
+            workers=workers, **method_kwargs)
     else:
         if ((freq_cutoff <= 0) or (freq_cutoff >= 0.5)):
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")

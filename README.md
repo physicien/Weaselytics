@@ -18,6 +18,7 @@ weaselytics [OPTION] filename
 ```console
 weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb] [-sm]
             [-x0 STARTX] [-x1 ENDX] [-od OUTPUT_DIR] [-cd CACHE_DIR]
+            [-w WORKERS]
             path
 ```
 
@@ -38,6 +39,7 @@ weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb] [-sm]
 | `-x1` | End fitting at `x1` min |
 | `-od` | Output directory for exported files (default: `results`) |
 | `-cd` | Cache directory for the autocorrelation curves used to select `freq_cutoff`; reruns on an unchanged signal skip the expensive BEADS sweep. At most one cached curve is kept per data file (default: no caching) |
+| `-w` | Number of worker processes for the autocorrelation sweep (default: 1, serial) |
 
 ## Library usage
 

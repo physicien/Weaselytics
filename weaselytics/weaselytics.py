@@ -57,6 +57,11 @@ def main() -> None:
                         help='end fitting the gaussian at x min')
     parser.add_argument('-od', '--output-dir', default='results',
                         help='output directory (default: results)')
+    parser.add_argument('-cd', '--cache-dir', default=None,
+                        help=(
+                            'directory where the autocorrelation curves are'
+                            ' cached (default: no caching)'
+                        ))
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -98,7 +103,8 @@ def main() -> None:
             mod_ydata, xdata, freq_cutoff=None,
             show_plot=args.show, print_plot=args.print, path=path,
             output_dir=output_dir,
-            method="custom_beads"
+            method="custom_beads",
+            cache_dir=args.cache_dir
         )
         signal = params["signal"]
         mod_ydata = signal

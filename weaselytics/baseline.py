@@ -14,7 +14,12 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import argrelmax, argrelmin  #, medfilt
 
 from weaselytics.plot import r2_plots
-from weaselytics.segmentation import select_fcut
+from weaselytics.segmentation import (
+    classify_segments,
+    pelt_linear,
+    segment_features,
+    trim_candidates,
+)
 from weaselytics.utils import (
     continuous_ranges,
     end_window,
@@ -604,14 +609,12 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     #####
     test_plateaus, ends, test, test3 = find_plateaus(r2_val)
 
-    # Changepoint-based prototype (issue #4), for diagnostics only: it
-    # does not affect the selected fcut yet, but its decision is printed
-    # and overlaid on the r2 diagnostic plot for comparison.
-    cp_fcut, cp_segments, cp_chosen = select_fcut(fcut_range, r2_val)
-    if cp_fcut is None:
-        print(f"{'Proto fcut:':<20}None")
-    else:
-        print(f"{'Proto fcut:':<20}{cp_fcut:0.4E}")
+    # Changepoint-based prototype (issue #4), for diagnostics only: the
+    # trimmed candidate plateau regions are overlaid on the r2
+    # diagnostic plot for comparison. The selected fcut is unaffected.
+    cp_segments = classify_segments(
+        segment_features(fcut_range, r2_val, pelt_linear(r2_val)))
+    cp_candidates = trim_candidates(fcut_range, cp_segments, len(z))
     #####
 
     ##########################################################################
@@ -703,9 +706,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "fcut": fcut,
         "fi_r2_val": fi_r2_val,
         "case": case,
-        "cp_segments": cp_segments,
-        "cp_chosen": cp_chosen,
-        "cp_fcut": cp_fcut,
+        "cp_candidates": cp_candidates,
     }
     return fcut, case, plot_data
 
@@ -863,9 +864,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             plot_data["tol1_1"], plot_data["tol2"],
             plot_data["fcut"], plot_data["fi_r2_val"],
             case=plot_data["case"],
-            cp_segments=plot_data["cp_segments"],
-            cp_chosen=plot_data["cp_chosen"],
-            cp_fcut=plot_data["cp_fcut"],
+            cp_candidates=plot_data["cp_candidates"],
             show_plot=show_plot, print_plot=print_plot,
             path=path, output_dir=output_dir,
         )

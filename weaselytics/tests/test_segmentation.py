@@ -6,6 +6,7 @@ from weaselytics.segmentation import (
     pelt_linear,
     segment_features,
     select_fcut,
+    trim_candidates,
 )
 
 
@@ -145,3 +146,42 @@ class TestClassifySegmentsHysteresis:
         shelf = self._shelf_segment(fcut_range, y)
         assert shelf['rel_slope'] > 0.2
         assert not shelf['flat']
+
+
+class TestTrimCandidates:
+    def _curve(self):
+        """p_ini, cliff, shelf, cliff, live tail, then a frozen tail."""
+        rng = np.random.default_rng(12)
+        parts = [
+            np.full(300, 1.0),
+            np.linspace(1.0, 0.8, 30),
+            np.linspace(0.8, 0.65, 150),
+            np.linspace(0.65, 0.3, 40),
+            np.full(180, 0.3),
+        ]
+        y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
+        y = np.concatenate([y, np.full(300, 0.3)])  # noise-free frozen tail
+        fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
+        segments = classify_segments(
+            segment_features(fcut_range, y, pelt_linear(y)))
+        return fcut_range, y, segments
+
+    def test_sub_fundamental_region_is_trimmed(self):
+        fcut_range, y, segments = self._curve()
+        n_used = 1000
+        candidates = trim_candidates(fcut_range, segments, n_used)
+        assert not candidates[fcut_range < 0.5 / n_used].any()
+        # ... but the region above the clip is not blanket-removed
+        assert candidates.any()
+
+    def test_frozen_tail_is_trimmed(self):
+        fcut_range, y, segments = self._curve()
+        candidates = trim_candidates(fcut_range, segments, 1000)
+        # the last, noise-free stretch must not be a candidate
+        assert not candidates[-100:].any()
+
+    def test_shelf_remains_candidate(self):
+        fcut_range, y, segments = self._curve()
+        candidates = trim_candidates(fcut_range, segments, 1000)
+        mid_shelf = 300 + 30 + 75
+        assert candidates[mid_shelf]

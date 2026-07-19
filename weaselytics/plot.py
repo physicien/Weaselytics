@@ -112,9 +112,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
              max_d1: np.ndarray, ends: np.ndarray, sec_p: np.ndarray,
              tol1_0: np.ndarray, tol1_1: float, tol2: float,
              freq_cutoff: float, fcut_r2: float, case: int = 0,
-             cp_segments: list[dict] | None = None,
-             cp_chosen: int | None = None,
-             cp_fcut: float | None = None,
+             cp_candidates: np.ndarray | None = None,
              show_plot: bool = False, print_plot: bool = False,
              path: str = "./file.txt",
              output_dir: str = "results") -> None:
@@ -157,17 +155,11 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         The case rule from which `fcut` have been selected. Not necessarily
         useful in the current implementation, but it is advisable to keep it
         until proven otherwise. Default is 0.
-    cp_segments : list of dict, optional
-        The classified segments returned by
-        ``segmentation.select_fcut``, overlaid on the autocorrelation
-        panel: flat segments are hatched in purple and the chosen
-        plateau is filled. Default is None, which disables the overlay.
-    cp_chosen : int, optional
-        Index in `cp_segments` of the plateau chosen by the prototype.
-        Default is None.
-    cp_fcut : float, optional
-        The cutoff frequency selected by the prototype, drawn as a
-        purple dash-dotted vertical line. Default is None.
+    cp_candidates : array-like, shape (N,), dtype bool, optional
+        Mask of the candidate plateau regions returned by
+        ``segmentation.trim_candidates``, overlaid on the
+        autocorrelation panel as a light solid fill. Default is None,
+        which disables the overlay.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
     print_plot : bool, optional
@@ -197,35 +189,14 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                         transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
 
-    # Changepoint prototype overlay (issue #4)
-    if cp_segments is not None:
-        flat_mask = np.zeros(len(x))
-        chosen_mask = np.zeros(len(x))
-        for k, seg in enumerate(cp_segments):
-            if k == cp_chosen:
-                chosen_mask[seg['start']:seg['end']] = 1
-            elif seg.get('flat', False):
-                flat_mask[seg['start']:seg['end']] = 1
+    # Changepoint prototype overlay (issue #4): trimmed candidate
+    # plateau regions as a light solid fill
+    if cp_candidates is not None:
         axs[0].fill_between(x, 0, 1,
-                            where=flat_mask,
-                            color="none", ec="tab:purple", alpha=0.3,
-                            hatch="\\\\", hatch_linewidth=2,
-                            label='CP flat',
+                            where=cp_candidates,
+                            color='tab:purple', alpha=0.15,
+                            label='CP candidates',
                             transform=axs[0].get_xaxis_transform())
-        axs[0].fill_between(x, 0, 1,
-                            where=chosen_mask,
-                            color='tab:purple', alpha=0.25,
-                            label='CP chosen',
-                            transform=axs[0].get_xaxis_transform())
-    if cp_fcut is not None:
-        for ax_cp in axs.flat:
-            ax_cp.axvline(x=cp_fcut, c='tab:purple', ls='dashdot')
-        axs[0].annotate(f'CP: {cp_fcut:0.4E}',
-                        xy=(1.0, 1.01),
-                        xycoords=("axes fraction"),
-                        ha='right',
-                        color='tab:purple'
-                        )
 
     axs[1].fill_between(x, 0, 1,
                         where=tol1_0,

@@ -248,6 +248,85 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
     return segments
 
 
+def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
+                    n_used: int, c1: float = 0.5,
+                    noise_floor: float = 4e-7,
+                    cliff_min: float = 1.0,
+                    bridge: bool = True) -> np.ndarray:
+    """
+    Trim the flat segments into a mask of candidate plateau regions.
+
+    Reduces the flat set to the regions where the optimal cutoff
+    frequency can actually lie, using only a-priori exclusions (no
+    selection convention):
+
+    - **sub-fundamental clip**: grid points below ``c1 / n_used`` are
+      removed. The slowest oscillation representable on a record of
+      `n_used` points has frequency ``1/n_used``, so every cutoff below
+      it requests the same maximally rigid baseline; the region only
+      contains duplicates of the solution at the fundamental. This is
+      why the initial plateau of the autocorrelation plot always ends
+      at ``~1/n_used``.
+    - **frozen exclusion**: flat segments whose relative residual noise
+      is at most `noise_floor` are removed. In the saturated far tail
+      the baseline no longer responds to the cutoff frequency at all
+      and the residual noise collapses by orders of magnitude below
+      that of any genuine plateau.
+    - **bridging** (optional): a non-flat segment sandwiched between
+      candidate regions is absorbed when it is not a cliff
+      (``rel_slope < cliff_min``), so drifting connectors do not split
+      one plateau into several displayed pieces while genuine staircase
+      steps still separate regions.
+
+    On the 339-signal reference dataset, the trimmed mask contains the
+    accepted cutoff frequency of every signal while covering half of
+    the grid area of the untrimmed flat set, in 2-3 contiguous regions
+    per signal.
+
+    Parameters
+    ----------
+    fcut_range : array-like, shape (N,)
+        The (geometrically spaced) cutoff frequencies.
+    segments : list of dict
+        The classified segments returned by ``classify_segments``.
+    n_used : int
+        Number of signal points used for the autocorrelation sweep
+        (the length of the truncated, log-transformed signal).
+    c1 : float, optional
+        Safety factor of the sub-fundamental clip: grid points below
+        ``c1 / n_used`` are excluded. Default is 0.5.
+    noise_floor : float, optional
+        Relative residual noise at or below which a flat segment is
+        considered frozen. Default is 4e-7.
+    cliff_min : float, optional
+        Minimum relative slope of a segment acting as a real separation
+        between candidate regions. Default is 1.0.
+    bridge : bool, optional
+        If True (default), absorb non-cliff segments lying between
+        candidate regions.
+
+    Returns
+    -------
+    candidates : numpy.ndarray, shape (N,), dtype bool
+        Boolean mask of the grid points belonging to a candidate
+        plateau region.
+
+    """
+    cand = [seg['flat'] and seg['rel_noise'] > noise_floor
+            for seg in segments]
+    if bridge:
+        for k in range(1, len(segments) - 1):
+            if (not cand[k] and segments[k]['rel_slope'] < cliff_min
+                    and any(cand[:k]) and any(cand[k + 1:])):
+                cand[k] = True
+    candidates = np.zeros(len(fcut_range), dtype=bool)
+    for seg, keep in zip(segments, cand):
+        if keep:
+            candidates[seg['start']:seg['end']] = True
+    candidates[fcut_range < c1 / n_used] = False
+    return candidates
+
+
 def select_fcut(fcut_range: np.ndarray, r2: np.ndarray,
                 penalty: float | None = None, min_size: int = 15,
                 rel_slope_max: float = 0.2, rel_noise_max: float = 0.006,

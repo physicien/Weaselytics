@@ -55,6 +55,16 @@ with backtracking to recover the breakpoints. All segment costs are evaluated in
 
 The loose tier exists for staircase-shaped curves (blank injections, multi-step programs such as Chlorobenzene 60-70): there the total drop of $r^2$ is split across several cliffs, so every intermediate shelf drifts at a substantial fraction of the global slope scale and a purely global criterion rejects it — even though the shelf is obviously flat *compared to the cliffs surrounding it*. On the 339-signal benchmark, the two-tier criterion places every accepted `fcut` of the reference implementation inside a flat segment (339/339, versus 336/339 for the tight tier alone) without increasing the total fraction of the curve classified as flat. All thresholds are dimensionless and independent of `num`, of the signal length and of the units of the statistic.
 
+## 4b. Trimming the flat set into candidate regions
+
+`trim_candidates` reduces the flat segments to the regions where the optimal `fcut` can actually lie, using only *a-priori* exclusions (deliberately less aggressive than the trimming stack of `find_plateaus` — no level rules, no end heuristics, no length filters):
+
+- **Sub-fundamental clip.** The slowest oscillation representable on a record of $N$ points has frequency $1/N$, so every cutoff below it requests the identical, maximally rigid baseline — which is why the initial plateau of the autocorrelation plot always ends at $\approx 1/N$. Grid points below $c_1/N$ (default $c_1 = 0.5$; the dataset contains accepted values down to $0.69/N$) are removed: they only duplicate the solution at the fundamental. This alone removes roughly 40% of the geometric grid.
+- **Frozen exclusion.** In the saturated far tail the baseline no longer responds to `fcut` and the residual noise of the segments collapses to $\mathrm{rel\_noise} \lesssim 2 \times 10^{-7}$, an order of magnitude below the quietest genuine plateau observed ($6.7 \times 10^{-7}$). Flat segments at or below `noise_floor` (default $4 \times 10^{-7}$) are removed.
+- **Bridging.** A non-flat segment lying between candidate regions is absorbed when it is not a cliff ($\mathrm{rel\_slope} < 1$), so short drifting connectors do not split one plateau into several displayed pieces, while genuine staircase steps still separate regions.
+
+On the 339-signal reference dataset (corrected parser), the trimmed mask retains the accepted `fcut` of **every** signal while halving the covered grid area (median 89% → ~50%) and collapsing the display to 2–3 contiguous regions per signal.
+
 ## 5. Selecting the plateau and the value of `fcut`
 
 `select_fcut` applies the following rule, in the spirit of steps 2–3 of [fcut.md](./fcut.md):
@@ -82,7 +92,7 @@ Note that the residual per-plateau ambiguity (several plausible plateaus, e.g. t
 
 ## 7. Practical usage
 
-- Every automatic run prints the prototype decision as `Proto fcut:` next to the production value, and the diagnostic figure of `r2_plots` overlays the flat segments (hatched purple), the chosen plateau (filled purple) and the prototype `fcut` (dash-dotted purple line) on top of the regions of the current method. The production `fcut` is **not** affected by the prototype at this stage.
+- Every automatic run overlays the trimmed candidate regions (§4b) on the diagnostic figure of `r2_plots` as a light solid purple fill, on top of the regions of the current method. The production `fcut` is **not** affected by the prototype at this stage. (The earlier `CP chosen` fill, dash-dotted line and `Proto fcut:` log line were removed: the selection rule of §5 proved unreliable on the reference dataset and is pending redesign; §5 is kept as documentation of the prototype in `select_fcut` and `tools/plateau_proto.py`.)
 - The autocorrelation curves can be cached with `auto_beads(..., cache_dir=...)` (CLI: `-cd`), and `tools/plateau_proto.py` re-runs the full segmentation + classification + selection chain on the cached curves in milliseconds per signal, which is the intended loop for tuning the parameters against a labeled benchmark.
 
 ## 8. Correspondence with the previous pipeline

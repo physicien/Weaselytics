@@ -374,7 +374,10 @@ def _r2_array_cached(
     instead of recomputing every BEADS sweep. The cache file name
     combines the stem of `path` with a hash of every input that
     determines the curve, so a stale cache can never be returned for
-    modified inputs.
+    modified inputs. At most one cached curve is kept per data file:
+    writing a new curve deletes the older entries of the same stem, so
+    the cache directory stays bounded to one ``.npz`` (roughly 16 kB)
+    per signal and cannot build up stale files.
 
     Parameters
     ----------
@@ -422,6 +425,13 @@ def _r2_array_cached(
     vr2 = _r2_array(algo, baseline_fitter, signal, param_range,
                     param=param, **kwargs)
     os.makedirs(cache_dir, exist_ok=True)
+    # Keep at most one cached curve per data file: a new write replaces
+    # any entry of the same stem computed from other inputs, so stale
+    # files cannot accumulate in the cache directory.
+    prefix = f"{stem}__r2__"
+    for name in os.listdir(cache_dir):
+        if name.startswith(prefix) and name.endswith(".npz"):
+            os.remove(os.path.join(cache_dir, name))
     np.savez(cache_file, fcut_range=param_range, r2_val=vr2)
     print(f"{'r2 cache:':<20}saved {cache_file}")
     return vr2
@@ -684,8 +694,10 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         of the data.
     cache_dir : str, optional
         Directory where the autocorrelation curves used to select
-        `freq_cutoff` are cached as ``.npz`` files. Default is None, which
-        disables caching. Only relevant when `freq_cutoff` is None.
+        `freq_cutoff` are cached as ``.npz`` files. At most one cached curve
+        is kept per data file (a new write replaces stale entries). Default
+        is None, which disables caching. Only relevant when `freq_cutoff` is
+        None.
 
     Returns
     -------

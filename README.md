@@ -37,7 +37,7 @@ weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb] [-sm]
 | `-x0` | Start fitting at `x0` min |
 | `-x1` | End fitting at `x1` min |
 | `-od` | Output directory for exported files (default: `results`) |
-| `-cd` | Cache directory for the autocorrelation curves used to select `freq_cutoff`; reruns on an unchanged signal skip the expensive BEADS sweep (default: no caching) |
+| `-cd` | Cache directory for the autocorrelation curves used to select `freq_cutoff`; reruns on an unchanged signal skip the expensive BEADS sweep. At most one cached curve is kept per data file (default: no caching) |
 
 ## Library usage
 

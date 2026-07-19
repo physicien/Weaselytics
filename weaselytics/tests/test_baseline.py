@@ -167,18 +167,28 @@ class TestR2ArrayCached:
             assert np.array_equal(data["fcut_range"], param_range)
             assert np.array_equal(data["r2_val"], r2_val)
 
-    def test_different_kwargs_use_different_cache_files(self, tmp_path):
+    def test_new_kwargs_evict_stale_entry(self, tmp_path):
         baseline_fitter, y, param_range = self._setup()
         cache_dir = str(tmp_path / "cache")
         _r2_array_cached(
             _beads, baseline_fitter, y, param_range,
             cache_dir=cache_dir, path="./sample.txt", asymmetry=1.0)
+        old_file = next((tmp_path / "cache").glob("*.npz"))
         _r2_array_cached(
             _beads, baseline_fitter, y, param_range,
             cache_dir=cache_dir, path="./sample.txt", asymmetry=6.0)
-        assert len(list((tmp_path / "cache").glob("*.npz"))) == 2
+        # The stale entry was replaced, not accumulated
+        cache_files = list((tmp_path / "cache").glob("*.npz"))
+        assert len(cache_files) == 1
+        assert cache_files[0] != old_file
+        # The new entry is a valid cache hit for the new kwargs
+        warm = _r2_array_cached(
+            _beads, baseline_fitter, y, param_range,
+            cache_dir=cache_dir, path="./sample.txt", asymmetry=6.0)
+        assert len(list((tmp_path / "cache").glob("*.npz"))) == 1
+        assert len(warm) == len(param_range)
 
-    def test_different_signal_uses_different_cache_file(self, tmp_path):
+    def test_new_signal_evicts_stale_entry(self, tmp_path):
         baseline_fitter, y, param_range = self._setup()
         cache_dir = str(tmp_path / "cache")
         _r2_array_cached(
@@ -187,4 +197,17 @@ class TestR2ArrayCached:
         _r2_array_cached(
             _beads, baseline_fitter, y + 0.1, param_range,
             cache_dir=cache_dir, path="./sample.txt")
-        assert len(list((tmp_path / "cache").glob("*.npz"))) == 2
+        assert len(list((tmp_path / "cache").glob("*.npz"))) == 1
+
+    def test_eviction_only_touches_same_stem(self, tmp_path):
+        baseline_fitter, y, param_range = self._setup()
+        cache_dir = str(tmp_path / "cache")
+        _r2_array_cached(
+            _beads, baseline_fitter, y, param_range,
+            cache_dir=cache_dir, path="./sample.txt")
+        _r2_array_cached(
+            _beads, baseline_fitter, y, param_range,
+            cache_dir=cache_dir, path="./other.txt")
+        # One entry per data file is kept
+        assert len(list((tmp_path / "cache").glob("sample__r2__*.npz"))) == 1
+        assert len(list((tmp_path / "cache").glob("other__r2__*.npz"))) == 1

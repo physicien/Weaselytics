@@ -18,7 +18,9 @@ The output mirrors the layout of the ``data`` directory::
                 00_r2.png       r2 curve, candidate regions, sampled fcut
                 k00_r0_fcut_1.023e-03.png
                 ...
-                index.csv       one row per image
+                index_signal_stem.csv   one row per image, with an
+                                        empty `label` column to fill in
+                                        by hand (start / end / best)
         gallery_index.csv       one row per signal
 
 Usage
@@ -52,6 +54,13 @@ from weaselytics.segmentation import (  # noqa: E402
     segment_features,
     trim_candidates,
 )
+
+#: Columns of the per-signal index. The last one is left empty on
+#: purpose: it is filled in by hand while browsing the gallery, with
+#: ``start`` / ``end`` on the images bounding the optimal region and
+#: ``best`` on the best sampled cutoff frequency.
+INDEX_FIELDS = ["k", "region", "fcut", "r2", "pos_in_region", "image",
+                "label"]
 
 
 def load_curve(path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -325,13 +334,11 @@ def process_signal(data_path: str, cache_path: str, out_root: str,
                    if span > 0 else 0.0)
             rows.append({"k": k, "region": reg_id, "fcut": f"{fcut:.6e}",
                          "r2": f"{r2[j]:.6f}", "pos_in_region": f"{pos:.3f}",
-                         "image": name})
+                         "image": name, "label": ""})
 
-        with open(os.path.join(out_dir, "index.csv"), "w",
+        with open(os.path.join(out_dir, f"index_{stem}.csv"), "w",
                   newline="") as fh:
-            writer = csv.DictWriter(
-                fh, fieldnames=["k", "region", "fcut", "r2",
-                                "pos_in_region", "image"])
+            writer = csv.DictWriter(fh, fieldnames=INDEX_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
 

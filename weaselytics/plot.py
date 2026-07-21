@@ -163,9 +163,9 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         which disables the overlay.
     cp_refined : array-like, shape (N,), dtype bool, optional
         Mask of the label-calibrated bracket returned by
-        ``segmentation.refine_candidates``, overlaid as a solid purple
-        fill on top of the candidate regions. Default is None, which
-        disables the overlay.
+        ``segmentation.refine_candidates``, overlaid as orange hatching
+        (opposite direction to the candidate hatching) on top of the
+        candidate regions. Default is None, which disables the overlay.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
     print_plot : bool, optional
@@ -207,7 +207,8 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
     if cp_refined is not None:
         axs[0].fill_between(x, 0, 1,
                             where=cp_refined,
-                            color="tab:purple", alpha=0.15, lw=0,
+                            color="none", ec="tab:orange", alpha=0.6,
+                            hatch="//", hatch_linewidth=2,
                             label='CP bracket',
                             transform=axs[0].get_xaxis_transform())
 

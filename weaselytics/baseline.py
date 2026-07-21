@@ -78,6 +78,12 @@ def _relevant_regions(
     # Signal splitting
     rel_peaks = peaks[((width_per_x < tol) | exception)]
     rel_widths = widths[((width_per_x < tol) | exception)]
+    # No relevant peak at all (featureless signal, or every detected
+    # peak rejected by the relevance filter): fall back to the
+    # documented degraded mode — no peak regions, uniform sampling and
+    # no truncation — instead of crashing on the empty array below.
+    if len(rel_peaks) == 0:
+        return None, np.array([1]), len(s)
     ratio_w = rel_widths/np.min(rel_widths)
 
     # Peak full width

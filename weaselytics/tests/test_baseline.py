@@ -8,8 +8,36 @@ from weaselytics.baseline import (
     _r2,
     _r2_array,
     _r2_array_cached,
+    _relevant_regions,
     auto_beads,
 )
+
+
+class TestRelevantRegions:
+    def test_no_relevant_peak_degrades_instead_of_crashing(self):
+        # A narrow spike on a broad baseline hump: the half-prominence
+        # width of the spike is measured through the hump, so the
+        # relevance filter rejects every detected peak and the
+        # relevant set comes out empty.
+        x = np.arange(1000) / 60.
+        rng = np.random.default_rng(7)
+        s = 5. * np.exp(-0.5 * ((x - 8.) / 4.) ** 2)
+        s += 3. * np.exp(-0.5 * ((x - 7.) / 0.05) ** 2)
+        s += 0.005 * rng.normal(size=len(x))
+        peak_regions, sampling, scut = _relevant_regions(s, x)
+        assert peak_regions is None
+        assert np.array_equal(sampling, np.array([1]))
+        assert scut == len(s)
+
+    def test_peaked_signal_still_returns_regions(self):
+        x = np.arange(1000) / 60.
+        rng = np.random.default_rng(8)
+        s = 10. * np.exp(-0.5 * ((x - 6.) / 0.15) ** 2)
+        s += 8. * np.exp(-0.5 * ((x - 10.) / 0.4) ** 2)
+        s += 0.01 * rng.normal(size=len(x))
+        peak_regions, sampling, scut = _relevant_regions(s, x)
+        assert peak_regions is not None
+        assert scut <= len(s)
 
 
 class TestBeads:

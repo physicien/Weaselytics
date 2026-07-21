@@ -17,6 +17,7 @@ from weaselytics.plot import r2_plots
 from weaselytics.segmentation import (
     classify_segments,
     pelt_linear,
+    refine_candidates,
     segment_features,
     trim_candidates,
 )
@@ -615,6 +616,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     cp_segments = classify_segments(
         segment_features(fcut_range, r2_val, pelt_linear(r2_val)))
     cp_candidates = trim_candidates(fcut_range, cp_segments, len(z))
+    cp_refined = refine_candidates(fcut_range, cp_candidates)
     #####
 
     ##########################################################################
@@ -707,6 +709,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "fi_r2_val": fi_r2_val,
         "case": case,
         "cp_candidates": cp_candidates,
+        "cp_refined": cp_refined,
     }
     return fcut, case, plot_data
 
@@ -865,6 +868,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             plot_data["fcut"], plot_data["fi_r2_val"],
             case=plot_data["case"],
             cp_candidates=plot_data["cp_candidates"],
+            cp_refined=plot_data["cp_refined"],
             show_plot=show_plot, print_plot=print_plot,
             path=path, output_dir=output_dir,
         )

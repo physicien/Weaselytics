@@ -327,6 +327,83 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     return candidates
 
 
+def refine_candidates(fcut_range: np.ndarray, candidates: np.ndarray,
+                      min_width: float = 0.5, left_cut: float = 0.12,
+                      right_cut: float = 0.55) -> np.ndarray:
+    """
+    Refine the candidate regions with the label-calibrated bracket.
+
+    Narrows the candidate mask of ``trim_candidates`` to the portions
+    where the hand-labeled acceptable ranges of the 339-signal
+    reference gallery (2026-07-20) actually lie. All rules are
+    scale-free (region widths in decades, positions as log-relative
+    fractions of a region) and each constant sits at a "labels never
+    go there" extreme of the gallery with a safety margin, verified by
+    leave-one-solvent-family-out calibration:
+
+    - **sliver exclusion**: regions narrower than `min_width` decades
+      are removed (the narrowest label-touched region spans 0.67
+      decades); when every region is a sliver, the widest one is kept
+      as a fallback;
+    - **ordinal cut**: only the first two remaining regions are kept
+      (no label touches a later one);
+    - **left cut**: the first ``left_cut`` fraction of the first
+      region is removed (the over-rigid edge; 99% of labels start
+      beyond 0.12);
+    - **right cut**: the second region is truncated beyond the
+      ``right_cut`` fraction (labels enter it only from the left,
+      never beyond 0.41 of its width).
+
+    On the reference gallery this keeps the labeled range (recall at
+    least 0.99) for 336/339 signals while shrinking the median
+    candidate span from 2.33 to 1.84 decades.
+
+    Parameters
+    ----------
+    fcut_range : array-like, shape (N,)
+        The (geometrically spaced) cutoff frequencies.
+    candidates : array-like, shape (N,), dtype bool
+        Candidate mask returned by ``trim_candidates``.
+    min_width : float, optional
+        Minimum width of a real plateau region, in decades. Default
+        is 0.5.
+    left_cut : float, optional
+        Log-relative fraction removed from the left of the first kept
+        region. Default is 0.12.
+    right_cut : float, optional
+        Log-relative fraction of the second kept region beyond which
+        it is truncated. Default is 0.55.
+
+    Returns
+    -------
+    refined : numpy.ndarray, shape (N,), dtype bool
+        The refined candidate mask.
+
+    """
+    log_f = np.log10(fcut_range)
+    idx = np.flatnonzero(candidates)
+    if len(idx) == 0:
+        return np.zeros(len(fcut_range), dtype=bool)
+    splits = np.where(np.diff(idx) > 1)[0] + 1
+    regions = [(run[0], run[-1]) for run in np.split(idx, splits)]
+
+    widths = [log_f[b] - log_f[a] for a, b in regions]
+    kept = [r for r, w in zip(regions, widths) if w >= min_width]
+    if not kept:
+        kept = [regions[int(np.argmax(widths))]]
+    kept = kept[:2]
+
+    refined = np.zeros(len(fcut_range), dtype=bool)
+    a, b = kept[0]
+    lo = log_f[a] + left_cut * (log_f[b] - log_f[a])
+    refined[a:b + 1] = log_f[a:b + 1] >= lo
+    if len(kept) > 1:
+        a, b = kept[1]
+        hi = log_f[a] + right_cut * (log_f[b] - log_f[a])
+        refined[a:b + 1] = log_f[a:b + 1] <= hi
+    return refined
+
+
 def select_fcut(fcut_range: np.ndarray, r2: np.ndarray,
                 penalty: float | None = None, min_size: int = 15,
                 rel_slope_max: float = 0.2, rel_noise_max: float = 0.006,

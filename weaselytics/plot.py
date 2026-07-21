@@ -113,6 +113,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
              tol1_0: np.ndarray, tol1_1: float, tol2: float,
              freq_cutoff: float, fcut_r2: float, case: int = 0,
              cp_candidates: np.ndarray | None = None,
+             cp_refined: np.ndarray | None = None,
              show_plot: bool = False, print_plot: bool = False,
              path: str = "./file.txt",
              output_dir: str = "results") -> None:
@@ -160,6 +161,11 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         ``segmentation.trim_candidates``, overlaid on the
         autocorrelation panel as hatched purple regions. Default is None,
         which disables the overlay.
+    cp_refined : array-like, shape (N,), dtype bool, optional
+        Mask of the label-calibrated bracket returned by
+        ``segmentation.refine_candidates``, overlaid as a solid purple
+        fill on top of the candidate regions. Default is None, which
+        disables the overlay.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
     print_plot : bool, optional
@@ -197,6 +203,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                             color="none", ec="tab:purple", alpha=0.3,
                             hatch="\\\\", hatch_linewidth=2,
                             label='CP candidates',
+                            transform=axs[0].get_xaxis_transform())
+    if cp_refined is not None:
+        axs[0].fill_between(x, 0, 1,
+                            where=cp_refined,
+                            color="tab:purple", alpha=0.15, lw=0,
+                            label='CP bracket',
                             transform=axs[0].get_xaxis_transform())
 
     axs[1].fill_between(x, 0, 1,

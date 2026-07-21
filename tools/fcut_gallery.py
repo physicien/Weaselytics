@@ -62,6 +62,10 @@ from weaselytics.segmentation import (  # noqa: E402
 INDEX_FIELDS = ["k", "region", "fcut", "r2", "pos_in_region", "image",
                 "label"]
 
+#: Columns of the gallery-wide index, one row per signal.
+GALLERY_FIELDS = ["molecule", "stem", "n_points", "n_used", "n_regions",
+                  "regions", "n_images", "error"]
+
 
 def load_curve(path: str) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -83,6 +87,35 @@ def load_curve(path: str) -> tuple[np.ndarray, np.ndarray]:
     data = np.load(path)
     key = "r2_val" if "r2_val" in data else "r2"
     return data["fcut_range"], data[key]
+
+
+def existing_labels(path: str) -> dict[str, str]:
+    """
+    Read back the hand-filled labels of a previous run.
+
+    Re-rendering a signal rewrites its index file, which would discard
+    the manual annotations; they are carried over instead. The key is
+    the cutoff frequency and not `k`, so the labels survive a re-run at
+    a different sampling ratio (where `k` is renumbered but the grid
+    points keep their value).
+
+    Parameters
+    ----------
+    path : str
+        Path of the index file of a previous run. A missing file is not
+        an error and yields an empty mapping.
+
+    Returns
+    -------
+    labels : dict
+        Mapping of the ``fcut`` column to the non-empty labels.
+
+    """
+    if not os.path.isfile(path):
+        return {}
+    with open(path, newline="") as fh:
+        return {row["fcut"]: row["label"] for row in csv.DictReader(fh)
+                if row.get("label", "").strip()}
 
 
 def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
@@ -179,9 +212,9 @@ def plot_baseline(x: np.ndarray, y: np.ndarray, bl: np.ndarray,
     out_path : str
         Path of the image file to write.
     ylim : (float, float), optional
-        Limits of the y-axis. Shared by every image of a signal so that
-        only the baseline moves when the images are browsed in order.
-        Default is None, which autoscales.
+        Limits of the y-axis. Set from the raw data and shared by every
+        image of a signal, so that only the baseline moves when the
+        images are browsed in order. Default is None, which autoscales.
     dpi : int, optional
         Resolution of the exported image. Default is 100.
 
@@ -295,33 +328,34 @@ def process_signal(data_path: str, cache_path: str, out_root: str,
 
         out_dir = os.path.join(out_root, molecule, stem)
         os.makedirs(out_dir, exist_ok=True)
+        index_path = os.path.join(out_dir, f"index_{stem}.csv")
+        labels = existing_labels(index_path)
 
         plot_r2(fcut_range, r2, regions, samples,
                 f"{stem} — {len(samples)} sampled fcut "
                 f"(ratio {ratio:g})", os.path.join(out_dir, "00_r2.png"),
                 dpi=dpi)
 
-        # First pass: every baseline correction, so that all the images of
-        # the signal can share the same y-limits.
-        baseline_fitter = Baseline(x_data=x)
-        corrections = []
-        for _, j in samples:
-            bl, params = _custom_beads(
-                baseline_fitter, y, regions=peak_regions, sampling=sampling,
-                freq_cutoff=float(fcut_range[j]), asymmetry=1.0,
-                fit_parabola=True, alpha=1.0, parabola_len=3)
-            corrections.append((bl, params["signal"]))
-
-        lo = min([y.min()] + [min(b.min(), s.min()) for b, s in corrections])
-        hi = max([y.max()] + [max(b.max(), s.max()) for b, s in corrections])
+        # Y-limits shared by every image of the signal, so that only the
+        # baseline moves when they are browsed in order. They are set by
+        # the RAW data alone: a diverging baseline at an unsuitable cutoff
+        # frequency would otherwise inflate the scale of the whole series
+        # and squash the chromatogram into an unreadable band. Such a
+        # baseline now simply runs out of the frame, which is the
+        # information wanted anyway.
+        lo, hi = float(y.min()), float(y.max())
         margin = 0.05 * (hi - lo) if hi > lo else 1.0
         ylim = (lo - margin, hi + margin)
 
-        # Second pass: the figures.
+        baseline_fitter = Baseline(x_data=x)
         rows = []
         for k, (reg_id, j) in enumerate(samples):
             fcut = float(fcut_range[j])
-            bl, signal = corrections[k]
+            bl, params = _custom_beads(
+                baseline_fitter, y, regions=peak_regions, sampling=sampling,
+                freq_cutoff=fcut, asymmetry=1.0, fit_parabola=True,
+                alpha=1.0, parabola_len=3)
+            signal = params["signal"]
             name = f"k{k:02d}_r{reg_id:d}_fcut_{fcut:.3e}.png"
             plot_baseline(
                 x, y, bl, signal,
@@ -334,10 +368,10 @@ def process_signal(data_path: str, cache_path: str, out_root: str,
                    if span > 0 else 0.0)
             rows.append({"k": k, "region": reg_id, "fcut": f"{fcut:.6e}",
                          "r2": f"{r2[j]:.6f}", "pos_in_region": f"{pos:.3f}",
-                         "image": name, "label": ""})
+                         "image": name,
+                         "label": labels.get(f"{fcut:.6e}", "")})
 
-        with open(os.path.join(out_dir, f"index_{stem}.csv"), "w",
-                  newline="") as fh:
+        with open(index_path, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=INDEX_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
@@ -414,14 +448,20 @@ def main() -> None:
             print(f"[{done:3d}/{len(jobs)}] {summary['stem']} "
                   f"{summary['n_images']} images {summary['error']}")
 
-    summaries.sort(key=lambda s: (s["molecule"], s["stem"]))
-    with open(os.path.join(args.output_dir, "gallery_index.csv"), "w",
-              newline="") as fh:
-        writer = csv.DictWriter(
-            fh, fieldnames=["molecule", "stem", "n_points", "n_used",
-                            "n_regions", "regions", "n_images", "error"])
+    # Merge into the index of a previous run: a --pattern run must
+    # update the rows of the signals it rendered, not truncate the file
+    # to them.
+    gallery_path = os.path.join(args.output_dir, "gallery_index.csv")
+    merged = {}
+    if os.path.isfile(gallery_path):
+        with open(gallery_path, newline="") as fh:
+            merged = {(r["molecule"], r["stem"]): r
+                      for r in csv.DictReader(fh)}
+    merged.update({(s["molecule"], s["stem"]): s for s in summaries})
+    with open(gallery_path, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=GALLERY_FIELDS)
         writer.writeheader()
-        writer.writerows(summaries)
+        writer.writerows(v for _, v in sorted(merged.items()))
 
     toc = time.perf_counter()
     failed = [s for s in summaries if s["error"]]

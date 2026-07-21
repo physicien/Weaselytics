@@ -32,12 +32,15 @@ import numpy as np
 from scipy.stats import exponnorm
 
 PEAK_CASES = {
-    # (number of peaks, FWHM range in points at the run start)
+    # (number of peaks, FWHM range in points at the run start);
+    # 'isocratic' ignores the range and derives widths from a constant
+    # plate number instead (width proportional to retention time)
     'blank': (0, None),
     'single_narrow': (1, (8, 14)),
     'multi_narrow': (6, (8, 14)),
     'multi_mixed': (6, (10, 45)),
     'multi_wide': (4, (40, 90)),
+    'isocratic': (7, None),
 }
 BASELINE_CASES = ['exp', 'hump', 'exp_hump_drift']
 NOISE_CASES = {'low': 0.01, 'high': 0.06}
@@ -141,11 +144,13 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
     """
     dt = 1. / 60.                       # one point per second, in minutes
     t = np.arange(n) * dt
-    # Dead time around a third of the run, as in the real dataset
-    # (t0 ~ 4.5 min for ~14 min runs). An earlier dead time makes the
-    # injection artifact fail the width/x relevance filter of
-    # _relevant_regions, which no real signal does.
-    t0 = rng.uniform(0.25, 0.35) * t[-1]
+    # Dead time in ABSOLUTE minutes as in the real dataset (t0 ~ 4.5
+    # min regardless of run length), clamped for very short records.
+    # A much earlier dead time would make the injection artifact fail
+    # the width/x relevance filter of _relevant_regions, which no real
+    # signal does; and an absolute t0 lets long runs reach large
+    # retention (hence width) ratios, as real experiments do.
+    t0 = min(rng.uniform(4.0, 5.0), 0.35 * t[-1])
 
     n_peaks, fwhm_pts = PEAK_CASES[peak_case]
     signal = np.zeros(n)
@@ -171,11 +176,26 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
 
     centers = np.sort(rng.uniform(t0 + 0.02 * t[-1], 0.9 * t[-1],
                                   n_peaks))
+    if fwhm_pts is None and n_peaks >= 2:
+        # isocratic case: guarantee the hard sharp-first/broad-last
+        # contrast by pinning an early and a late eluter
+        centers[0] = t0 * rng.uniform(1.05, 1.20)
+        centers[-1] = rng.uniform(0.85, 0.92) * t[-1]
+        centers = np.sort(centers)
+    # Constant plate number of the isocratic case: sigma = tc/sqrt(Np),
+    # so the first peaks are sharp and the late ones broad, with a
+    # width ratio set by the retention ratio (the hard regime the real
+    # dataset shows).
+    n_plates = rng.uniform(3000., 12000.)
     for tc in centers:
-        fwhm = rng.uniform(*fwhm_pts) * dt
-        # widths grow along the run, as in isocratic elution
-        fwhm *= 1. + 1.5 * (tc / t[-1])
-        sigma = fwhm / _FWHM_PER_SIGMA
+        if fwhm_pts is None:
+            sigma = tc / np.sqrt(n_plates)
+        else:
+            fwhm = rng.uniform(*fwhm_pts) * dt
+            # widths grow mildly along the run
+            fwhm *= 1. + 1.5 * (tc / t[-1])
+            sigma = fwhm / _FWHM_PER_SIGMA
+        fwhm = sigma * _FWHM_PER_SIGMA
         tau = rng.uniform(0.3, 1.2) * sigma
         height = np.exp(rng.uniform(np.log(1.), np.log(30.)))
         signal += emg_peak(t, tc, sigma, tau, height)

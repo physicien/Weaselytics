@@ -234,6 +234,49 @@ def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
         The calculated baseline.
     params : dict
         See `auto_beads` for details.
+
+    Notes
+    -----
+    ``custom_bc`` returns only a baseline, so ``params["signal"]`` is
+    rebuilt here as ``s - bl - noise``, with the noise interpolated from
+    the reduced grid. ``custom_bc`` reduces points **only inside**
+    ``regions`` and keeps everything else at full resolution, so that
+    noise estimate is exact outside the regions and a straight line
+    through bin averages inside them. ``params["signal"]`` is therefore
+    the sparse component everywhere *plus* whatever point-to-point noise
+    was never estimated on the region interiors -- it is not a uniformly
+    denoised residual, and it is not ``s - bl``.
+
+    How far it departs from ``s - bl`` is **not** governed by the
+    binning, because the two conditions that would make binning matter
+    are anti-correlated. Where binning is heaviest the analyte is large,
+    so the residual noise is a negligible fraction of it; and where the
+    departure is large -- a weak analyte -- ``_relevant_regions``
+    returns few or no regions, so ``sampling`` is 1 and no binning
+    happens at all. Measured on the raw signals at
+    ``freq_cutoff=1.13e-2``, ``max|params["signal"] - (s - bl)|`` as a
+    fraction of the signal range:
+
+    ==================================  ==========  ========
+    signal                              sampling    departure
+    ==================================  ==========  ========
+    2-Dichlorobenzene BLANK 1           [1]         15.0%
+    2-Chlorotoluene BLANK 1             [2]          6.3%
+    Toluene 60-100 #3                   [2,2,5,6,10] 0.79%
+    2-Xylene 60-100 #1                  [2,2,...]    0.87%
+    ==================================  ==========  ========
+
+    On the two blanks the difference is simply the noise: the first has
+    no regions at all, and ``params["signal"] - (s - bl)`` equals the
+    BEADS noise exactly. So on raw signals this key is a *denoised*
+    trace, and the choice between it and ``s - bl`` is a choice about
+    showing the noise floor, not about contamination.
+
+    This is separate from the reason `_r2` correlates ``y - baseline``:
+    there the statistic is a sum of squared point-to-point differences
+    on the log-transformed, truncated signal, where a small contaminated
+    patch does dominate whenever the sparse component is small.
+
     """
     if regions is None:
         regions = ((None, None),)

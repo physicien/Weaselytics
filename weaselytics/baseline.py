@@ -500,22 +500,34 @@ def _r2_cache_key(algo: Callable[..., tuple[np.ndarray, dict]],
     # curves computed on the previous definition. Bump it whenever the
     # definition of `y_corr` in `_r2` changes.
     sha.update(_R2_CHANNEL.encode())
-    sha.update(np.ascontiguousarray(signal).tobytes())
-    # The parameter grid is hashed at reduced precision, NOT from its
-    # float64 bytes. `np.geomspace` is not bit-reproducible across numpy
-    # versions and platforms: between this machine and the cluster, 48
-    # of the 1000 grid values differed in their last bit (max relative
-    # difference 2.2e-16, i.e. 1 ulp). Hashing the raw bytes turned that
-    # into a completely different digest, so a cache filled on one
-    # machine was never reused on the other and the sweep -- 99.9% of
-    # the cost of the selection -- was silently paid twice.
+    # Both float arrays are hashed at reduced precision, NOT from their
+    # float64 bytes, because neither is bit-reproducible across numpy
+    # versions and platforms:
+    #
+    # - `np.geomspace`: between this machine and the cluster, 48 of the
+    #   1000 grid values differed in their last bit (max relative
+    #   difference 2.2e-16, one ulp);
+    # - the signal, which reaches this function as
+    #   `log10(s - min(s) + eps)`. The subtraction is exact, but
+    #   `np.log10` is not identical across libm implementations.
+    #
+    # Either was enough to change the digest completely, so a cache
+    # filled on one machine was never reused on the other and the
+    # sweep -- 99.9% of the cost of the selection -- was silently paid
+    # twice. Quantising only the grid (the first attempt) left the
+    # signal free to break the key on its own.
     #
     # float32 has ~7 significant digits, far coarser than the ulp noise
-    # and far finer than any grid distinction that matters here:
-    # adjacent points of the production grid differ by ~1.1%. The
-    # residual risk is a value sitting within 1 ulp of a float32
-    # rounding boundary (~4e-9 per value), and its consequence is a
-    # cache miss and a recomputation, never a wrong curve.
+    # and far finer than any distinction that matters here: adjacent
+    # points of the production grid differ by ~1.1%, and two
+    # chromatograms identical to 7 significant digits at every point
+    # are the same measurement. The lengths are hashed explicitly so a
+    # different `scut` can never collide. The residual risk is a value
+    # sitting within 1 ulp of a float32 rounding boundary (~4e-9 per
+    # value), and its consequence is a cache miss and a recomputation,
+    # never a wrong curve.
+    sha.update(str(len(signal)).encode())
+    sha.update(np.ascontiguousarray(signal, dtype=np.float32).tobytes())
     sha.update(str(len(param_range)).encode())
     sha.update(np.ascontiguousarray(param_range, dtype=np.float32).tobytes())
     sha.update(algo.__name__.encode())

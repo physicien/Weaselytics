@@ -185,6 +185,38 @@ class TestBeads:
         assert _r2_cache_key(_beads, signal, grid, "freq_cutoff", {}) == \
             _r2_cache_key(_beads, signal, nudged, "freq_cutoff", {})
 
+    def test_r2_cache_key_survives_a_one_ulp_signal_difference(self):
+        # Same hazard on the other array, and the one the first attempt
+        # missed: the signal arrives as `log10(s - min(s) + eps)`, and
+        # `np.log10` is not identical across libm implementations. With
+        # the grid quantised but the signal still hashed as float64,
+        # the cluster's cache still missed locally on all four signals
+        # checked.
+        grid = np.geomspace(1e-5, 0.5, 1000, endpoint=False)
+        signal = np.log10(np.linspace(0.0, 4.5, 3000) + 1.0)
+        nudged = signal.copy()
+        nudged[::7] = np.nextafter(nudged[::7], np.inf)
+        assert not np.array_equal(signal, nudged)
+        assert _r2_cache_key(_beads, signal, grid, "freq_cutoff", {}) == \
+            _r2_cache_key(_beads, nudged, grid, "freq_cutoff", {})
+
+    def test_r2_cache_key_separates_a_different_truncation(self):
+        # A different `scut` must never collide, however close the
+        # retained values are: the lengths are hashed explicitly.
+        grid = np.geomspace(1e-5, 0.5, 1000, endpoint=False)
+        signal = np.log10(np.linspace(0.0, 4.5, 3000) + 1.0)
+        assert _r2_cache_key(_beads, signal, grid, "freq_cutoff", {}) != \
+            _r2_cache_key(_beads, signal[:-1], grid, "freq_cutoff", {})
+
+    def test_r2_cache_key_still_separates_real_signals(self):
+        grid = np.geomspace(1e-5, 0.5, 1000, endpoint=False)
+        rng = np.random.default_rng(11)
+        base_signal = np.log10(np.linspace(0.0, 4.5, 3000) + 1.0)
+        base = _r2_cache_key(_beads, base_signal, grid, "freq_cutoff", {})
+        # a perturbation far below detector noise but far above float32
+        other = base_signal + 1e-5 * rng.normal(size=len(base_signal))
+        assert _r2_cache_key(_beads, other, grid, "freq_cutoff", {}) != base
+
     def test_r2_cache_key_still_separates_real_grid_changes(self):
         signal = np.linspace(0.0, 1.0, 200)
         base = _r2_cache_key(

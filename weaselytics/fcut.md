@@ -12,6 +12,23 @@ The quantity plotted is $`r^2 = \big((2 - DW)/2\big)^2`$, where $`DW`$ is the Du
 
 This has a consequence worth stating plainly, because it bounds what any plateau-based method can achieve. The drop in $`r^2`$ marks the cutoff at which the baseline starts absorbing the autocorrelated content of the measurement — but the statistic **cannot tell whether that content is analyte peaks or baseline structure**. For a strong analyte, crossing the drop destroys peak area and must be avoided; for a weak analyte on a large baseline (a blank), the structured content *is* the baseline, absorbing it is precisely the job, and a lower shelf beyond the drop can be the right answer. The information needed to choose is the ratio of analyte structure to baseline structure, which is *orthogonal to the curve*. Empirically this is exactly what is observed: on the labeled dataset, rules based on the shape of the $`r^2`$ curve select the correct `fcut` at 23–25%, against 25.9% for a random pick inside the candidate regions. **The curve brackets the answer; it does not select it.**
 
+### 0a. The low-frequency end of the curve is not reproducible
+
+A second, independent bound. The same signal swept on two machines — identical code, identical pinned pybaselines, identical `scut` and regions, and the same selected `fcut` to five digits — gives $`r^2`$ curves that agree at high cutoff and diverge at low cutoff:
+
+| $`f_{cut}`$ | \|local − cluster\| |
+|---|---|
+| $`5.1\times10^{-5}`$ | $`3.4\times10^{-3}`$ |
+| $`1.5\times10^{-4}`$ | $`9.3\times10^{-5}`$ |
+| $`4.4\times10^{-4}`$ | $`5.6\times10^{-6}`$ |
+| $`1.3\times10^{-3}`$ | $`4.5\times10^{-7}`$ |
+| $`\ge 3.8\times10^{-3}`$ | $`< 2.5\times10^{-8}`$ |
+| $`\ge 9.9\times10^{-2}`$ | $`\sim 10^{-16}`$ |
+
+The only inputs that differ are last-bit: `np.geomspace` and `np.log10` are not identical across numpy and libm versions. What turns one ulp into $`3.4\times10^{-3}`$ is the method itself — Navarro-Huerta et al. \[[1](#navarro-huerta_assisted_2017)\] §3.1(iv) state that the baseline is *"particularly susceptible to the selected cutoff frequency at low frequencies, which results in an unstable adjustment process"*.
+
+So **below $`f_{cut} \approx 10^{-3}`$ the curve is only reproducible to about $`10^{-3}`$**, and above it to $`10^{-8}`$ or better. Any feature detected in that range — a plateau, a step, an inflection — must be larger than that floor to be a property of the data rather than of the machine. It is also an independent argument for the sub-fundamental clip of `trim_candidates`: on a 5000-point record that clip sits at $`10^{-4}`$, squarely inside the unreliable zone.
+
 Two departures from Navarro-Huerta et al. \[[1](#navarro-huerta_assisted_2017)\] are worth recording. The paper defines two different plots: one on the BEADS **noise** $`e`$, whose *minimum* marks the optimum, and one on the **baseline-corrected signal**, which gives a stepped plot. Only the second applies here, since the paper notes that the log transformation makes the returned noise unusable for the autocorrelation.
 
 A point of vocabulary first, because it is easy to get backwards. The paper's log transform is **base 10** — Eq. (8) is $`z = \log(y - \min(y) + \varepsilon)`$ and its inverse Eq. (11) is $`b_{corr,y} = 10^{b_z} + \min(y) - \varepsilon`$, and a $`10^{\,\cdot}`$ inverse fixes the base. `_log_transform` uses `np.log10` and so **matches the paper**. The upstream pybaselines example `plot_beads_param_selection.py` uses the *natural* log (`np.log` / `np.exp`, internally consistent but a different base); do not "align" with it. The base is load-bearing rather than cosmetic: under the pinned auto-scaled `lam_d` the penalty terms are scale-invariant but the data-fidelity term is not, so switching base rescales the fidelity/penalty balance by $`\ln(10)^2 \approx 5.3`$. Measured at a fixed cutoff on two reference signals, the resulting baselines differ by 7–9% of the signal range, and on a blank $`r^2`$ moves from 0.026 to 0.929.

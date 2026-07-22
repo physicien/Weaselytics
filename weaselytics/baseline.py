@@ -779,6 +779,13 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         cost function that positive values. If set to 1 (default), the cost
         function is symmetric, and a value less than 1 will weigh positive
         values more.
+
+        The default of 1 departs from BEADS and from pybaselines, which use
+        6.0 on the grounds that chromatographic peaks are positive, so that
+        weighting negative values more pushes the baseline underneath them.
+        Here the signals carry a genuine *negative* peak around the dead
+        time; an asymmetric cost would absorb it into the baseline instead
+        of returning it as signal, so the cost is kept symmetric.
     fit_parabola : bool, optional
         If True (default), will fit a parabola to the data and subtract it
         before performing the BEADS fit as suggested in [2]. This ensures the

@@ -3,6 +3,15 @@ scipy>=1.8
 matplotlib>=3.5
 seaborn>=0.13.0
 pandas>=2.0
+# NOTE: `@development` is a MOVING branch, so two installs of identical
+# Weaselytics code can produce different baselines. The `lam_0/1/2`
+# defaults of `beads` changed from 1.0 to None (auto-scaled from the
+# inverse L1 norms of the data times `alpha`) on that branch, with no
+# changelog entry; since `_custom_beads` never passes them, the effective
+# regularization depends on the install date. Measured on a reference
+# blank: baselines differ by up to 0.7% of the signal range and r2 by
+# 0.885 vs 0.950 at the same cutoff. Pin a commit hash (or pass `lam`
+# explicitly) before quoting numbers across machines.
 pybaselines @ git+https://github.com/derb12/pybaselines@development
 scikit-image>=0.19.0
 diptest>=0.11.0

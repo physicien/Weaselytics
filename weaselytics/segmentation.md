@@ -91,6 +91,8 @@ This "last plateau before the drop" is the discrete analogue of locating the **c
 
 Note that the residual per-plateau ambiguity (several plausible plateaus, e.g. the staircase-shaped curves of blank injections) is *not* resolved by this rule; it is a modeling decision that requires information beyond the geometry of the curve. The segmentation reduces the problem to a handful of quantified candidates on which such a decision can be made explicitly.
 
+> **`select_fcut` is superseded and kept only for `tools/plateau_proto.py`.** Its step 3 returns the *right edge* of the chosen plateau, and that convention has since been measured against synthetic ground truth: it costs a median of **3.5× the optimal baseline error**, about 19× the noise level, and lands within 1.25× of the optimum for only 8 of 71 signals. The true optimum sits in the **interior**, at a log-relative position of roughly 0.65–0.75, because the error valley is steep on the flexible side and the right edge sits on the shoulder of the collapse. Nothing in production calls this function — `_fcutoff` still selects `fcut` by the legacy derivative route — but the rule should not be read as a recommendation.
+
 ## 6. Parameters
 
 | Parameter | Default | Meaning |

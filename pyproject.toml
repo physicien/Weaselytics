@@ -17,7 +17,10 @@ dependencies = [
     "matplotlib>=3.5",
     "seaborn>=0.13.0",
     "pandas>=2.0",
-    "pybaselines @ git+https://github.com/derb12/pybaselines@development",
+    # Pinned to a commit rather than @development: that branch moves, and
+    # the beads lam_0/1/2 defaults changed on it with no changelog entry.
+    # See requirements/requirements.txt for the measured impact.
+    "pybaselines @ git+https://github.com/derb12/pybaselines@c36ce6128a8acae93503d0167207a99a035e9095",
     "scikit-image>=0.19.0",
     "diptest>=0.11.0",
 ]

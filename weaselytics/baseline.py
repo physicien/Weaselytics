@@ -645,7 +645,13 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     max_d1 = argrelmax(smooth_d1)[0]
     d1_min = np.argmin(smooth_d1)
     #EB not general at all...
-    lim_d1_drop = np.where(smooth_d1 < -1E-03)[0][0]
+    # The threshold is absolute while the scale of the r2 curve is not:
+    # on a signal whose baseline stays recoverable over the whole grid,
+    # r2 never collapses (total drop of a few percent, steepest slope
+    # below the threshold) and no point qualifies. Fall back on the
+    # steepest descent, which is what the limit stands for.
+    d1_drops = np.where(smooth_d1 < -1E-03)[0]
+    lim_d1_drop = d1_drops[0] if len(d1_drops) > 0 else d1_min
 
     # Proto-plateaus from d1 and d2
     tight_d1_flats = find_flat(smooth_d1, tol1_0)

@@ -31,6 +31,11 @@ from weaselytics.utils import (
     r2_dw,
 )
 
+# Quantity the autocorrelation of `_r2` is computed on. Part of the
+# cache key: bump it whenever the definition changes, so that curves
+# cached under the previous one are recomputed rather than reused.
+_R2_CHANNEL = "y-baseline"
+
 
 def _relevant_regions(
     s: np.ndarray, x: np.ndarray, tol: float = 6.
@@ -289,10 +294,35 @@ def _r2(
     r2 : float
         The autocorrelation of the baseline corrected signal for `param`=`p`.
 
+    Notes
+    -----
+    The statistic is computed on the **baseline-corrected signal**
+    ``y - b``, i.e. the sparse chromatogram *plus* the noise, and not on
+    the denoised ``params["signal"]``. This is the quantity monitored by
+    Navarro-Huerta et al. [1] (Eq. 12), and the noise has to stay in:
+    ``r2`` is a whiteness test, so the plateau structure exists only
+    because a good cutoff leaves the correlated peaks in the corrected
+    signal while an excessive one leaves white noise behind. Removing
+    the noise removes the floor the drop is measured against.
+
+    Keeping the baseline as the only algorithm output used here also
+    makes the quantity identical on the ``beads`` and ``custom_beads``
+    paths, so their curves are comparable. They were not before:
+    ``_custom_beads`` rebuilds ``params["signal"]`` as
+    ``y - b - noise`` with a noise term interpolated from the reduced
+    grid, which is exact outside the peak regions but absent inside
+    them, leaving raw point-to-point noise on the region interiors.
+
+    References
+    ----------
+    [1] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in
+        complex chromatograms using the BEADS algorithm. Journal of
+        Chromatography A, 2017, 1507, 1-10, §3.3.2 and §3.4.
+
     """
     kwargs[param] = p
-    _, params = algo(baseline_fitter, y, **kwargs)
-    y_corr = params["signal"]
+    baseline, _ = algo(baseline_fitter, y, **kwargs)
+    y_corr = y - baseline
     r2 = r2_dw(y_corr)
     return r2
 
@@ -421,6 +451,12 @@ def _r2_cache_key(algo: Callable[..., tuple[np.ndarray, dict]],
 
     """
     sha = hashlib.sha1()
+    # Identifies the quantity `_r2` correlates, not just its inputs.
+    # Changing the channel changes every curve while leaving the inputs
+    # untouched, so without this token the cache would keep serving
+    # curves computed on the previous definition. Bump it whenever the
+    # definition of `y_corr` in `_r2` changes.
+    sha.update(_R2_CHANNEL.encode())
     sha.update(np.ascontiguousarray(signal).tobytes())
     sha.update(np.ascontiguousarray(param_range).tobytes())
     sha.update(algo.__name__.encode())

@@ -2,15 +2,19 @@ import numpy as np
 import pytest
 from pybaselines import Baseline
 
+from weaselytics import baseline as baseline_module
 from weaselytics.baseline import (
+    _R2_CHANNEL,
     _beads,
     _custom_beads,
     _r2,
     _r2_array,
     _r2_array_cached,
+    _r2_cache_key,
     _relevant_regions,
     auto_beads,
 )
+from weaselytics.utils import r2_dw
 
 
 class TestRelevantRegions:
@@ -75,6 +79,63 @@ class TestBeads:
         result = _r2(_beads, baseline_fitter, y, 0.01)
         assert isinstance(result, float)
         assert 0.0 <= result <= 1.0
+
+    def test_r2_is_computed_on_the_baseline_corrected_signal(self):
+        # `r2` must be the Durbin-Watson statistic of `y - baseline`
+        # (the corrected signal `c + e` of Navarro-Huerta Eq. 12), not
+        # of the denoised `params["signal"]`. The noise is the white
+        # floor the drop is measured against; removing it removes what
+        # makes the statistic diagnostic.
+        x = np.linspace(0, 10, 101)
+        rng = np.random.default_rng(104)
+        y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
+        y += 0.1 * (x - 5.0)
+        y += 0.01 * rng.normal(size=len(x))
+        baseline_fitter = Baseline(x_data=x)
+        bl, params = _beads(baseline_fitter, y, freq_cutoff=0.01)
+        assert _r2(_beads, baseline_fitter, y, 0.01) == pytest.approx(
+            r2_dw(y - bl))
+        # and specifically not the denoised component
+        assert _r2(_beads, baseline_fitter, y, 0.01) != pytest.approx(
+            r2_dw(params["signal"]))
+
+    def test_r2_agrees_between_beads_and_custom_beads(self):
+        # Both paths must correlate the same quantity, so that plateau
+        # logic tuned on one transfers to the other. This failed before
+        # the channel was changed: `_custom_beads` rebuilt
+        # `params["signal"]` with a noise term interpolated from the
+        # reduced grid, exact outside the regions and absent inside
+        # them, leaving raw point-to-point noise on the interiors.
+        #
+        # The fixture is blank-like on purpose. The failure scaled as
+        # (region coverage x noise) / analyte amplitude, so a strong
+        # peak hides it entirely; with a negligible analyte the old
+        # channel gave 0.020 against 0.924 for `beads`.
+        x = np.linspace(0, 40, 1200)
+        rng = np.random.default_rng(105)
+        y = 0.03 * np.exp(-0.5 * ((x - 30.0) / 2.5) ** 2)
+        y += 0.5 * np.exp(-x / 12.0)
+        y += 0.01 * rng.normal(size=len(x))
+        baseline_fitter = Baseline(x_data=x)
+        plain = _r2(_beads, baseline_fitter, y, 0.01)
+        custom = _r2(_custom_beads, baseline_fitter, y, 0.01,
+                     regions=np.array([[820, 980]]),
+                     sampling=np.array([8]))
+        assert custom == pytest.approx(plain, abs=0.05)
+
+    def test_r2_cache_key_tracks_the_channel(self):
+        # The channel is not an input to the fit, so a change to it
+        # leaves signal, param_range and kwargs untouched. Without the
+        # channel token in the key, stale curves would be served.
+        signal = np.linspace(0.0, 1.0, 50)
+        param_range = np.geomspace(1e-4, 0.4, 10)
+        key = _r2_cache_key(_beads, signal, param_range, "freq_cutoff", {})
+        assert _R2_CHANNEL in ("y-baseline",)
+        import unittest.mock as mock
+        with mock.patch.object(baseline_module, "_R2_CHANNEL", "other"):
+            other = _r2_cache_key(_beads, signal, param_range,
+                                  "freq_cutoff", {})
+        assert key != other
 
     def test_r2_different_cutoff_gives_different_result(self):
         x = np.linspace(0, 10, 101)

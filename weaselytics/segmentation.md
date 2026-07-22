@@ -65,6 +65,19 @@ The loose tier exists for staircase-shaped curves (blank injections, multi-step 
 
 On the 339-signal reference dataset (corrected parser), the trimmed mask retains the accepted `fcut` of **every** signal while halving the covered grid area (median 89% → ~50%) and collapsing the display to 2–3 contiguous regions per signal.
 
+## 4c. Narrowing the candidates with the labeled bracket
+
+`trim_candidates` uses only a-priori exclusions, and the result is a valid but *loose* bracket: on the labeled sample the candidate regions span a median of 2.33 decades against 0.62 decades for the hand-labeled acceptable range, a ratio of 3.6. `refine_candidates` narrows it further, using the only evidence available about where the answer actually lies — the hand-labeled gallery of the 339-signal dataset (`FCUT_GALLERY_2026-07-20`). All its rules are expressed in the same scale-free vocabulary as the classification above (region widths in decades, positions as log-relative fractions of a region), and every constant sits at a *"labels never go there"* extreme with a margin:
+
+- **Sliver exclusion.** Regions narrower than `min_width` decades (default 0.5) are dropped. The narrowest region a label ever touches spans 0.67 decades, and the widest sliver below that is also 0.67 — the two populations are cleanly separated, and any threshold between roughly 0.4 and 1.1 gives the same partition. When every region is a sliver, the widest is kept as a fallback.
+- **Ordinal cut.** Only the first two remaining regions are kept: across all 348 labeled ranges, no label ever touches a later one.
+- **Left cut.** The first `left_cut` fraction of the first region is removed (default 0.12) — the over-rigid edge, where 99% of labels start beyond 0.12 and 95% beyond 0.18.
+- **Right cut.** The second region is truncated past `right_cut` of its width (default 0.55): labels enter it only from the left and never beyond 0.41.
+
+On the labeled sample this keeps the labeled range (recall $`\ge 0.99`$) for **336/339** signals while shrinking the median candidate span from 2.33 to **1.83 decades**. Under leave-one-solvent-family-out recalibration the constants are identical in 13 of the 14 folds and every held-out family keeps a median recall of 1.000; the exception is 2-Chlorotoluene, whose blanks penetrate deepest into the second region and pull `right_cut` down to 0.19. `tools/fcut_bracket_calib.py` reproduces all of these numbers and checks that the shipped implementation agrees with them.
+
+Two caveats belong with these constants. First, the labels are **censored by the candidate set**: the gallery only rendered images at `fcut` values inside the candidate regions, so the user could not label outside them. The bracket can therefore answer *"which part of the candidates is dead weight?"* but cannot validate the outer boundaries of `trim_candidates` itself. Second, they are calibrated on one instrument and one labeling session, so they carry the same epistemic status as the tolerances they replace — reasonable, physically motivated, validated on the data at hand, and recalibratable with one command.
+
 ## 5. Selecting the plateau and the value of `fcut`
 
 `select_fcut` applies the following rule, in the spirit of steps 2–3 of [fcut.md](./fcut.md):
@@ -88,6 +101,22 @@ Note that the residual per-plateau ambiguity (several plausible plateaus, e.g. t
 | `rel_slope_loose` | 0.6 | Loose slope threshold for cliff-bracketed shelves |
 | `cliff_min` | 1.0 | Minimum relative slope of a bracketing cliff |
 | `rel_noise_max` | 0.006 | Flatness threshold on the relative residual noise |
+| `c1` | 0.5 | Sub-fundamental clip: grid points below `c1/N` are removed |
+| `noise_floor` | $`4 \times 10^{-7}`$ | Relative noise at or below which a flat segment is frozen |
+| `min_width` | 0.5 | Minimum width of a real plateau region, in decades |
+| `left_cut` | 0.12 | Log-relative fraction cut from the first kept region |
+| `right_cut` | 0.55 | Log-relative fraction of the second region kept |
+
+The first two belong to `trim_candidates`, the last three to `refine_candidates`. Only the last three are calibrated on labeled data; all of them are dimensionless.
+
+## 7. Validation against synthetic ground truth
+
+Because the labels are hand-drawn and censored by the candidate set, `tools/synth_dataset.py` generates chromatograms whose baseline is *known*: exponentially-modified Gaussian peaks (including an isocratic case with widths proportional to retention time), a baseline built from a solvent-front decay, a gradient hump, a drift and a mid-frequency wander, plus white noise. `tools/synth_diag.py` then runs the production sweep and this whole chain on each signal and computes the **true error curve** $`E(f_{cut})`$, the RMSE of the fitted baseline against the known one, whose minimum is an objective optimum free of any labeling.
+
+On a 72-signal benchmark the bracket contains a cutoff within a fraction of a percent of the optimal error for the large majority of signals, and the residual failures are concentrated where theory predicts: signals whose analyte content is negligible compared with the baseline, for which the optimum can lie past the collapse of the autocorrelation curve. Two properties of the error curve are worth recording, since they justify choices made above:
+
+- **The valley is asymmetric.** It is flat and forgiving on the rigid (low-`fcut`) side and steep on the flexible side, because leaving baseline structure in the signal channel is a visible, correctable bias whereas destroying peak area is not. Erring left is therefore the safe direction — which is what the `left_cut` of 0.12, small compared with the 0.65–0.75 position of the true optimum, deliberately preserves.
+- **Peak width sets the scale, but not with a transferable exponent.** Regressing the optimal cutoff on the peak width gives $`-0.735`$ under full control (`tools/synth_width_sweep.py`), $`-0.88`$ on the full benchmark and $`-0.50`$ on the real dataset. The scaling is real and strong, but its exponent is a property of the signal population, so no power law of the form $`f_{cut} = b\,w^{a}`$ is used in production: it would not fail loudly on a different instrument, it would mispredict quietly.
 | `level_frac` | 0.5 | Fallback level criterion (fraction of the total drop) |
 
 ## 7. Practical usage

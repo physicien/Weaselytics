@@ -10,7 +10,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 from pybaselines import Baseline
-from scipy.ndimage import gaussian_filter1d
+from scipy.ndimage import gaussian_filter1d, median_filter
 from scipy.signal import argrelmax, argrelmin  #, medfilt
 
 from weaselytics.plot import r2_plots
@@ -68,6 +68,16 @@ def _relevant_regions(
     #           1) removing most of the spurious features in the raw signal
     #           2) sligntly enlarging features relevant for peaks detection
     z = gaussian_filter1d(s,3)
+    # Coarse detrend before measuring peak widths: half-prominence
+    # widths are otherwise contaminated by slow baseline structure (a
+    # narrow peak riding a broad hump measures the hump's width, not
+    # its own, and gets rejected by the relevance filter below). The
+    # rolling-median window only needs to separate the two scales: on
+    # the reference dataset the widest relevant peak is < N/18 while
+    # baseline features span the record, so N/4 clears every peak
+    # while following the baseline.
+    window = max(31, len(z) // 4) | 1
+    z = z - median_filter(z, size=window)
     peaks, widths = peaks_params(z, height_n=0.50, width=3, rel_prom_p=0.01,
                                    adapt=True)
 

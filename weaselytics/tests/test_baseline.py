@@ -15,19 +15,31 @@ from weaselytics.baseline import (
 
 class TestRelevantRegions:
     def test_no_relevant_peak_degrades_instead_of_crashing(self):
-        # A narrow spike on a broad baseline hump: the half-prominence
-        # width of the spike is measured through the hump, so the
-        # relevance filter rejects every detected peak and the
-        # relevant set comes out empty.
+        # A single broad feature eluting right after the start: its
+        # width/x ratio fails the relevance filter, so the relevant
+        # set comes out empty and the degraded mode must kick in.
+        x = np.arange(1000) / 60.
+        rng = np.random.default_rng(7)
+        s = 10. * np.exp(-0.5 * ((x - 1.5) / 3.) ** 2)
+        s += 0.005 * rng.normal(size=len(x))
+        peak_regions, sampling, scut = _relevant_regions(s, x)
+        assert peak_regions is None
+        assert np.array_equal(sampling, np.array([1]))
+        assert scut == len(s)
+
+    def test_spike_on_hump_width_is_not_contaminated(self):
+        # A narrow spike riding a broad baseline hump: without the
+        # coarse detrend, the half-prominence width of the spike is
+        # measured through the hump (hundreds of points), the
+        # relevance filter rejects it and the signal degrades. With
+        # the detrend the spike keeps its own width and survives.
         x = np.arange(1000) / 60.
         rng = np.random.default_rng(7)
         s = 5. * np.exp(-0.5 * ((x - 8.) / 4.) ** 2)
         s += 3. * np.exp(-0.5 * ((x - 7.) / 0.05) ** 2)
         s += 0.005 * rng.normal(size=len(x))
         peak_regions, sampling, scut = _relevant_regions(s, x)
-        assert peak_regions is None
-        assert np.array_equal(sampling, np.array([1]))
-        assert scut == len(s)
+        assert scut < len(s)
 
     def test_peaked_signal_still_returns_regions(self):
         x = np.arange(1000) / 60.

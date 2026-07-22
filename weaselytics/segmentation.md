@@ -67,16 +67,20 @@ On the 339-signal reference dataset (corrected parser), the trimmed mask retains
 
 ## 4c. Narrowing the candidates with the labeled bracket
 
-`trim_candidates` uses only a-priori exclusions, and the result is a valid but *loose* bracket: on the labeled sample the candidate regions span a median of 2.33 decades against 0.62 decades for the hand-labeled acceptable range, a ratio of 3.6. `refine_candidates` narrows it further, using the only evidence available about where the answer actually lies — the hand-labeled gallery of the 339-signal dataset (`FCUT_GALLERY_2026-07-20`). All its rules are expressed in the same scale-free vocabulary as the classification above (region widths in decades, positions as log-relative fractions of a region), and every constant sits at a *"labels never go there"* extreme with a margin:
+`trim_candidates` uses only a-priori exclusions, and the result is a valid but *loose* bracket: on the labeled sample the candidate regions span a median of 2.33 decades against 0.62 decades for the hand-labeled acceptable range, a ratio of 3.6. `refine_candidates` narrows it further, using the only evidence available about where the answer actually lies — the hand-labeled gallery of the 339-signal dataset (`FCUT_GALLERY_2026-07-20`). All its rules are expressed in the same scale-free vocabulary as the classification above (region widths in decades, positions as log-relative fractions of a region). Two of the three constants sit at a *"labels never go there"* extreme with a margin; `left_cut` does not, and the difference matters — see below:
 
 - **Sliver exclusion.** Regions narrower than `min_width` decades (default 0.5) are dropped. The narrowest region a label ever touches spans 0.67 decades, and the widest sliver below that is also 0.67 — the two populations are cleanly separated, and any threshold between roughly 0.4 and 1.1 gives the same partition. When every region is a sliver, the widest is kept as a fallback.
 - **Ordinal cut.** Only the first two remaining regions are kept: across all 348 labeled ranges, no label ever touches a later one.
-- **Left cut.** The first `left_cut` fraction of the first region is removed (default 0.12) — the over-rigid edge, where 99% of labels start beyond 0.12 and 95% beyond 0.18.
+- **Left cut.** The first `left_cut` fraction of the first region is removed (default 0.12) — the over-rigid edge. **This one is a quantile, not an extreme:** the minimum label entry is 0.000, so labels do reach the very left edge. 0.12 is the 1st percentile (0.18 the 5th), so the cut knowingly clips a small tail of the labels, and it is the reason recall falls below 0.99 for 3 signals. It is the only constant of the three that trades recall for span.
 - **Right cut.** The second region is truncated past `right_cut` of its width (default 0.55): labels enter it only from the left and never beyond 0.41.
 
-On the labeled sample this keeps the labeled range (recall $`\ge 0.99`$) for **336/339** signals while shrinking the median candidate span from 2.33 to **1.83 decades**. Under leave-one-solvent-family-out recalibration the constants are identical in 13 of the 14 folds and every held-out family keeps a median recall of 1.000; the exception is 2-Chlorotoluene, whose blanks penetrate deepest into the second region and pull `right_cut` down to 0.19. `tools/fcut_bracket_calib.py` reproduces all of these numbers and checks that the shipped implementation agrees with them.
+On the labeled sample this keeps the labeled range (recall $`\ge 0.99`$) for **336/339** signals while shrinking the median candidate span from 2.33 to **1.84 decades**.
 
-Two caveats belong with these constants. First, the labels are **censored by the candidate set**: the gallery only rendered images at `fcut` values inside the candidate regions, so the user could not label outside them. The bracket can therefore answer *"which part of the candidates is dead weight?"* but cannot validate the outer boundaries of `trim_candidates` itself. Second, they are calibrated on one instrument and one labeling session, so they carry the same epistemic status as the tolerances they replace — reasonable, physically motivated, validated on the data at hand, and recalibratable with one command.
+Under leave-one-solvent-family-out recalibration the constants are stable across folds but **do not reproduce the shipped values**: 12 of the 14 folds recalibrate to $`(\text{min\_width}, \text{left\_cut}, \text{right\_cut}) = (0.67, 0.000, 0.495)`$, 2-Xylene to $`(0.67, 0.044, 0.495)`$ and 2-Chlorotoluene — whose blanks penetrate deepest into the second region — to $`(0.76, 0.000, 0.187)`$, and that held-out family scores only 18/25. The shipped $`(0.5, 0.12, 0.55)`$ are deliberately margined away from the recalibrated optima, loosened on `min_width` and `right_cut` and tightened on `left_cut`. `tools/fcut_bracket_calib.py` reproduces all of these numbers and checks that the shipped implementation agrees with the reference on 339/339 signals.
+
+Three caveats belong with these constants. First, the labels are **censored by the candidate set**: the gallery only rendered images at `fcut` values inside the candidate regions, so the user could not label outside them. The bracket can therefore answer *"which part of the candidates is dead weight?"* but cannot validate the outer boundaries of `trim_candidates` itself. Second, they are calibrated on one instrument and one labeling session, so they carry the same epistemic status as the tolerances they replace — reasonable, physically motivated, validated on the data at hand, and recalibratable with one command.
+
+Third, and most consequential: **the calibration predates the peak-width fix and has not been redone.** `gallery_index.csv` and `fcut_dataset.csv` were produced before commit 6a1a380, which added the coarse detrend to `_relevant_regions`. Measured across the 339 reference signals, that detrend changes the peak regions or `scut` for **161 of them** (region count on 47, region bounds on 114; `scut` shifts by more than 1% on 16, by up to 49% on one). Different regions give a different $`r^2`$ curve and therefore different `trim_candidates` output, so roughly half the labeled sample was labeled against curves the current code no longer produces. `fcut_bracket_calib.py` remains self-consistent because it reads the stored regions, but that consistency does not reach production. The constants should be treated as provisional until the gallery is regenerated and relabeled. (The on-disk cache is not a hazard here: `_r2_cache_key` hashes the truncated signal and the `regions`/`sampling` arrays, so stale curves miss rather than being silently reused.)
 
 ## 5. Selecting the plateau and the value of `fcut`
 
@@ -108,25 +112,38 @@ Note that the residual per-plateau ambiguity (several plausible plateaus, e.g. t
 | `min_width` | 0.5 | Minimum width of a real plateau region, in decades |
 | `left_cut` | 0.12 | Log-relative fraction cut from the first kept region |
 | `right_cut` | 0.55 | Log-relative fraction of the second region kept |
+| `level_frac` | 0.5 | Fallback level criterion (fraction of the total drop) |
 
-The first two belong to `trim_candidates`, the last three to `refine_candidates`. Only the last three are calibrated on labeled data; all of them are dimensionless.
+`c1` and `noise_floor` belong to `trim_candidates`; `min_width`, `left_cut` and `right_cut` to `refine_candidates`; `level_frac` to `select_fcut`. Only the three `refine_candidates` constants are calibrated on labeled data; all of them are dimensionless.
 
 ## 7. Validation against synthetic ground truth
 
 Because the labels are hand-drawn and censored by the candidate set, `tools/synth_dataset.py` generates chromatograms whose baseline is *known*: exponentially-modified Gaussian peaks (including an isocratic case with widths proportional to retention time), a baseline built from a solvent-front decay, a gradient hump, a drift and a mid-frequency wander, plus white noise. `tools/synth_diag.py` then runs the production sweep and this whole chain on each signal and computes the **true error curve** $`E(f_{cut})`$, the RMSE of the fitted baseline against the known one, whose minimum is an objective optimum free of any labeling.
 
-On a 72-signal benchmark the bracket contains a cutoff within a fraction of a percent of the optimal error for the large majority of signals, and the residual failures are concentrated where theory predicts: signals whose analyte content is negligible compared with the baseline, for which the optimum can lie past the collapse of the autocorrelation curve. Two properties of the error curve are worth recording, since they justify choices made above:
+Of the 72 signals generated, 71 complete the diagnostic chain. The bracket contains a cutoff within a fraction of a percent of the optimal error for **63/71**. The failures do *not* fall where the theory of §4c predicts:
+
+| class | in bracket |
+|---|---|
+| `isocratic`, `multi_mixed`, `multi_narrow` | 12/12 each |
+| `multi_wide` | 11/12 |
+| `blank` | 9/12 |
+| `single_narrow` | **8/12** |
+
+Blanks were the expected hard case — no analyte width to set the scale, and structured content that *is* the baseline, so the optimum can legitimately lie past the collapse. They are indeed second-worst, but the worst class is single narrow peaks, which have ample analyte; their optima sit at high `fcut` (0.019–0.068), i.e. to the *right* of the bracket. That failure mode is unexplained and is the most concrete open lead on this page.
+
+One encouraging detail: 7 of the 8 failures already lie outside `trim_candidates`, so the loss is in the a-priori trimming, not in the label-calibrated refinement — `refine_candidates` costs exactly one signal (a blank) out of the 64 the candidates contained.
+
+Two properties of the error curve are worth recording, since they justify choices made above:
 
 - **The valley is asymmetric.** It is flat and forgiving on the rigid (low-`fcut`) side and steep on the flexible side, because leaving baseline structure in the signal channel is a visible, correctable bias whereas destroying peak area is not. Erring left is therefore the safe direction — which is what the `left_cut` of 0.12, small compared with the 0.65–0.75 position of the true optimum, deliberately preserves.
 - **Peak width sets the scale, but not with a transferable exponent.** Regressing the optimal cutoff on the peak width gives $`-0.735`$ under full control (`tools/synth_width_sweep.py`), $`-0.88`$ on the full benchmark and $`-0.50`$ on the real dataset. The scaling is real and strong, but its exponent is a property of the signal population, so no power law of the form $`f_{cut} = b\,w^{a}`$ is used in production: it would not fail loudly on a different instrument, it would mispredict quietly.
-| `level_frac` | 0.5 | Fallback level criterion (fraction of the total drop) |
 
-## 7. Practical usage
+## 8. Practical usage
 
 - Every automatic run overlays the trimmed candidate regions (§4b) on the diagnostic figure of `r2_plots` as a light solid purple fill, on top of the regions of the current method. The production `fcut` is **not** affected by the prototype at this stage. (The earlier `CP chosen` fill, dash-dotted line and `Proto fcut:` log line were removed: the selection rule of §5 proved unreliable on the reference dataset and is pending redesign; §5 is kept as documentation of the prototype in `select_fcut` and `tools/plateau_proto.py`.)
 - The autocorrelation curves can be cached with `auto_beads(..., cache_dir=...)` (CLI: `-cd`), and `tools/plateau_proto.py` re-runs the full segmentation + classification + selection chain on the cached curves in milliseconds per signal, which is the intended loop for tuning the parameters against a labeled benchmark.
 
-## 8. Correspondence with the previous pipeline
+## 9. Correspondence with the previous pipeline
 
 | Previous ingredient | Replaced by |
 |---|---|

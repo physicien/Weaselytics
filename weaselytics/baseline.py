@@ -73,9 +73,12 @@ def _relevant_regions(
     # narrow peak riding a broad hump measures the hump's width, not
     # its own, and gets rejected by the relevance filter below). The
     # rolling-median window only needs to separate the two scales: on
-    # the reference dataset the widest relevant peak is < N/18 while
-    # baseline features span the record, so N/4 clears every peak
-    # while following the baseline.
+    # the reference dataset the widest relevant peak spans N/17.7 at
+    # worst (median N/57) while baseline features span the record, so
+    # N/4 clears every peak by a factor of 4 while following the
+    # baseline. Measured over the 339 reference signals; note that
+    # the detrend also shifts the peak regions or `scut` on 161 of
+    # them, so artefacts derived from earlier runs are stale.
     window = max(31, len(z) // 4) | 1
     z = z - median_filter(z, size=window)
     peaks, widths = peaks_params(z, height_n=0.50, width=3, rel_prom_p=0.01,

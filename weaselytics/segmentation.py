@@ -337,9 +337,10 @@ def refine_candidates(fcut_range: np.ndarray, candidates: np.ndarray,
     where the hand-labeled acceptable ranges of the 339-signal
     reference gallery (2026-07-20) actually lie. All rules are
     scale-free (region widths in decades, positions as log-relative
-    fractions of a region) and each constant sits at a "labels never
-    go there" extreme of the gallery with a safety margin, verified by
-    leave-one-solvent-family-out calibration:
+    fractions of a region). ``min_width`` and ``right_cut`` sit at a
+    "labels never go there" extreme of the gallery with a margin;
+    ``left_cut`` is a 1st-percentile quantile and does clip a small
+    tail of the labels:
 
     - **sliver exclusion**: regions narrower than `min_width` decades
       are removed (the narrowest label-touched region spans 0.67
@@ -357,6 +358,17 @@ def refine_candidates(fcut_range: np.ndarray, candidates: np.ndarray,
     On the reference gallery this keeps the labeled range (recall at
     least 0.99) for 336/339 signals while shrinking the median
     candidate span from 2.33 to 1.84 decades.
+
+    The constants are **provisional**: the gallery was labeled before
+    the coarse detrend of ``_relevant_regions`` (commit 6a1a380),
+    which changes the peak regions or ``scut`` — and therefore the
+    r2 curve these regions are derived from — for 161 of the 339
+    reference signals. They also come from one instrument and one
+    labeling session, and the labels are censored by the candidate
+    set (only cutoffs inside the candidates were ever rendered), so
+    this function can narrow ``trim_candidates`` but cannot validate
+    its outer boundaries. See ``segmentation.md`` §4c and
+    ``tools/fcut_bracket_calib.py``.
 
     Parameters
     ----------

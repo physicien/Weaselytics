@@ -1,14 +1,21 @@
 #!/usr/bin/python3
 """
-Render a gallery of baselines across the candidate plateau regions.
+Render a gallery of baselines across the representable cutoff range.
 
-For every signal of the dataset, the trimmed candidate regions of the
-autocorrelation curve (``segmentation.trim_candidates``) are sampled at
-a constant geometric ratio and one baseline-correction figure is written
-per sampled cutoff frequency. The r2 curves are read from an existing
+For every signal of the dataset, the cutoff frequencies above the
+sub-fundamental limit ``0.5 / n_used`` are sampled at a constant
+geometric ratio and one baseline-correction figure is written per
+sampled cutoff frequency. The r2 curves are read from an existing
 ``r2_cache`` directory, so the expensive autocorrelation sweep is never
 recomputed; only the (millisecond) final BEADS correction is run per
 image.
+
+The sampling is **not** restricted to the candidate plateaus of
+``segmentation.trim_candidates``, and those regions are not drawn on
+the summary figure. The 2026-07-20 gallery did both, so its labels were
+confined to, and visually anchored on, the machinery they were then
+used to calibrate; they could not test its boundaries. Pass ``--trim``
+to restore that behaviour if you need to reproduce that gallery.
 
 The output mirrors the layout of the ``data`` directory::
 
@@ -118,10 +125,16 @@ def existing_labels(path: str) -> dict[str, str]:
                 if row.get("label", "").strip()}
 
 
+#: Sub-fundamental clip of ``segmentation.trim_candidates``. Mirrored
+#: here so the untrimmed gallery keeps the one exclusion that is
+#: physical rather than calibrated.
+C1 = 0.5
+
+
 def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
-                      n_used: int) -> list[np.ndarray]:
+                      n_used: int, trim: bool = False) -> list[np.ndarray]:
     """
-    Compute the trimmed candidate plateau regions of a curve.
+    Compute the regions of a curve to sample for the gallery.
 
     Parameters
     ----------
@@ -131,14 +144,37 @@ def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
         The autocorrelation coefficients.
     n_used : int
         Number of signal points used for the autocorrelation sweep.
+    trim : bool, optional
+        If True, restrict the regions to the candidate plateaus of
+        ``segmentation.trim_candidates``. Default is False, which
+        returns the whole representable grid as a single region.
 
     Returns
     -------
     regions : list of numpy.ndarray
-        Index arrays of the contiguous candidate regions, in increasing
-        order of cutoff frequency.
+        Index arrays of the contiguous regions, in increasing order of
+        cutoff frequency.
+
+    Notes
+    -----
+    The default is deliberately *untrimmed*. The 2026-07-20 gallery
+    sampled only inside the candidate regions **and** drew them on the
+    summary figure, so the resulting labels were both restricted to,
+    and visually anchored on, the machinery they were later used to
+    calibrate (`refine_candidates`). A label set collected that way
+    cannot test the boundaries of `trim_candidates`.
+
+    The sub-fundamental clip is kept even when untrimmed: below
+    ``C1 / n_used`` a cutoff describes an oscillation slower than half
+    a cycle over the record, which the data cannot constrain, so those
+    cutoffs are not worth a human decision. Every other exclusion of
+    `trim_candidates` (flatness, frozen tail, cliff bridging) is
+    calibrated and is dropped here.
 
     """
+    if not trim:
+        idx = np.flatnonzero(fcut_range >= C1 / n_used)
+        return [idx] if idx.size else []
     segments = classify_segments(
         segment_features(fcut_range, r2, pelt_linear(r2)))
     mask = trim_candidates(fcut_range, segments, n_used)
@@ -241,7 +277,8 @@ def plot_baseline(x: np.ndarray, y: np.ndarray, bl: np.ndarray,
 
 def plot_r2(fcut_range: np.ndarray, r2: np.ndarray,
             regions: list[np.ndarray], samples: list[tuple[int, int]],
-            title: str, out_path: str, dpi: int = 100) -> None:
+            title: str, out_path: str, dpi: int = 100,
+            show_regions: bool = False) -> None:
     """
     Save the r2 curve with the candidate regions and the sampled cutoffs.
 
@@ -263,13 +300,19 @@ def plot_r2(fcut_range: np.ndarray, r2: np.ndarray,
     """
     fig, ax = plt.subplots(figsize=(9.4, 4.5))
     ax.semilogx(fcut_range, r2, marker=".", ls="", ms=3, label=r"$r^2$")
-    for reg in regions:
-        mask = np.zeros(len(fcut_range), dtype=bool)
-        mask[reg] = True
-        ax.fill_between(fcut_range, 0, 1, where=mask, color="none",
-                        ec="tab:purple", alpha=0.3, hatch="\\\\",
-                        hatch_linewidth=2,
-                        transform=ax.get_xaxis_transform())
+    # The candidate hatching is drawn only when the sampling was
+    # actually restricted to those regions. On an untrimmed gallery the
+    # whole grid is one region, and shading it would tell the labeller
+    # where the machinery expects the answer -- which is precisely the
+    # anchoring the untrimmed gallery exists to avoid.
+    if show_regions:
+        for reg in regions:
+            mask = np.zeros(len(fcut_range), dtype=bool)
+            mask[reg] = True
+            ax.fill_between(fcut_range, 0, 1, where=mask, color="none",
+                            ec="tab:purple", alpha=0.3, hatch="\\\\",
+                            hatch_linewidth=2,
+                            transform=ax.get_xaxis_transform())
     for k, (_, j) in enumerate(samples):
         ax.axvline(fcut_range[j], color="tab:orange", lw=0.6, alpha=0.7)
         # Only every fifth sample is labelled: consecutive ticks are one
@@ -288,7 +331,7 @@ def plot_r2(fcut_range: np.ndarray, r2: np.ndarray,
 
 
 def process_signal(data_path: str, cache_path: str, out_root: str,
-                   ratio: float, dpi: int) -> dict:
+                   ratio: float, dpi: int, trim: bool = False) -> dict:
     """
     Render the whole fcut gallery of one signal.
 
@@ -323,7 +366,7 @@ def process_signal(data_path: str, cache_path: str, out_root: str,
         n_used = int(scut)
 
         fcut_range, r2 = load_curve(cache_path)
-        regions = candidate_regions(fcut_range, r2, n_used)
+        regions = candidate_regions(fcut_range, r2, n_used, trim=trim)
         samples = sample_regions(fcut_range, regions, ratio)
 
         out_dir = os.path.join(out_root, molecule, stem)
@@ -334,7 +377,7 @@ def process_signal(data_path: str, cache_path: str, out_root: str,
         plot_r2(fcut_range, r2, regions, samples,
                 f"{stem} — {len(samples)} sampled fcut "
                 f"(ratio {ratio:g})", os.path.join(out_dir, "00_r2.png"),
-                dpi=dpi)
+                dpi=dpi, show_regions=trim)
 
         # Y-limits shared by every image of the signal, so that only the
         # baseline moves when they are browsed in order. They are set by
@@ -401,6 +444,13 @@ def main() -> None:
     parser.add_argument("-r", "--ratio", type=float, default=1.15,
                         help="geometric step between two sampled cutoff "
                              "frequencies (default: 1.15)")
+    parser.add_argument("--trim", action="store_true",
+                        help="restrict the sampling to the candidate "
+                             "plateaus of trim_candidates and draw them "
+                             "on 00_r2.png. Off by default: it censors "
+                             "and visually anchors the labels, which is "
+                             "how the 2026-07-20 gallery came to be "
+                             "unusable for calibrating refine_candidates")
     parser.add_argument("-w", "--workers", type=int, default=1,
                         help="number of worker processes (default: 1)")
     parser.add_argument("--dpi", type=int, default=200,
@@ -426,6 +476,7 @@ def main() -> None:
 
     os.makedirs(args.output_dir, exist_ok=True)
     print(f"{len(jobs)} signal(s), ratio {args.ratio:g}, "
+          f"{'trimmed' if args.trim else 'untrimmed'}, "
           f"{args.workers} worker(s)")
 
     tic = time.perf_counter()
@@ -433,7 +484,7 @@ def main() -> None:
     if args.workers > 1:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             futures = [pool.submit(process_signal, d, c, args.output_dir,
-                                   args.ratio, args.dpi)
+                                   args.ratio, args.dpi, args.trim)
                        for d, c in jobs]
             for done, future in enumerate(as_completed(futures), 1):
                 summary = future.result()
@@ -443,7 +494,7 @@ def main() -> None:
     else:
         for done, (data_path, cache_path) in enumerate(jobs, 1):
             summary = process_signal(data_path, cache_path, args.output_dir,
-                                     args.ratio, args.dpi)
+                                     args.ratio, args.dpi, args.trim)
             summaries.append(summary)
             print(f"[{done:3d}/{len(jobs)}] {summary['stem']} "
                   f"{summary['n_images']} images {summary['error']}")

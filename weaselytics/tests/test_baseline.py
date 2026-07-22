@@ -171,6 +171,31 @@ class TestBeads:
                      sampling=np.array([8]))
         assert custom == pytest.approx(plain, abs=0.05)
 
+    def test_r2_cache_key_survives_a_one_ulp_grid_difference(self):
+        # `np.geomspace` is not bit-reproducible across numpy versions
+        # and platforms: between this machine and the cluster, 48 of
+        # 1000 grid values differed in their last bit. Hashing the raw
+        # float64 bytes made the cache unshareable, so the sweep was
+        # recomputed on every machine.
+        signal = np.linspace(0.0, 1.0, 200)
+        grid = np.geomspace(1e-5, 0.5, 1000, endpoint=False)
+        nudged = grid.copy()
+        nudged[::20] = np.nextafter(nudged[::20], np.inf)
+        assert not np.array_equal(grid, nudged)
+        assert _r2_cache_key(_beads, signal, grid, "freq_cutoff", {}) == \
+            _r2_cache_key(_beads, signal, nudged, "freq_cutoff", {})
+
+    def test_r2_cache_key_still_separates_real_grid_changes(self):
+        signal = np.linspace(0.0, 1.0, 200)
+        base = _r2_cache_key(
+            _beads, signal, np.geomspace(1e-5, 0.5, 1000, endpoint=False),
+            "freq_cutoff", {})
+        for other in (np.geomspace(1e-5, 0.5, 999, endpoint=False),
+                      np.geomspace(2e-5, 0.5, 1000, endpoint=False),
+                      np.geomspace(1e-5, 0.4, 1000, endpoint=False)):
+            assert _r2_cache_key(_beads, signal, other,
+                                 "freq_cutoff", {}) != base
+
     def test_r2_cache_key_tracks_the_channel(self):
         # The channel is not an input to the fit, so a change to it
         # leaves signal, param_range and kwargs untouched. Without the

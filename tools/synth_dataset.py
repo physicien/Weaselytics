@@ -9,8 +9,9 @@ Each signal is the sum of three physically motivated components:
   with widths growing slowly along the run and log-distributed
   heights;
 * **baseline**: a solvent-front exponential decay, a broad gradient
-  hump and a slow linear drift, with timescales far larger than any
-  peak width;
+  hump, a slow linear drift and a mid-frequency wander whose
+  correlation length lies between the peak widths and the run
+  length;
 * **noise**: white detector noise.
 
 Blanks are baseline + noise only. Every signal is written in the same
@@ -29,6 +30,7 @@ import json
 import os
 
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 from scipy.stats import exponnorm
 
 PEAK_CASES = {
@@ -113,6 +115,25 @@ def make_baseline(t: np.ndarray, kind: str,
         b += rng.uniform(2., 8.) * np.exp(-0.5 * ((t - center) / width)**2)
     if kind == 'exp_hump_drift':
         b += rng.uniform(-2., 2.) * (t - t[0]) / span
+
+    # Mid-frequency wander (pump, thermal and detector fluctuations),
+    # which every real baseline carries and the slow components above
+    # cannot represent. Its correlation length sits between the peak
+    # widths and the run length, so it is what decides how flexible the
+    # baseline has to be: on a signal with little analyte, capturing it
+    # is the whole job.
+    dt = t[1] - t[0]
+    # 0.3-0.8 min of correlation: only a few times the peak widths, and
+    # an order of magnitude below the run length, so it produces the ten
+    # or so undulations per run that the real blanks show. A slower
+    # wander would be indistinguishable from the hump above.
+    corr_len = rng.uniform(0.3, 0.8) / dt
+    wander = gaussian_filter1d(rng.normal(size=len(t)), corr_len)
+    peak_amp = np.abs(wander).max()
+    if peak_amp > 0:
+        wander /= peak_amp
+        swing = max(b.max() - b.min(), 1.)
+        b = b + rng.uniform(0.02, 0.08) * swing * wander
     return b
 
 

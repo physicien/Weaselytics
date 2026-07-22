@@ -1,3 +1,5 @@
+from unittest import mock
+
 import numpy as np
 import pytest
 from pybaselines import Baseline
@@ -54,6 +56,52 @@ class TestRelevantRegions:
         peak_regions, sampling, scut = _relevant_regions(s, x)
         assert peak_regions is not None
         assert scut <= len(s)
+
+
+class TestFcutoffDegenerateCurves:
+    """The legacy derivative route must fail legibly, not on an
+    IndexError, when its absolute tolerances find nothing to anchor on.
+
+    Both conditions occur in practice: on the 72-signal synthetic
+    benchmark 7 signals crashed this way, 6 with an empty
+    secondary-plateau set and 1 with no initial plateau.
+    """
+
+    _N = 1000
+
+    def _drive(self, r2):
+        x = np.linspace(0, 10, 200)
+        s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
+        with mock.patch.object(baseline_module, "_r2_array_cached",
+                               return_value=np.ascontiguousarray(r2)):
+            return baseline_module._fcutoff(s, x, len(s), num=self._N,
+                                            method="beads")
+
+    def test_no_initial_plateau_raises_a_described_error(self):
+        # A curve that starts descending immediately: no point before
+        # the steepest descent sits within tol0 of the level of the
+        # first flat run.
+        t = np.linspace(0, 1, self._N)
+        with pytest.raises(ValueError, match="no initial plateau found"):
+            self._drive(0.999 * np.exp(-5.0 * t))
+
+    def test_no_secondary_plateau_raises_a_described_error(self):
+        # A rippled step. The ripple puts the d1-flat and d2-flat sets
+        # in antiphase -- the second derivative vanishes exactly where
+        # the slope peaks -- so their intersection is empty even though
+        # both sets are large.
+        t = np.linspace(0, 1, self._N)
+        r2 = (0.999 - 0.5 / (1 + np.exp(-(t - 0.55) * 25))
+              + 0.03 * np.sin(2 * np.pi * 14 * t))
+        with pytest.raises(ValueError, match="no secondary plateau found"):
+            self._drive(r2)
+
+    def test_a_well_formed_curve_still_selects(self):
+        t = np.linspace(0, 1, self._N)
+        r2 = 0.999 - 0.5 / (1 + np.exp(-(t - 0.55) * 25))
+        fcut, case, plot_data = self._drive(r2)
+        assert 0.0 < fcut < 0.5
+        assert case in (1, 2)
 
 
 class TestBeads:

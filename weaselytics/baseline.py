@@ -663,7 +663,20 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
                               param=param, cache_dir=cache_dir, path=path,
                               workers=workers, **kwargs)
     #####
-    test_plateaus, ends, test, test3 = find_plateaus(r2_val)
+    # Diagnostics only: these four feed the r2 overlay in `r2_plots` and
+    # nothing downstream of them reaches `fcut`. `find_plateaus` shares
+    # the absolute-tolerance fragility of the route below (utils.py, the
+    # `tol0` level match on the initial plateau) and can raise on curves
+    # the selection itself handles perfectly well, so a failure here
+    # must disable the overlay, not abort the selection.
+    try:
+        test_plateaus, ends, test, test3 = find_plateaus(r2_val)
+    except (IndexError, ValueError) as exc:
+        print(f"WARNING: plateau overlay unavailable ({exc}).")
+        test_plateaus = np.zeros(len(r2_val), dtype=bool)
+        ends = np.zeros(len(r2_val), dtype=bool)
+        test = np.zeros(len(r2_val))
+        test3 = np.zeros(len(r2_val))
 
     # Changepoint-based prototype (issue #4), for diagnostics only: the
     # trimmed candidate plateau regions are overlaid on the r2
@@ -700,8 +713,24 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     # Find initial plateau
     tight_continuous = continuous_ranges(tight_d1_flats)
     starting_r2 = np.mean(smooth_d0[tight_continuous[0]])
-    starting_end = np.where(
-            np.absolute(starting_r2 - r2_val[:d1_min]) < tol0)[0][-1]
+    # Same class of mistuning as the secondary-plateau guard below:
+    # `tol0` is an absolute level tolerance on a curve whose scale is
+    # not fixed. When the curve never sits within `tol0` of the level
+    # of its first tight-flat run before the steepest descent, there is
+    # no initial plateau to end and the selection has no starting
+    # point. Fail loudly rather than on an opaque IndexError.
+    starting_candidates = np.where(
+            np.absolute(starting_r2 - r2_val[:d1_min]) < tol0)[0]
+    if len(starting_candidates) == 0:
+        raise ValueError(
+            "no initial plateau found: no point before the steepest "
+            f"descent (index {d1_min:d}) lies within tol0={tol0:.1e} "
+            f"of the level of the first flat run ({starting_r2:.4f}). "
+            "This tolerance is absolute while the scale of the r2 "
+            "curve is not; pass an explicit cutoff with "
+            "freq_cutoff=... to bypass the automatic selection."
+        )
+    starting_end = starting_candidates[-1]
     starting_plateau = np.arange(starting_end+1)
 
     # Remove final plateau if it is tight
@@ -713,6 +742,32 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     plateaus = loose_d1_flats[(loose_d1_flats > starting_plateau[-1]) &
                               (loose_d1_flats < last_r2)]
     secondary_plateaus = np.intersect1d(plateaus, d2_flats)
+
+    # No secondary plateau at all: every downstream branch indexes into
+    # this array, so the legacy route has nothing to anchor on. Fail
+    # loudly rather than crash on an opaque IndexError, and rather than
+    # substitute a cutoff -- a wrong fcut silently biases every area
+    # derived from it, which is worse than no answer.
+    #
+    # The cause is a mistuning, not a property of the signal: `tol1_1`
+    # and `tol2` are absolute thresholds on the derivatives of a curve
+    # whose scale is not fixed (see segmentation.md section 1). `tol2`
+    # sits about 200x below the peak curvature of a typical r2 curve, so
+    # only near-linear stretches qualify, and the intersection with the
+    # d1-flat set can come out empty. Shorter signals are hit harder:
+    # on the synthetic benchmark the median count of secondary-plateau
+    # points is 111 for 800-point signals against 211 for 2500-point
+    # ones, at identical peak curvature.
+    if len(secondary_plateaus) == 0:
+        raise ValueError(
+            "no secondary plateau found: the d1-flat set (|d1| < "
+            f"tol1_1={tol1_1:.1e}) and the d2-flat set (|d2| < "
+            f"tol2={tol2:.1e}) do not overlap between the initial "
+            f"plateau (index {starting_plateau[-1]:d}) and index "
+            f"{last_r2:d}. These tolerances are absolute while the "
+            "scale of the r2 curve is not; pass an explicit cutoff "
+            "with freq_cutoff=... to bypass the automatic selection."
+        )
 
     # Anchors
     sec_max_d1 = np.intersect1d(secondary_plateaus,max_d1)

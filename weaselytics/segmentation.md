@@ -122,23 +122,36 @@ Note that the residual per-plateau ambiguity (several plausible plateaus, e.g. t
 
 Because the labels are hand-drawn and censored by the candidate set, `tools/synth_dataset.py` generates chromatograms whose baseline is *known*: exponentially-modified Gaussian peaks (including an isocratic case with widths proportional to retention time), a baseline built from a solvent-front decay, a gradient hump, a drift and a mid-frequency wander, plus white noise. `tools/synth_diag.py` then runs the production sweep and this whole chain on each signal and computes the **true error curve** $`E(f_{cut})`$, the RMSE of the fitted baseline against the known one, whose minimum is an objective optimum free of any labeling.
 
-Of the 72 signals generated, 71 complete the diagnostic chain. The bracket contains a cutoff within a fraction of a percent of the optimal error for **63/71**. The failures do *not* fall where the theory of §4c predicts:
+Current benchmark: `SYNTH_2026-07-22`, 72 signals, `--seed 0 --replicates 1`, measured on the `y - b` channel of commit 41a7580. **66 signals complete the chain; 6 abort** in the legacy derivative route of `_fcutoff` (§7b). Counting an abort as a failure, since the pipeline returns no cutoff:
 
-| class | in bracket |
-|---|---|
-| `isocratic`, `multi_mixed`, `multi_narrow` | 12/12 each |
-| `multi_wide` | 11/12 |
-| `blank` | 9/12 |
-| `single_narrow` | **8/12** |
+| class | generated | aborted | in bracket |
+|---|---|---|---|
+| `isocratic` | 12 | 0 | 12/12 |
+| `multi_narrow` | 12 | 0 | 12/12 |
+| `multi_mixed` | 12 | 1 | 11/12 |
+| `multi_wide` | 12 | 1 | 10/12 |
+| `single_narrow` | 12 | 0 | 9/12 |
+| **`blank`** | 12 | **4** | **4/12** |
+| total | 72 | 6 | **58/72** |
 
-Blanks were the expected hard case — no analyte width to set the scale, and structured content that *is* the baseline, so the optimum can legitimately lie past the collapse. They are indeed second-worst, but the worst class is single narrow peaks, which have ample analyte; their optima sit at high `fcut` (0.019–0.068), i.e. to the *right* of the bracket. That failure mode is unexplained and is the most concrete open lead on this page.
+Of the 66 that complete, 59 have the true optimum inside `trim_candidates` and 58 inside the refined bracket — so `refine_candidates` again costs exactly one signal, and the loss is overwhelmingly in the a-priori trimming rather than the label-calibrated refinement.
 
-One encouraging detail: 7 of the 8 failures already lie outside `trim_candidates`, so the loss is in the a-priori trimming, not in the label-calibrated refinement — `refine_candidates` costs exactly one signal (a blank) out of the 64 the candidates contained.
+**Blanks are now the worst class by a wide margin**, and two thirds of that is aborts rather than mis-bracketing. This is the expected hard case for a stated reason — no analyte width to set the scale, and structured content that *is* the baseline, so the optimum can legitimately lie past the collapse — but the size of the gap is new. `single_narrow` remains a distinct, unexplained failure: ample analyte, yet the optimum sits to the *right* of the bracket.
+
+> **This is not comparable with the previous benchmark**, which reported 63/71 with blanks at 9/12 and `single_narrow` at 8/12. Two things changed at once: the dataset was regenerated (the earlier one was built before `a585017` and contained no mid-frequency wander) and the autocorrelation channel changed (41a7580). Blanks falling from 9/12 to 4/12 could be either — a wandering baseline is hardest to separate precisely where the baseline *is* the signal. Disentangling needs the old channel run against the current dataset; until that is done, neither number should be read as evidence for or against the channel change.
 
 Two properties of the error curve are worth recording, since they justify choices made above:
 
 - **The valley is asymmetric.** It is flat and forgiving on the rigid (low-`fcut`) side and steep on the flexible side, because leaving baseline structure in the signal channel is a visible, correctable bias whereas destroying peak area is not. Erring left is therefore the safe direction — which is what the `left_cut` of 0.12, small compared with the 0.65–0.75 position of the true optimum, deliberately preserves.
-- **Peak width sets the scale, but not with a transferable exponent.** Regressing the optimal cutoff on the peak width gives $`-0.735`$ under full control (`tools/synth_width_sweep.py`), $`-0.88`$ on the full benchmark and $`-0.50`$ on the real dataset. The scaling is real and strong, but its exponent is a property of the signal population, so no power law of the form $`f_{cut} = b\,w^{a}`$ is used in production: it would not fail loudly on a different instrument, it would mispredict quietly.
+- **Peak width sets the scale, but not with a transferable exponent.** Regressing the optimal cutoff on the peak width gives $`-0.735`$ under full control (`tools/synth_width_sweep.py`), $`-0.88`$ on the full benchmark and $`-0.50`$ on the real dataset. The scaling is real and strong, but its exponent is a property of the signal population, so no power law of the form $`f_{cut} = b\,w^{a}`$ is used in production: it would not fail loudly on a different instrument, it would mispredict quietly. (These three exponents were measured on the *previous* dataset and channel and have not been re-derived.)
+
+## 7b. Why six signals abort
+
+The aborts are not a property of the signals; they are the absolute tolerances of the legacy derivative route failing to transfer, exactly as §1 predicts. `secondary_plateaus` is the intersection of a d1-flat set ($`|d_1| <`$ `tol1_1` $`= 5\times10^{-4}`$) and a d2-flat set ($`|d_2| <`$ `tol2` $`= 2\times10^{-6}`$), both absolute. `tol2` sits about **200×** below the peak curvature of a typical $`r^2`$ curve, so only near-linear stretches qualify and the intersection can come out empty even when both sets are large — on the failing signals they hold 425–747 points each. Signal length modulates it: the median count of secondary-plateau points is 111 for 800-point signals against 211 for 2500-point ones, and `blank__exp__high__2500` succeeds with 51 while `blank__exp__high__800` — the same case, shorter — fails with 1.
+
+Three call sites shared an unguarded `np.where(...)[0][-1]` or `[0]` on a possibly-empty array. They now raise a `ValueError` naming the tolerance, the window and the `freq_cutoff=` bypass, instead of an opaque `IndexError`. Nothing substitutes a cutoff: a wrong `fcut` silently biases every area derived from it, which is worse than no answer. The exception is `find_plateaus`, whose four outputs only feed the diagnostic overlay in `r2_plots` and never reach `fcut` — a failure there now disables the overlay rather than aborting the selection, which is what recovered the 67th signal.
+
+The remaining six need the tolerances themselves fixed. The principled route is the one §4 already applies to the changepoint path: express them relative to the geometry of the curve ($`\Delta \cdot d / N`$ for a slope, $`\Delta \cdot d^2 / N^2`$ for a curvature) so they carry no units. That is a derivation rather than a fit, but choosing the dimensionless values needs calibration data, and it moves `fcut` for every signal — so it is deliberately **not** done here.
 
 ## 8. Practical usage
 

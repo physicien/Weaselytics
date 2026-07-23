@@ -16,6 +16,8 @@ from scipy.signal import argrelmax, argrelmin  #, medfilt
 from weaselytics.plot import r2_plots
 from weaselytics.segmentation import (
     classify_segments,
+    detect_dips,
+    dips_to_mask,
     pelt_linear,
     refine_candidates,
     segment_features,
@@ -803,6 +805,12 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     for seg in cp_segments:
         if seg['flat']:
             cp_flat[seg['start']:seg['end']] = True
+    # Proto-plateaus: the relative flattenings the absolute flat test
+    # misses, detected as dips of the rolling standard deviation. The
+    # detected plateau selection is the union of the flat set (strong and
+    # initial plateaus) and the proto-plateau basins.
+    cp_dips = dips_to_mask(fcut_range, detect_dips(fcut_range, r2_val))
+    cp_plateaus = cp_flat | cp_dips
     #####
 
     ##########################################################################
@@ -945,6 +953,8 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "cp_candidates": cp_candidates,
         "cp_refined": cp_refined,
         "cp_flat": cp_flat,
+        "cp_dips": cp_dips,
+        "cp_plateaus": cp_plateaus,
     }
     return fcut, case, plot_data
 
@@ -1117,6 +1127,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             plot_data["fcut"], plot_data["fi_r2_val"],
             case=plot_data["case"],
             cp_flat=plot_data["cp_flat"],
+            cp_dips=plot_data["cp_dips"],
             show_plot=show_plot, print_plot=print_plot,
             path=path, output_dir=output_dir,
         )

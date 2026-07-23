@@ -13,6 +13,10 @@ is selected from the surviving plateau candidates.
 from collections.abc import Callable
 
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks, peak_widths
+
+from weaselytics.utils import _rolling_std
 
 
 def _linear_costs(y: np.ndarray) -> Callable[[int, np.ndarray], np.ndarray]:
@@ -246,6 +250,143 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
         seg['flat'] = (seg['rel_noise'] < rel_noise_max
                        and (tight or loose))
     return segments
+
+
+def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
+                min_prominence: float = 0.03, level_min: float = 0.08,
+                level_max: float = 0.92, window: int = 3,
+                rel_height: float = 0.5) -> list[dict]:
+    """
+    Detect proto-plateaus as dips of the rolling standard deviation.
+
+    A plateau of the autocorrelation curve is a stretch of low local
+    variation, so the rolling standard deviation of `r2` is small on the
+    plateaus and large on the descents between them. A proto-plateau (a
+    *relative* flattening that never becomes flat on the scale of the
+    whole curve) therefore appears as a local **minimum** of the rolling
+    standard deviation, sitting in the valley between two of its humps.
+    This is the relative counterpart of the absolute slope criterion of
+    ``classify_segments``: it finds the shelves whose slope is a local
+    minimum even when it is above the absolute flat threshold, which the
+    segment classifier misses.
+
+    The rolling standard deviation is smoothed and normalised by its own
+    maximum (the largest cliff), so the prominence of a valley is a
+    scale-free fraction of that cliff rather than an absolute level. Only
+    the descent is searched, from the first grid point up to the global
+    minimum of `r2`; the rising tail beyond it is not a cutoff-frequency
+    regime of interest.
+
+    Parameters
+    ----------
+    fcut_range : array-like, shape (N,)
+        The (geometrically spaced) cutoff frequencies.
+    r2 : array-like, shape (N,)
+        The autocorrelation coefficients.
+    sigma : float, optional
+        Standard deviation, in grid points, of the Gaussian smoothing
+        applied to the rolling standard deviation before the valleys are
+        located. On the log-uniform grid this is a fixed fraction of a
+        decade. Default is 8.0.
+    min_prominence : float, optional
+        Minimum prominence of a valley, as a fraction of the largest
+        cliff (the maximum of the normalised rolling standard deviation).
+        Rejects the shallow wiggles of the noise floor. Default is 0.03.
+    level_min : float, optional
+        Lower bound on the level of a dip floor, as a fraction of the
+        total drop of `r2` (0 = global minimum, 1 = curve maximum). Drops
+        the flattening at the collapse floor, which is the saturated
+        baseline rather than a plateau. Default is 0.08.
+    level_max : float, optional
+        Upper bound on the level of a dip floor, same units. Drops the
+        micro-dips inside the initial plateau, already covered by the flat
+        set. Default is 0.92.
+    window : int, optional
+        Window of the rolling standard deviation, passed to
+        ``_rolling_std``. Default is 3, matching ``find_plateaus``.
+    rel_height : float, optional
+        Relative height at which the basin width of each valley is
+        measured (``scipy.signal.peak_widths``); 0.5 gives the width at
+        half prominence. Default is 0.5.
+
+    Returns
+    -------
+    dips : list of dict
+        One dict per accepted proto-plateau, sorted by cutoff frequency,
+        with keys ``floor`` (grid index of the valley bottom), ``fcut``,
+        ``r2``, ``level`` (fraction of the total drop), ``prominence``
+        (fraction of the largest cliff), and ``start`` / ``end`` (grid
+        indices bounding the basin at ``rel_height``).
+
+    Notes
+    -----
+    The rolling-standard-deviation-dip criterion is a detection
+    heuristic, not a result of Navarro-Huerta et al. (2017); it is the
+    relative analogue of the absolute flat test. Its parameters are
+    dimensionless (prominence relative to the largest cliff, level as a
+    fraction of the drop, `sigma` in grid points) and were set by visual
+    validation on the 339-signal reference gallery, not fitted to a
+    selected cutoff. They are diagnostic tuning while the returned dips
+    only feed the plateau overlay; they become load-bearing, and require
+    grounding, if the dips are ever used to select the cutoff frequency.
+
+    """
+    n = len(r2)
+    rss = gaussian_filter1d(_rolling_std(r2, window=window), sigma)
+    peak = rss.max()
+    if peak <= 0.0:
+        return []
+    norm = rss / peak
+    imin = int(np.argmin(r2))
+    drop = r2.max() - r2.min()
+    if imin < 2 or drop <= 0.0:
+        return []
+
+    idx, props = find_peaks(-norm[:imin], prominence=min_prominence)
+    if len(idx) == 0:
+        return []
+    prominences = props['prominences']
+    _, _, lefts, rights = peak_widths(-norm[:imin], idx,
+                                      rel_height=rel_height)
+
+    dips = []
+    for i, prom, lo, hi in zip(idx, prominences, lefts, rights):
+        level = (r2[i] - r2.min()) / drop
+        if not (level_min < level < level_max):
+            continue
+        dips.append({
+            'floor': int(i),
+            'fcut': float(fcut_range[i]),
+            'r2': float(r2[i]),
+            'level': float(level),
+            'prominence': float(prom),
+            'start': int(np.floor(lo)),
+            'end': min(int(np.ceil(hi)), n - 1),
+        })
+    return dips
+
+
+def dips_to_mask(fcut_range: np.ndarray, dips: list[dict]) -> np.ndarray:
+    """
+    Convert the dips of ``detect_dips`` into a boolean basin mask.
+
+    Parameters
+    ----------
+    fcut_range : array-like, shape (N,)
+        The (geometrically spaced) cutoff frequencies.
+    dips : list of dict
+        The dips returned by ``detect_dips``.
+
+    Returns
+    -------
+    mask : numpy.ndarray, shape (N,), dtype bool
+        True on the grid points covered by a proto-plateau basin.
+
+    """
+    mask = np.zeros(len(fcut_range), dtype=bool)
+    for dip in dips:
+        mask[dip['start']:dip['end'] + 1] = True
+    return mask
 
 
 def trim_candidates(fcut_range: np.ndarray, segments: list[dict],

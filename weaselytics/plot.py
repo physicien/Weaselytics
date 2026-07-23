@@ -115,6 +115,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
              cp_candidates: np.ndarray | None = None,
              cp_refined: np.ndarray | None = None,
              cp_flat: np.ndarray | None = None,
+             cp_dips: np.ndarray | None = None,
              show_plot: bool = False, print_plot: bool = False,
              path: str = "./file.txt",
              output_dir: str = "results") -> None:
@@ -172,6 +173,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         (before any trimming), drawn as a light solid blue fill beneath
         the candidate hatching so the two can be compared. Default is
         None, which disables the overlay.
+    cp_dips : array-like, shape (N,), dtype bool, optional
+        Mask of the proto-plateau basins from ``segmentation.detect_dips``
+        (the relative flattenings the flat test misses), drawn as an
+        orange fill. Together with ``cp_flat`` this shows the detected
+        plateau selection (their union) with its provenance. Default is
+        None, which disables the overlay.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
     print_plot : bool, optional
@@ -209,6 +216,14 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                             color="none", ec="tab:purple", alpha=0.3,
                             hatch="\\\\", hatch_linewidth=2,
                             label='CP flat',
+                            transform=axs[0].get_xaxis_transform())
+    # Proto-plateaus from detect_dips, orange fill: the union of this and
+    # the flat set is the detected plateau selection.
+    if cp_dips is not None:
+        axs[0].fill_between(x, 0, 1,
+                            where=cp_dips,
+                            color="tab:orange", alpha=0.25,
+                            label='proto-plateau',
                             transform=axs[0].get_xaxis_transform())
     # trimmed candidate plateau regions
     if cp_candidates is not None:

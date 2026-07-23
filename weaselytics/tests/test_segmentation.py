@@ -3,6 +3,8 @@ import pytest
 
 from weaselytics.segmentation import (
     classify_segments,
+    detect_dips,
+    dips_to_mask,
     pelt_linear,
     refine_candidates,
     segment_features,
@@ -256,3 +258,80 @@ class TestRefineCandidates:
         # the second region is not left-cut (spanner optima sit at its
         # very beginning)
         assert refined[400]
+
+
+def staircase_curve(shelf=True, noise_scale=1e-4, seed=0):
+    """Autocorrelation-like curve with (or without) a mid-descent shelf.
+
+    Top plateau, a first drop, an optional gentle shelf (the
+    proto-plateau), a steep drop to the global minimum, then a rising
+    tail. Returns (fcut_range, r2, shelf_slice)."""
+    rng = np.random.default_rng(seed)
+    fcut_range = np.geomspace(1e-5, 0.5, num=1000, endpoint=False)
+    if shelf:
+        parts = [
+            np.full(300, 1.00),
+            np.linspace(1.00, 0.85, 80),
+            np.linspace(0.85, 0.80, 150),      # shelf: proto-plateau
+            np.linspace(0.80, 0.05, 120),
+            np.linspace(0.05, 0.30, 350),      # rising tail
+        ]
+        shelf_slice = slice(380, 530)
+    else:
+        parts = [
+            np.full(300, 1.00),
+            np.linspace(1.00, 0.05, 350),      # single steep drop
+            np.linspace(0.05, 0.30, 350),
+        ]
+        shelf_slice = slice(0, 0)
+    r2 = np.concatenate(parts)
+    r2 += rng.normal(0, noise_scale, len(r2))
+    return fcut_range, r2, shelf_slice
+
+
+class TestDetectDips:
+    def test_finds_the_proto_plateau(self):
+        fcut_range, r2, shelf = staircase_curve(shelf=True)
+        dips = detect_dips(fcut_range, r2)
+        floors = [d['floor'] for d in dips]
+        assert any(shelf.start <= f < shelf.stop for f in floors)
+
+    def test_single_step_curve_has_no_dip(self):
+        fcut_range, r2, _ = staircase_curve(shelf=False)
+        assert detect_dips(fcut_range, r2) == []
+
+    def test_prominence_floor_rejects_the_shelf(self):
+        fcut_range, r2, _ = staircase_curve(shelf=True)
+        assert detect_dips(fcut_range, r2, min_prominence=0.9) == []
+
+    def test_level_guards_drop_the_collapse_floor(self):
+        # The rising tail turns at the global minimum, so a dip there
+        # would sit at level ~0; every accepted dip must clear level_min.
+        fcut_range, r2, _ = staircase_curve(shelf=True)
+        dips = detect_dips(fcut_range, r2)
+        assert all(d['level'] > 0.08 for d in dips)
+        assert all(d['level'] < 0.92 for d in dips)
+
+    def test_dips_are_before_the_global_minimum(self):
+        fcut_range, r2, _ = staircase_curve(shelf=True)
+        imin = int(np.argmin(r2))
+        assert all(d['floor'] < imin for d in detect_dips(fcut_range, r2))
+
+    def test_flat_curve_returns_empty(self):
+        fcut_range = np.geomspace(1e-5, 0.5, num=1000, endpoint=False)
+        r2 = np.full(1000, 0.5)
+        assert detect_dips(fcut_range, r2) == []
+
+    def test_mask_covers_the_basins(self):
+        fcut_range, r2, _ = staircase_curve(shelf=True)
+        dips = detect_dips(fcut_range, r2)
+        mask = dips_to_mask(fcut_range, dips)
+        assert mask.dtype == bool and len(mask) == len(fcut_range)
+        for dip in dips:
+            assert mask[dip['floor']]
+            assert mask[dip['start']:dip['end'] + 1].all()
+
+    def test_empty_dips_give_empty_mask(self):
+        fcut_range, r2, _ = staircase_curve(shelf=False)
+        mask = dips_to_mask(fcut_range, detect_dips(fcut_range, r2))
+        assert not mask.any()

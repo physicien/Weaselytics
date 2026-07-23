@@ -14,6 +14,7 @@ from weaselytics.baseline import (
     _r2_array_cached,
     _r2_cache_key,
     _relevant_regions,
+    _snr,
     auto_beads,
 )
 from weaselytics.utils import r2_dw
@@ -56,6 +57,25 @@ class TestRelevantRegions:
         peak_regions, sampling, scut = _relevant_regions(s, x)
         assert peak_regions is not None
         assert scut <= len(s)
+
+
+class TestSnr:
+    def test_high_for_analyte_low_for_blank(self):
+        # A tall peak on light noise is well above the gate; a flat
+        # trace of the same noise is well below it. The ~25 split must
+        # sit cleanly between them.
+        x = np.linspace(0, 10, 1000)
+        rng = np.random.default_rng(3)
+        peak = 5. * np.exp(-0.5 * ((x - 5.) / 0.1) ** 2)
+        peak += 0.01 * rng.normal(size=1000)
+        blank = 0.01 * rng.normal(size=1000)
+        assert _snr(peak) >= 25.
+        assert _snr(blank) < 25.
+
+    def test_constant_difference_signal_is_infinite(self):
+        # A perfectly linear ramp has constant consecutive differences,
+        # so the MAD-of-differences noise estimate is zero.
+        assert _snr(np.linspace(0., 1., 500)) == np.inf
 
 
 class TestFcutoffDegenerateCurves:

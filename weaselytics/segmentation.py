@@ -252,7 +252,9 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
                     n_used: int, c1: float = 0.5,
                     noise_floor: float = 4e-7,
                     cliff_min: float = 1.0,
-                    bridge: bool = True) -> np.ndarray:
+                    bridge: bool = True,
+                    exclude_collapse: bool = False,
+                    collapse_level: float = 0.5) -> np.ndarray:
     """
     Trim the flat segments into a mask of candidate plateau regions.
 
@@ -277,6 +279,17 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       (``rel_slope < cliff_min``), so drifting connectors do not split
       one plateau into several displayed pieces while genuine staircase
       steps still separate regions.
+    - **collapse exclusion** (optional): when ``exclude_collapse`` is
+      set, flat segments lying below ``collapse_level`` of the way up
+      the total r2 drop are removed. Past the collapse the baseline has
+      begun absorbing the analyte-correlated content, so for a signal
+      that *has* analyte a cutoff there destroys peak area and the
+      optimum cannot lie in it (Navarro-Huerta et al. 2017). Whether a
+      signal has analyte is a property of the signal, not the curve, so
+      the caller decides ``exclude_collapse`` from the signal-to-noise
+      ratio (a split at SNR ~25 separates the two at 95-100% on the
+      labeled and synthetic data); a blank leaves it off, and its low
+      shelves survive as legitimate candidates.
 
     On the 339-signal reference dataset, the trimmed mask contains the
     accepted cutoff frequency of every signal while covering half of
@@ -304,6 +317,15 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     bridge : bool, optional
         If True (default), absorb non-cliff segments lying between
         candidate regions.
+    exclude_collapse : bool, optional
+        If True, remove flat segments past the collapse (see the summary
+        above). The caller sets this from the signal-to-noise ratio.
+        Default is False.
+    collapse_level : float, optional
+        Relative level of the total r2 drop below which a flat segment
+        is considered past the collapse, in [0, 1] (1 = plateau top,
+        0 = collapse floor). Only used when ``exclude_collapse``.
+        Default is 0.5.
 
     Returns
     -------
@@ -314,6 +336,12 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     """
     cand = [seg['flat'] and seg['rel_noise'] > noise_floor
             for seg in segments]
+    if exclude_collapse and segments:
+        means = [seg['mean'] for seg in segments]
+        r2_max, r2_min = max(means), min(means)
+        thr = r2_min + collapse_level * (r2_max - r2_min)
+        cand = [c and (seg['mean'] >= thr)
+                for c, seg in zip(cand, segments)]
     if bridge:
         for k in range(1, len(segments) - 1):
             if (not cand[k] and segments[k]['rel_slope'] < cliff_min

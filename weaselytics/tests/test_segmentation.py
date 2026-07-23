@@ -181,6 +181,19 @@ class TestTrimCandidates:
         # the last, noise-free stretch must not be a candidate
         assert not candidates[-100:].any()
 
+    def test_collapse_exclusion_removes_low_plateau(self):
+        # The curve has a high shelf (r2 ~ 0.72) and a low live-tail
+        # plateau (r2 ~ 0.3) past the drop. Without the gate both are
+        # candidates; with it, the low plateau is removed as past the
+        # collapse while the high shelf survives.
+        fcut_range, y, segments = self._curve()
+        base = trim_candidates(fcut_range, segments, 1000)
+        assert base[600]                      # low live tail, kept
+        excl = trim_candidates(fcut_range, segments, 1000,
+                               exclude_collapse=True)
+        assert not excl[600]                  # low live tail, dropped
+        assert excl[400]                      # high shelf, survives
+
     def test_shelf_remains_candidate(self):
         fcut_range, y, segments = self._curve()
         candidates = trim_candidates(fcut_range, segments, 1000)

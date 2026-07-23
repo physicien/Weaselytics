@@ -147,6 +147,38 @@ def _relevant_regions(
         scut = len(s)
     return peak_regions, sampling, scut
 
+def _snr(s: np.ndarray) -> float:
+    """
+    Robust signal-to-noise ratio of a chromatogram.
+
+    Defined as the tallest excursion above the median divided by the
+    noise, with the noise estimated from the median absolute deviation
+    of the consecutive differences (so it is not inflated by the peaks
+    themselves). This scalar carries the analyte-vs-baseline information
+    the autocorrelation curve does not: a split near 25 separates the
+    signals whose optimum sits at the shoulder from those whose optimum
+    lies past the collapse, at 95% on the synthetic benchmark and 100%
+    on the labeled real data.
+
+    Parameters
+    ----------
+    s : array-like, shape (N,)
+        The measured chromatogram.
+
+    Returns
+    -------
+    snr : float
+        The signal-to-noise ratio; ``inf`` if the noise estimate is
+        zero, which happens only when the consecutive differences are
+        constant (a flat or perfectly linear trace).
+
+    """
+    diffs = np.diff(s)
+    noise = 1.4826 * np.median(np.abs(diffs - np.median(diffs))) / np.sqrt(2)
+    if noise <= 0:
+        return np.inf
+    return float((np.max(s) - np.median(s)) / noise)
+
 def _log_transform(s: np.ndarray, epsilon: float = 1) -> np.ndarray:
     """
     Log transformation used in the calculation of the autocorrelation for the
@@ -635,7 +667,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             num: int = 1000,
             method: str = "beads", param: str = "freq_cutoff",
             cache_dir: str | None = None, path: str = "./file.txt",
-            workers: int = 1, **kwargs
+            workers: int = 1, snr_threshold: float = 25.0, **kwargs
             ) -> tuple[float, int, dict]:
     """
     Find the optimal cutoff frequency.
@@ -690,6 +722,10 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     workers : int, optional
         Number of worker processes used to parallelize the r2 sweep.
         Default is 1 (serial).
+    snr_threshold : float, optional
+        Signal-to-noise ratio above which the collapsed plateaus are
+        excluded from the candidate regions (see `_snr` and
+        `trim_candidates`). Default is 25.
     **kwargs
         Additional keyword arguments.
 
@@ -752,9 +788,15 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     # Changepoint-based prototype (issue #4), for diagnostics only: the
     # trimmed candidate plateau regions are overlaid on the r2
     # diagnostic plot for comparison. The selected fcut is unaffected.
+    # Signal-to-noise ratio gates the collapse exclusion: on a signal
+    # with analyte (high SNR) the optimum sits at the shoulder and the
+    # collapsed low shelves are impossible, so they are trimmed; on a
+    # blank (low SNR) they survive as legitimate candidates.
+    snr = _snr(s)
     cp_segments = classify_segments(
         segment_features(fcut_range, r2_val, pelt_linear(r2_val)))
-    cp_candidates = trim_candidates(fcut_range, cp_segments, len(z))
+    cp_candidates = trim_candidates(fcut_range, cp_segments, len(z),
+                                    exclude_collapse=snr >= snr_threshold)
     cp_refined = refine_candidates(fcut_range, cp_candidates)
     #####
 
@@ -910,7 +952,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
                fit_parabola: bool = True, alpha: float | None = None,
                parabola_len: int | None = 3,
                cache_dir: str | None = None,
-               workers: int = 1
+               workers: int = 1, snr_threshold: float = 25.0
                ) -> tuple[np.ndarray, dict, int]:
     """
     Automatic implementation of the Baseline estimation and denoising with
@@ -975,6 +1017,13 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         Number of worker processes used to parallelize the autocorrelation
         sweep that selects `freq_cutoff`. Default is 1 (serial). Only
         relevant when `freq_cutoff` is None.
+    snr_threshold : float, optional
+        Signal-to-noise ratio (see `_snr`) above which the collapsed
+        plateaus past the r2 drop are excluded from the candidate cutoff
+        regions, because on a signal with analyte a cutoff there destroys
+        peak area. Below it the shelves are kept, as a blank's optimum
+        can lie past the collapse. Default is 25. Only relevant when
+        `freq_cutoff` is None.
 
     Returns
     -------
@@ -1042,7 +1091,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     if freq_cutoff is None:
         fcut, case, plot_data = _fcutoff(
             s, x, scut, method=method, cache_dir=cache_dir, path=path,
-            workers=workers, **method_kwargs)
+            workers=workers, snr_threshold=snr_threshold, **method_kwargs)
     else:
         if ((freq_cutoff <= 0) or (freq_cutoff >= 0.5)):
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")

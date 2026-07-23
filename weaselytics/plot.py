@@ -201,12 +201,13 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                         transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
 
-    # Changepoint prototype overlay (issue #4): the full flat set
-    # (drawn first, beneath the trimmed candidates) so the two compare.
+    # Changepoint prototype overlay (issue #4): the full flat set from
+    # classify_segments, hatched purple.
     if cp_flat is not None:
         axs[0].fill_between(x, 0, 1,
                             where=cp_flat,
-                            color="tab:blue", alpha=0.15,
+                            color="none", ec="tab:purple", alpha=0.3,
+                            hatch="\\\\", hatch_linewidth=2,
                             label='CP flat',
                             transform=axs[0].get_xaxis_transform())
     # trimmed candidate plateau regions

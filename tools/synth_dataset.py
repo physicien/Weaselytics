@@ -124,7 +124,8 @@ def gauss_peak(t: np.ndarray, tc: float, sigma: float,
 
 def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
                        rng: np.random.Generator,
-                       pos_height: tuple[float, float] = (1., 4.)
+                       pos_height: tuple[float, float] = (1., 4.),
+                       neg_abs: tuple[float, float] | None = None
                        ) -> tuple[np.ndarray, list[dict]]:
     """
     Bipolar injection artifact at the dead time.
@@ -146,8 +147,13 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
     rng : numpy.random.Generator
         Source of randomness.
     pos_height : (float, float), optional
-        Range of the positive-spike height. The negative lobe is
-        0.5-2x this. Default ``(1., 4.)`` matches the LPYE data.
+        Range of the positive-spike height. Default ``(1., 4.)``
+        matches the LPYE data.
+    neg_abs : (float, float), optional
+        Absolute range of the negative-lobe depth. If given, the dip is
+        drawn from it directly rather than as a multiple of the positive
+        spike; used to cap the native dip at the measured real maximum
+        (~1.2 mV). Default None keeps the 0.5-2x relative scaling.
 
     Returns
     -------
@@ -166,7 +172,8 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
                 'height': pos_h, 'fwhm_points': pos_fwhm, 'artifact': True}]
 
     neg_fwhm = pos_fwhm * rng.uniform(1.2, 2.5)
-    neg_h = pos_h * rng.uniform(0.5, 2.0)
+    neg_h = rng.uniform(*neg_abs) if neg_abs else pos_h * rng.uniform(0.5,
+                                                                      2.0)
     neg_sigma = neg_fwhm * dt / _FWHM_PER_SIGMA
     neg_tc = t0 + rng.uniform(1.0, 2.0) * pos_sigma
     contrib = contrib - emg_peak(t, neg_tc, neg_sigma, neg_sigma * 0.5,
@@ -178,8 +185,8 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
 
 
 def make_baseline(t: np.ndarray, kind: str,
-                  rng: np.random.Generator, t0: float | None = None
-                  ) -> np.ndarray:
+                  rng: np.random.Generator, t0: float | None = None,
+                  is_blank: bool = False) -> np.ndarray:
     """
     Build the slowly varying baseline of a ``native`` signal.
 
@@ -205,6 +212,11 @@ def make_baseline(t: np.ndarray, kind: str,
         Dead time. If given, a small step in the baseline level is
         placed across it, as the real blanks show (the baseline settles
         at a different level after the injection).
+    is_blank : bool, optional
+        If True, the large gradient hump is omitted and the exp/drift
+        amplitudes are reduced: the real blanks are nearly flat (smoothed
+        baseline p2p 0.33 mV median, 0.75 max), whereas gradient runs
+        with analytes may carry a larger solvent-programme baseline.
 
     Returns
     -------
@@ -223,13 +235,17 @@ def make_baseline(t: np.ndarray, kind: str,
         b += step_h * 0.5 * (1. + np.tanh((t - t0) / (0.05 * span)))
     if kind in ('exp', 'exp_hump_drift'):
         tau = rng.uniform(0.10, 0.30) * span
-        b += rng.uniform(0.3, 1.5) * np.exp(-(t - t[0]) / tau)
-    if kind in ('hump', 'exp_hump_drift'):
+        exp_amp = rng.uniform(0.1, 0.4) if is_blank else rng.uniform(0.3, 1.5)
+        b += exp_amp * np.exp(-(t - t[0]) / tau)
+    # The gradient hump is a solvent-programme feature: blanks do not
+    # carry it (their baseline is flat plus drift plus the wander below).
+    if kind in ('hump', 'exp_hump_drift') and not is_blank:
         center = t[0] + rng.uniform(0.35, 0.70) * span
         width = rng.uniform(0.15, 0.30) * span
         b += rng.uniform(0.3, 1.2) * np.exp(-0.5 * ((t - center) / width)**2)
     if kind == 'exp_hump_drift':
-        b += rng.uniform(-1., 1.) * (t - t[0]) / span
+        drift = rng.uniform(-0.4, 0.4) if is_blank else rng.uniform(-1., 1.)
+        b += drift * (t - t[0]) / span
 
     # Mid-frequency wander (pump, thermal and detector fluctuations),
     # which every real baseline carries and the slow components above
@@ -346,8 +362,12 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
     # The dead-time injection artifact (bipolar; see dead_time_artifact).
     # On many real blanks the negative lobe is the largest excursion in
     # the whole trace, down to -1.2 mV on a 0.6 mV blank.
+    # The negative dip is capped at the measured real maximum (~1.2 mV);
+    # without the cap the relative scaling produced dips to -2.7 mV that
+    # the real data never shows.
     contrib, entries = dead_time_artifact(t, t0, dt, rng,
-                                          pos_height=(1., 4.))
+                                          pos_height=(1., 4.),
+                                          neg_abs=(0.3, 1.4))
     signal += contrib
     peaks += entries
     # For blanks, a few small ghost/carryover peaks along the run, so a
@@ -400,7 +420,8 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
                       'height': height, 'fwhm_points': fwhm / dt,
                       'artifact': False})
 
-    baseline = make_baseline(t, baseline_case, rng, t0=t0)
+    baseline = make_baseline(t, baseline_case, rng, t0=t0,
+                             is_blank=(n_peaks == 0))
     noise = rng.normal(0., noise_sigma, n)
     return {'x': t, 'y': signal + baseline + noise, 'signal': signal,
             'baseline': baseline, 'noise': noise, 'peaks': peaks}

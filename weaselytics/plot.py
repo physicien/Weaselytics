@@ -114,6 +114,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
              freq_cutoff: float, fcut_r2: float, case: int = 0,
              cp_candidates: np.ndarray | None = None,
              cp_refined: np.ndarray | None = None,
+             cp_flat: np.ndarray | None = None,
              show_plot: bool = False, print_plot: bool = False,
              path: str = "./file.txt",
              output_dir: str = "results") -> None:
@@ -166,6 +167,11 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         ``segmentation.refine_candidates``, overlaid as orange hatching
         (opposite direction to the candidate hatching) on top of the
         candidate regions. Default is None, which disables the overlay.
+    cp_flat : array-like, shape (N,), dtype bool, optional
+        Mask of the full flat set from ``segmentation.classify_segments``
+        (before any trimming), drawn as a light solid blue fill beneath
+        the candidate hatching so the two can be compared. Default is
+        None, which disables the overlay.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
     print_plot : bool, optional
@@ -195,8 +201,15 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                         transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
 
-    # Changepoint prototype overlay (issue #4): trimmed candidate
-    # plateau regions
+    # Changepoint prototype overlay (issue #4): the full flat set
+    # (drawn first, beneath the trimmed candidates) so the two compare.
+    if cp_flat is not None:
+        axs[0].fill_between(x, 0, 1,
+                            where=cp_flat,
+                            color="tab:blue", alpha=0.15,
+                            label='CP flat',
+                            transform=axs[0].get_xaxis_transform())
+    # trimmed candidate plateau regions
     if cp_candidates is not None:
         axs[0].fill_between(x, 0, 1,
                             where=cp_candidates,

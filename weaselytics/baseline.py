@@ -798,6 +798,11 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     cp_candidates = trim_candidates(fcut_range, cp_segments, len(z),
                                     exclude_collapse=snr >= snr_threshold)
     cp_refined = refine_candidates(fcut_range, cp_candidates)
+    # Full flat set (before trimming), for the diagnostic overlay.
+    cp_flat = np.zeros(len(fcut_range), dtype=bool)
+    for seg in cp_segments:
+        if seg['flat']:
+            cp_flat[seg['start']:seg['end']] = True
     #####
 
     ##########################################################################
@@ -939,6 +944,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "case": case,
         "cp_candidates": cp_candidates,
         "cp_refined": cp_refined,
+        "cp_flat": cp_flat,
     }
     return fcut, case, plot_data
 
@@ -1112,6 +1118,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             case=plot_data["case"],
             cp_candidates=plot_data["cp_candidates"],
             cp_refined=plot_data["cp_refined"],
+            cp_flat=plot_data["cp_flat"],
             show_plot=show_plot, print_plot=print_plot,
             path=path, output_dir=output_dir,
         )

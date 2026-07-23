@@ -110,6 +110,40 @@ def emg_peak(t: np.ndarray, tc: float, sigma: float, tau: float,
     return height * shape / peak_max
 
 
+def broadening_factor(tc: float, t0: float, t_end: float,
+                      g: float) -> float:
+    """
+    Peak-width growth factor with retention time.
+
+    At a constant plate number the peak standard deviation grows with
+    the retention time (time since injection at ``t0``): plate theory
+    gives sigma = tR / sqrt(N), so a late eluter is several times
+    broader than an early one. Parametrised here as ``1 + g * r`` with
+    ``r`` the retention fraction from the dead time to the run end, so
+    the factor is 1 at ``t0`` and ``1 + g`` at ``t_end``.
+
+    Parameters
+    ----------
+    tc : float
+        Peak centre (retention time), minutes.
+    t0 : float
+        Dead time, minutes.
+    t_end : float
+        End of the run, minutes.
+    g : float
+        Growth strength; the last eluter is ``1 + g`` times broader
+        than one at the dead time.
+
+    Returns
+    -------
+    factor : float
+        Multiplicative width factor, at least 1.
+
+    """
+    r = np.clip((tc - t0) / max(t_end - t0, 1e-9), 0., 1.)
+    return 1. + g * r
+
+
 def gauss_peak(t: np.ndarray, tc: float, sigma: float,
                height: float) -> np.ndarray:
     """
@@ -404,13 +438,19 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
     # width ratio set by the retention ratio (the hard regime the real
     # dataset shows).
     n_plates = rng.uniform(3000., 12000.)
+    broaden_g = rng.uniform(2., 4.)
+    # One base width per signal, so the retention growth is the dominant
+    # trend rather than being swamped by per-peak scatter; a mild
+    # per-peak jitter keeps the compounds from being identical.
+    base_fwhm = None if fwhm_pts is None else rng.uniform(*fwhm_pts) * dt
     for tc in centers:
         if fwhm_pts is None:
-            sigma = tc / np.sqrt(n_plates)
+            # isocratic: the pure plate model, sigma proportional to the
+            # retention time from injection.
+            sigma = max(tc - t0, dt) / np.sqrt(n_plates)
         else:
-            fwhm = rng.uniform(*fwhm_pts) * dt
-            # widths grow mildly along the run
-            fwhm *= 1. + 1.5 * (tc / t[-1])
+            fwhm = (base_fwhm * broadening_factor(tc, t0, t[-1], broaden_g)
+                    * rng.uniform(0.85, 1.15))
             sigma = fwhm / _FWHM_PER_SIGMA
         fwhm = sigma * _FWHM_PER_SIGMA
         tau = rng.uniform(0.3, 1.2) * sigma
@@ -497,8 +537,11 @@ def lit_signal(n: int, peak_case: str, baseline_case: str,
     # Analytes elute after the dead time.
     lo = min(t0 + 0.02 * t[-1], 0.9 * t[-1])
     centers = np.sort(rng.uniform(lo, 0.97 * t[-1], n_peaks))
+    broaden_g = rng.uniform(2., 4.)
+    base_fwhm = rng.uniform(*fwhm_pts) * dt
     for tc in centers:
-        fwhm = rng.uniform(*fwhm_pts) * dt
+        fwhm = (base_fwhm * broadening_factor(tc, t0, t[-1], broaden_g)
+                * rng.uniform(0.85, 1.15))
         sigma = fwhm / _FWHM_PER_SIGMA
         height = np.exp(rng.uniform(np.log(1.), np.log(30.)))
         signal += gauss_peak(t, tc, sigma, height)

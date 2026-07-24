@@ -198,7 +198,8 @@ def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
 
 
 def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
-                      s: np.ndarray, snr_threshold: float = 25.0
+                      s: np.ndarray, snr_threshold: float = 25.0,
+                      c1: float = 0.5
                       ) -> tuple[list[np.ndarray], dict]:
     """
     Regions surviving the stage-1 trimming, plus the overlay masks.
@@ -220,7 +221,7 @@ def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
     dips = detect_dips(fcut_range, r2)
     high_snr = _snr(s) >= snr_threshold
     masks = trim_plateaus(fcut_range, segments, dips, n_used,
-                          exclude_collapse=high_snr)
+                          exclude_collapse=high_snr, c1=c1)
     cp_flat = np.zeros(len(fcut_range), dtype=bool)
     for seg in segments:
         if seg['flat']:
@@ -410,7 +411,7 @@ def plot_r2(fcut_range: np.ndarray, r2: np.ndarray,
 def process_signal(data_path: str, cache_path: str, out_root: str,
                    ratio: float, dpi: int, trim: bool = False,
                    survive: bool = False,
-                   snr_threshold: float = 25.0) -> dict:
+                   snr_threshold: float = 25.0, c1: float = 0.5) -> dict:
     """
     Render the whole fcut gallery of one signal.
 
@@ -447,7 +448,7 @@ def process_signal(data_path: str, cache_path: str, out_root: str,
         fcut_range, r2 = load_curve(cache_path)
         if survive:
             regions, overlay = surviving_regions(fcut_range, r2, n_used, y,
-                                                 snr_threshold)
+                                                 snr_threshold, c1)
         else:
             regions = candidate_regions(fcut_range, r2, n_used, trim=trim)
             overlay = None
@@ -545,6 +546,10 @@ def main() -> None:
     parser.add_argument("--snr-threshold", type=float, default=25.0,
                         help="SNR above which the collapse exclusion is "
                              "applied under --survive (default: 25)")
+    parser.add_argument("--c1", type=float, default=0.5,
+                        help="sub-fundamental clip factor for --survive: "
+                             "cutoffs below c1/n_used are trimmed on the "
+                             "stiff (low-frequency) side (default: 0.5)")
     parser.add_argument("-w", "--workers", type=int, default=1,
                         help="number of worker processes (default: 1)")
     parser.add_argument("--dpi", type=int, default=200,
@@ -580,7 +585,8 @@ def main() -> None:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             futures = [pool.submit(process_signal, d, c, args.output_dir,
                                    args.ratio, args.dpi, args.trim,
-                                   args.survive, args.snr_threshold)
+                                   args.survive, args.snr_threshold,
+                                   args.c1)
                        for d, c in jobs]
             for done, future in enumerate(as_completed(futures), 1):
                 summary = future.result()
@@ -591,7 +597,8 @@ def main() -> None:
         for done, (data_path, cache_path) in enumerate(jobs, 1):
             summary = process_signal(data_path, cache_path, args.output_dir,
                                      args.ratio, args.dpi, args.trim,
-                                     args.survive, args.snr_threshold)
+                                     args.survive, args.snr_threshold,
+                                     args.c1)
             summaries.append(summary)
             print(f"[{done:3d}/{len(jobs)}] {summary['stem']} "
                   f"{summary['n_images']} images {summary['error']}")

@@ -496,6 +496,94 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     return candidates
 
 
+def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
+                  dips: list[dict], n_used: int,
+                  exclude_collapse: bool = False, c1: float = 0.5,
+                  collapse_level: float = 0.5) -> dict[str, np.ndarray]:
+    """
+    Stage-1 trimming of the detected plateau selection.
+
+    The detected selection is the union of the flat set
+    (``classify_segments``, the strong and initial plateaus) and the
+    proto-plateau basins (``detect_dips``, the relative flattenings the
+    flat test misses). This applies the a-priori exclusions to it:
+
+    - the sub-fundamental clip and the frozen tail, always (via
+      ``trim_candidates`` on the flat set; the dips only get the clip,
+      as they lie on the descent above the frozen tail);
+    - the SNR-gated collapse exclusion, only when ``exclude_collapse``.
+      Past the collapse a cutoff destroys analyte peak area
+      (Navarro-Huerta et al. 2017), so for a signal that *has* analyte
+      the plateaus/proto-plateaus below ``collapse_level`` of the drop
+      are removed; a blank keeps them. Whether a signal has analyte is a
+      property of the signal, not the curve, so the caller sets
+      ``exclude_collapse`` from the signal-to-noise ratio.
+
+    This is the single source of the trimming: both the diagnostic
+    overlay (``baseline.auto_beads``) and the fcut gallery use it, so the
+    surviving regions cannot drift between them.
+
+    Parameters
+    ----------
+    fcut_range : array-like, shape (N,)
+        The (geometrically spaced) cutoff frequencies.
+    segments : list of dict
+        The classified segments from ``classify_segments``.
+    dips : list of dict
+        The proto-plateau dips from ``detect_dips``.
+    n_used : int
+        Number of signal points used for the autocorrelation sweep.
+    exclude_collapse : bool, optional
+        If True, apply the SNR-gated collapse exclusion. The caller sets
+        this from the signal-to-noise ratio. Default is False.
+    c1 : float, optional
+        Safety factor of the sub-fundamental clip. Default is 0.5.
+    collapse_level : float, optional
+        Relative level of the total drop below which a plateau is past
+        the collapse, in [0, 1]. Only used when ``exclude_collapse``.
+        Default is 0.5.
+
+    Returns
+    -------
+    masks : dict of numpy.ndarray, dtype bool
+        ``surviving`` — regions that survive every applied exclusion;
+        ``removed`` — detected regions cut by the clip and frozen tail;
+        ``snr_removed`` — the extra cut by the collapse exclusion beyond
+        ``removed`` (all False when ``exclude_collapse`` is False).
+
+    """
+    cp_flat = np.zeros(len(fcut_range), dtype=bool)
+    for seg in segments:
+        if seg['flat']:
+            cp_flat[seg['start']:seg['end']] = True
+    cp_dips = dips_to_mask(fcut_range, dips)
+    union = cp_flat | cp_dips
+    sub_fund = fcut_range >= c1 / n_used
+
+    # No bridging: bridging absorbs the non-cliff connector between two
+    # candidate regions, which on a gentle (e.g. blank) descent merges a
+    # plateau and a lower shelf into one region, so the sampling then
+    # lands on the descent *between* the plateaus. The surviving set must
+    # keep the plateaus separate.
+    flat_12 = trim_candidates(fcut_range, segments, n_used, c1=c1,
+                              bridge=False, exclude_collapse=False)
+    trimmed_12 = flat_12 | (cp_dips & sub_fund)
+    removed = union & ~trimmed_12
+
+    if exclude_collapse:
+        flat_123 = trim_candidates(fcut_range, segments, n_used, c1=c1,
+                                   bridge=False, exclude_collapse=True,
+                                   collapse_level=collapse_level)
+        dips_123 = dips_to_mask(
+            fcut_range, [d for d in dips if d['level'] >= collapse_level])
+        trimmed_123 = flat_123 | (dips_123 & sub_fund)
+    else:
+        trimmed_123 = trimmed_12
+    snr_removed = trimmed_12 & ~trimmed_123
+    return {'surviving': trimmed_123, 'removed': removed,
+            'snr_removed': snr_removed}
+
+
 def refine_candidates(fcut_range: np.ndarray, candidates: np.ndarray,
                       min_width: float = 0.5, left_cut: float = 0.12,
                       right_cut: float = 0.55) -> np.ndarray:

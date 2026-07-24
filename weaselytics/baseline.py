@@ -19,9 +19,8 @@ from weaselytics.segmentation import (
     detect_dips,
     dips_to_mask,
     pelt_linear,
-    refine_candidates,
     segment_features,
-    trim_candidates,
+    trim_plateaus,
 )
 from weaselytics.utils import (
     continuous_ranges,
@@ -788,29 +787,31 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         test3 = np.zeros(len(r2_val))
 
     # Changepoint-based prototype (issue #4), for diagnostics only: the
-    # trimmed candidate plateau regions are overlaid on the r2
-    # diagnostic plot for comparison. The selected fcut is unaffected.
-    # Signal-to-noise ratio gates the collapse exclusion: on a signal
-    # with analyte (high SNR) the optimum sits at the shoulder and the
-    # collapsed low shelves are impossible, so they are trimmed; on a
-    # blank (low SNR) they survive as legitimate candidates.
-    snr = _snr(s)
+    # detected plateaus/proto-plateaus and the stage-1 trimming are
+    # overlaid on the r2 diagnostic plot. The selected fcut is unaffected.
     cp_segments = classify_segments(
         segment_features(fcut_range, r2_val, pelt_linear(r2_val)))
-    cp_candidates = trim_candidates(fcut_range, cp_segments, len(z),
-                                    exclude_collapse=snr >= snr_threshold)
-    cp_refined = refine_candidates(fcut_range, cp_candidates)
-    # Full flat set (before trimming), for the diagnostic overlay.
+    # Full flat set and proto-plateaus; their union is the detected
+    # plateau selection (strong and initial plateaus, plus the relative
+    # flattenings the absolute flat test misses, detected as dips of the
+    # rolling standard deviation).
     cp_flat = np.zeros(len(fcut_range), dtype=bool)
     for seg in cp_segments:
         if seg['flat']:
             cp_flat[seg['start']:seg['end']] = True
-    # Proto-plateaus: the relative flattenings the absolute flat test
-    # misses, detected as dips of the rolling standard deviation. The
-    # detected plateau selection is the union of the flat set (strong and
-    # initial plateaus) and the proto-plateau basins.
-    cp_dips = dips_to_mask(fcut_range, detect_dips(fcut_range, r2_val))
+    cp_detected_dips = detect_dips(fcut_range, r2_val)
+    cp_dips = dips_to_mask(fcut_range, cp_detected_dips)
     cp_plateaus = cp_flat | cp_dips
+    # Stage-1 trimming (single source: segmentation.trim_plateaus). The
+    # sub-fundamental clip (#1) and frozen tail (#2) give `cp_removed`
+    # (drawn red). The SNR-gated collapse exclusion (#3) is computed as a
+    # PREVIEW overlay only (`cp_snr_removed`, dark red); it is not yet
+    # applied to the selection.
+    cp_trim = trim_plateaus(fcut_range, cp_segments, cp_detected_dips,
+                            len(z), exclude_collapse=_snr(s) >= snr_threshold)
+    cp_surviving = cp_trim['surviving']
+    cp_removed = cp_trim['removed']
+    cp_snr_removed = cp_trim['snr_removed']
     #####
 
     ##########################################################################
@@ -950,11 +951,12 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "fcut": fcut,
         "fi_r2_val": fi_r2_val,
         "case": case,
-        "cp_candidates": cp_candidates,
-        "cp_refined": cp_refined,
         "cp_flat": cp_flat,
         "cp_dips": cp_dips,
         "cp_plateaus": cp_plateaus,
+        "cp_surviving": cp_surviving,
+        "cp_removed": cp_removed,
+        "cp_snr_removed": cp_snr_removed,
     }
     return fcut, case, plot_data
 
@@ -1128,6 +1130,8 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             case=plot_data["case"],
             cp_flat=plot_data["cp_flat"],
             cp_dips=plot_data["cp_dips"],
+            cp_removed=plot_data["cp_removed"],
+            cp_snr_removed=plot_data["cp_snr_removed"],
             show_plot=show_plot, print_plot=print_plot,
             path=path, output_dir=output_dir,
         )

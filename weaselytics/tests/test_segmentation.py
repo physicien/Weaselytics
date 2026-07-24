@@ -10,6 +10,7 @@ from weaselytics.segmentation import (
     segment_features,
     select_fcut,
     trim_candidates,
+    trim_plateaus,
 )
 
 
@@ -335,3 +336,57 @@ class TestDetectDips:
         fcut_range, r2, _ = staircase_curve(shelf=False)
         mask = dips_to_mask(fcut_range, detect_dips(fcut_range, r2))
         assert not mask.any()
+
+
+class TestTrimPlateaus:
+    def _curve(self):
+        """p_ini, cliff, shelf, cliff, low live tail, frozen tail — with
+        a proto-plateau shelf that detect_dips picks up."""
+        rng = np.random.default_rng(12)
+        parts = [
+            np.full(300, 1.0),
+            np.linspace(1.0, 0.8, 30),
+            np.linspace(0.8, 0.65, 150),
+            np.linspace(0.65, 0.3, 40),
+            np.full(180, 0.3),
+        ]
+        y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
+        y = np.concatenate([y, np.full(300, 0.3)])   # frozen tail
+        fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
+        segments = classify_segments(
+            segment_features(fcut_range, y, pelt_linear(y)))
+        dips = detect_dips(fcut_range, y)
+        return fcut_range, y, segments, dips
+
+    def test_no_snr_removed_without_collapse(self):
+        fcut_range, y, segments, dips = self._curve()
+        masks = trim_plateaus(fcut_range, segments, dips, 1000,
+                              exclude_collapse=False)
+        assert not masks['snr_removed'].any()
+
+    def test_surviving_disjoint_from_removed(self):
+        fcut_range, y, segments, dips = self._curve()
+        for excl in (False, True):
+            masks = trim_plateaus(fcut_range, segments, dips, 1000,
+                                  exclude_collapse=excl)
+            assert not (masks['surviving'] & masks['removed']).any()
+            assert not (masks['surviving'] & masks['snr_removed']).any()
+
+    def test_sub_fundamental_is_removed(self):
+        fcut_range, y, segments, dips = self._curve()
+        n_used = 1000
+        masks = trim_plateaus(fcut_range, segments, dips, n_used)
+        sub = fcut_range < 0.5 / n_used
+        # nothing below the fundamental survives ...
+        assert not masks['surviving'][sub].any()
+
+    def test_collapse_removes_the_low_tail(self):
+        # The low live tail (r2 ~ 0.3) is past the collapse; with the
+        # gate on it must move into snr_removed and out of surviving.
+        fcut_range, y, segments, dips = self._curve()
+        off = trim_plateaus(fcut_range, segments, dips, 1000,
+                            exclude_collapse=False)
+        on = trim_plateaus(fcut_range, segments, dips, 1000,
+                           exclude_collapse=True)
+        assert off['surviving'][600] and not on['surviving'][600]
+        assert on['snr_removed'][600]

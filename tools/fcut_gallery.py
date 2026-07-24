@@ -53,13 +53,20 @@ import numpy as np  # noqa: E402
 import seaborn as sns  # noqa: E402
 from pybaselines import Baseline  # noqa: E402
 
-from weaselytics.baseline import _custom_beads, _relevant_regions  # noqa: E402
+from weaselytics.baseline import (  # noqa: E402
+    _custom_beads,
+    _relevant_regions,
+    _snr,
+)
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
     classify_segments,
+    detect_dips,
+    dips_to_mask,
     pelt_linear,
     segment_features,
     trim_candidates,
+    trim_plateaus,
 )
 
 #: Columns of the per-signal index. The last one is left empty on
@@ -131,6 +138,15 @@ def existing_labels(path: str) -> dict[str, str]:
 C1 = 0.5
 
 
+def _mask_regions(mask: np.ndarray) -> list[np.ndarray]:
+    """Split a boolean mask into its contiguous index runs."""
+    idx = np.flatnonzero(mask)
+    if idx.size == 0:
+        return []
+    breaks = np.flatnonzero(np.diff(idx) > 1)
+    return np.split(idx, breaks + 1)
+
+
 def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
                       n_used: int, trim: bool = False) -> list[np.ndarray]:
     """
@@ -178,11 +194,42 @@ def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
     segments = classify_segments(
         segment_features(fcut_range, r2, pelt_linear(r2)))
     mask = trim_candidates(fcut_range, segments, n_used)
-    idx = np.flatnonzero(mask)
-    if idx.size == 0:
-        return []
-    breaks = np.flatnonzero(np.diff(idx) > 1)
-    return np.split(idx, breaks + 1)
+    return _mask_regions(mask)
+
+
+def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
+                      s: np.ndarray, snr_threshold: float = 25.0
+                      ) -> tuple[list[np.ndarray], dict]:
+    """
+    Regions surviving the stage-1 trimming, plus the overlay masks.
+
+    Uses ``segmentation.trim_plateaus`` (the same trimming as the
+    diagnostic overlay) so the gallery and the diagnostic cannot drift.
+    The collapse exclusion needs the signal-to-noise ratio, hence ``s``.
+
+    Returns
+    -------
+    regions : list of numpy.ndarray
+        The contiguous index runs of the surviving mask.
+    overlay : dict of numpy.ndarray
+        ``cp_flat``, ``cp_dips``, ``cp_removed`` and ``cp_snr_removed``
+        masks, for the r2 summary figure.
+    """
+    segments = classify_segments(
+        segment_features(fcut_range, r2, pelt_linear(r2)))
+    dips = detect_dips(fcut_range, r2)
+    high_snr = _snr(s) >= snr_threshold
+    masks = trim_plateaus(fcut_range, segments, dips, n_used,
+                          exclude_collapse=high_snr)
+    cp_flat = np.zeros(len(fcut_range), dtype=bool)
+    for seg in segments:
+        if seg['flat']:
+            cp_flat[seg['start']:seg['end']] = True
+    overlay = {"cp_flat": cp_flat,
+               "cp_dips": dips_to_mask(fcut_range, dips),
+               "cp_removed": masks['removed'],
+               "cp_snr_removed": masks['snr_removed']}
+    return _mask_regions(masks['surviving']), overlay
 
 
 def sample_regions(fcut_range: np.ndarray, regions: list[np.ndarray],
@@ -278,7 +325,7 @@ def plot_baseline(x: np.ndarray, y: np.ndarray, bl: np.ndarray,
 def plot_r2(fcut_range: np.ndarray, r2: np.ndarray,
             regions: list[np.ndarray], samples: list[tuple[int, int]],
             title: str, out_path: str, dpi: int = 100,
-            show_regions: bool = False) -> None:
+            show_regions: bool = False, overlay: dict | None = None) -> None:
     """
     Save the r2 curve with the candidate regions and the sampled cutoffs.
 
@@ -296,34 +343,64 @@ def plot_r2(fcut_range: np.ndarray, r2: np.ndarray,
         Path of the image file to write.
     dpi : int, optional
         Resolution of the exported image. Default is 100.
+    show_regions : bool, optional
+        Draw the plain candidate hatching (trimmed gallery). Default
+        False.
+    overlay : dict, optional
+        The detection/trimming masks (``cp_flat``, ``cp_dips``,
+        ``cp_removed``, ``cp_snr_removed``) of the surviving-trim
+        gallery, drawn exactly as on the diagnostic r2 top panel so the
+        summary shows what was detected and what the trimming removed.
+        Default None.
 
     """
     fig, ax = plt.subplots(figsize=(9.4, 4.5))
-    ax.semilogx(fcut_range, r2, marker=".", ls="", ms=3, label=r"$r^2$")
-    # The candidate hatching is drawn only when the sampling was
-    # actually restricted to those regions. On an untrimmed gallery the
-    # whole grid is one region, and shading it would tell the labeller
-    # where the machinery expects the answer -- which is precisely the
-    # anchoring the untrimmed gallery exists to avoid.
-    if show_regions:
+    tr = ax.get_xaxis_transform()
+    if overlay is not None:
+        # Same layers as baseline.r2_plots: detected plateaus (purple)
+        # and proto-plateaus (orange), with the trimmed (red) and the
+        # SNR-collapse-trimmed (dark-red hatch) marked on top.
+        ax.fill_between(fcut_range, 0, 1, where=overlay["cp_flat"],
+                        color="none", ec="tab:purple", alpha=0.3,
+                        hatch="\\\\", hatch_linewidth=2, label="CP flat",
+                        transform=tr)
+        ax.fill_between(fcut_range, 0, 1, where=overlay["cp_dips"],
+                        color="tab:orange", alpha=0.25,
+                        label="proto-plateau", transform=tr)
+        ax.fill_between(fcut_range, 0, 1, where=overlay["cp_removed"],
+                        color="red", alpha=0.15, label="trimmed",
+                        transform=tr)
+        if np.any(overlay["cp_snr_removed"]):
+            ax.fill_between(fcut_range, 0, 1,
+                            where=overlay["cp_snr_removed"], color="none",
+                            ec="darkred", alpha=0.9, hatch="xxx",
+                            hatch_linewidth=1.0, label="SNR-trimmed",
+                            transform=tr)
+    elif show_regions:
+        # The candidate hatching is drawn only when the sampling was
+        # actually restricted to those regions. On an untrimmed gallery
+        # the whole grid is one region, and shading it would tell the
+        # labeller where the machinery expects the answer.
         for reg in regions:
             mask = np.zeros(len(fcut_range), dtype=bool)
             mask[reg] = True
             ax.fill_between(fcut_range, 0, 1, where=mask, color="none",
                             ec="tab:purple", alpha=0.3, hatch="\\\\",
-                            hatch_linewidth=2,
-                            transform=ax.get_xaxis_transform())
+                            hatch_linewidth=2, transform=tr)
+    ax.semilogx(fcut_range, r2, marker=".", ls="", ms=3, label=r"$r^2$")
     for k, (_, j) in enumerate(samples):
-        ax.axvline(fcut_range[j], color="tab:orange", lw=0.6, alpha=0.7)
+        ax.axvline(fcut_range[j], color="0.35", lw=0.6, alpha=0.7)
         # Only every fifth sample is labelled: consecutive ticks are one
         # `ratio` apart and their labels would overlap.
         if k % 5 == 0:
             ax.annotate(f"{k:d}", xy=(fcut_range[j], 1.01),
                         xycoords=("data", "axes fraction"), ha="center",
-                        fontsize=7, color="tab:orange")
+                        va="bottom", fontsize=8, color="0.35")
     ax.set_xlabel("Cutoff frequency")
     ax.set_ylabel(r"$r^2_{y-b}$")
-    ax.set_title(title, fontsize=10)
+    # Pad the title above the row of sample numbers printed at the top of
+    # the axes, so the two do not collide.
+    ax.set_title(title, fontsize=10, pad=22)
     ax.legend(loc="lower left")
     fig.tight_layout()
     fig.savefig(out_path, dpi=dpi)
@@ -331,7 +408,9 @@ def plot_r2(fcut_range: np.ndarray, r2: np.ndarray,
 
 
 def process_signal(data_path: str, cache_path: str, out_root: str,
-                   ratio: float, dpi: int, trim: bool = False) -> dict:
+                   ratio: float, dpi: int, trim: bool = False,
+                   survive: bool = False,
+                   snr_threshold: float = 25.0) -> dict:
     """
     Render the whole fcut gallery of one signal.
 
@@ -366,7 +445,12 @@ def process_signal(data_path: str, cache_path: str, out_root: str,
         n_used = int(scut)
 
         fcut_range, r2 = load_curve(cache_path)
-        regions = candidate_regions(fcut_range, r2, n_used, trim=trim)
+        if survive:
+            regions, overlay = surviving_regions(fcut_range, r2, n_used, y,
+                                                 snr_threshold)
+        else:
+            regions = candidate_regions(fcut_range, r2, n_used, trim=trim)
+            overlay = None
         samples = sample_regions(fcut_range, regions, ratio)
 
         out_dir = os.path.join(out_root, molecule, stem)
@@ -377,7 +461,7 @@ def process_signal(data_path: str, cache_path: str, out_root: str,
         plot_r2(fcut_range, r2, regions, samples,
                 f"{stem} — {len(samples)} sampled fcut "
                 f"(ratio {ratio:g})", os.path.join(out_dir, "00_r2.png"),
-                dpi=dpi, show_regions=trim)
+                dpi=dpi, show_regions=trim, overlay=overlay)
 
         # Y-limits shared by every image of the signal, so that only the
         # baseline moves when they are browsed in order. They are set by
@@ -451,6 +535,16 @@ def main() -> None:
                              "and visually anchors the labels, which is "
                              "how the 2026-07-20 gallery came to be "
                              "unusable for calibrating refine_candidates")
+    parser.add_argument("--survive", action="store_true",
+                        help="restrict the sampling to the regions "
+                             "surviving the stage-1 trimming (sub-"
+                             "fundamental clip, frozen tail, and the "
+                             "SNR-gated collapse exclusion), via "
+                             "segmentation.trim_plateaus, and draw them "
+                             "on 00_r2.png")
+    parser.add_argument("--snr-threshold", type=float, default=25.0,
+                        help="SNR above which the collapse exclusion is "
+                             "applied under --survive (default: 25)")
     parser.add_argument("-w", "--workers", type=int, default=1,
                         help="number of worker processes (default: 1)")
     parser.add_argument("--dpi", type=int, default=200,
@@ -475,16 +569,18 @@ def main() -> None:
         jobs.append((data_files[stem], cache_path))
 
     os.makedirs(args.output_dir, exist_ok=True)
+    mode = ("surviving-trim" if args.survive
+            else "trimmed" if args.trim else "untrimmed")
     print(f"{len(jobs)} signal(s), ratio {args.ratio:g}, "
-          f"{'trimmed' if args.trim else 'untrimmed'}, "
-          f"{args.workers} worker(s)")
+          f"{mode}, {args.workers} worker(s)")
 
     tic = time.perf_counter()
     summaries = []
     if args.workers > 1:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             futures = [pool.submit(process_signal, d, c, args.output_dir,
-                                   args.ratio, args.dpi, args.trim)
+                                   args.ratio, args.dpi, args.trim,
+                                   args.survive, args.snr_threshold)
                        for d, c in jobs]
             for done, future in enumerate(as_completed(futures), 1):
                 summary = future.result()
@@ -494,7 +590,8 @@ def main() -> None:
     else:
         for done, (data_path, cache_path) in enumerate(jobs, 1):
             summary = process_signal(data_path, cache_path, args.output_dir,
-                                     args.ratio, args.dpi, args.trim)
+                                     args.ratio, args.dpi, args.trim,
+                                     args.survive, args.snr_threshold)
             summaries.append(summary)
             print(f"[{done:3d}/{len(jobs)}] {summary['stem']} "
                   f"{summary['n_images']} images {summary['error']}")

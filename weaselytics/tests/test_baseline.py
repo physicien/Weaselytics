@@ -92,8 +92,12 @@ class TestFcutoffDegenerateCurves:
     def _drive(self, r2):
         x = np.linspace(0, 10, 200)
         s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
-        with mock.patch.object(baseline_module, "_r2_array_cached",
-                               return_value=np.ascontiguousarray(r2)):
+        # _fcutoff requests the stability curve too, so the mock returns
+        # the (r2, stability) tuple; the stability value is unused here.
+        with mock.patch.object(
+                baseline_module, "_r2_array_cached",
+                return_value=(np.ascontiguousarray(r2),
+                              np.zeros_like(r2, dtype=float))):
             return baseline_module._fcutoff(s, x, len(s), num=self._N,
                                             method="beads")
 
@@ -465,3 +469,48 @@ class TestR2ArrayParallel:
         parallel = _r2_array(_beads, baseline_fitter, y, param_range,
                              workers=8)
         assert np.allclose(parallel, serial)
+
+
+class TestStabilityCurve:
+    def _setup(self):
+        x = np.linspace(0, 10, 101)
+        rng = np.random.default_rng(107)
+        y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
+        y += 0.1 * (x - 5.0)
+        y += 0.01 * rng.normal(size=len(x))
+        return Baseline(x_data=x), y, np.geomspace(0.001, 0.1, 12)
+
+    def test_shape_first_zero_and_nonnegative(self):
+        fitter, y, pr = self._setup()
+        r2, stab = _r2_array(_beads, fitter, y, pr, return_stability=True)
+        assert stab.shape == r2.shape == pr.shape
+        assert stab[0] == 0.0
+        assert np.all(stab >= 0.0)
+        assert np.all(np.isfinite(stab))
+
+    def test_default_returns_only_r2(self):
+        fitter, y, pr = self._setup()
+        out = _r2_array(_beads, fitter, y, pr)
+        assert isinstance(out, np.ndarray)
+
+    def test_parallel_matches_serial(self):
+        # The seam stitching across worker chunks must reproduce the
+        # serial step-to-step baseline change exactly.
+        fitter, y, pr = self._setup()
+        _, s_serial = _r2_array(_beads, fitter, y, pr, return_stability=True)
+        _, s_par = _r2_array(_beads, fitter, y, pr, workers=3,
+                             return_stability=True)
+        assert np.allclose(s_par, s_serial)
+
+    def test_cache_stores_and_restores_stability(self, tmp_path):
+        fitter, y, pr = self._setup()
+        cd = str(tmp_path / "cache")
+        r2c, sc = _r2_array_cached(_beads, fitter, y, pr, cache_dir=cd,
+                                   path="./s.txt", return_stability=True)
+        r2w, sw = _r2_array_cached(_beads, fitter, y, pr, cache_dir=cd,
+                                   path="./s.txt", return_stability=True)
+        assert np.array_equal(sc, sw)
+        assert np.array_equal(r2c, r2w)
+        cache_file = list((tmp_path / "cache").glob("*.npz"))[0]
+        with np.load(cache_file) as d:
+            assert "stability" in d.files

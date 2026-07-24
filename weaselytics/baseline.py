@@ -37,6 +37,11 @@ from weaselytics.utils import (
 # cached under the previous one are recomputed rather than reused.
 _R2_CHANNEL = "y-baseline"
 
+# The cache now also stores the baseline-stability curve (see
+# `_stability_curve`). Bump this token whenever the stability definition
+# or the cache contents change, so old caches (lacking it) are recomputed.
+_STABILITY_VERSION = "stab-1"
+
 
 def _relevant_regions(
     s: np.ndarray, x: np.ndarray, tol: float = 6.
@@ -396,13 +401,51 @@ def _r2(
         Chromatography A, 2017, 1507, 1-10, §3.3.2 and §3.4.
 
     """
-    kwargs[param] = p
-    baseline, _ = algo(baseline_fitter, y, **kwargs)
-    y_corr = y - baseline
-    r2 = r2_dw(y_corr)
+    r2, _ = _r2_and_baseline(algo, baseline_fitter, y, p, param=param,
+                             **kwargs)
     return r2
 
-def _r2_chunk(args: tuple) -> list[float]:
+
+def _r2_and_baseline(
+    algo: Callable[..., tuple[np.ndarray, dict]],
+    baseline_fitter: Baseline, y: np.ndarray,
+    p: float, param: str = "freq_cutoff", **kwargs
+) -> tuple[float, np.ndarray]:
+    """
+    Evaluate `_r2` and also return the fitted baseline.
+
+    The baseline is computed anyway to form ``y - baseline``; returning
+    it lets the sweep measure how much it moves between adjacent cutoff
+    frequencies (see `_stability_curve`) at no extra fit.
+    """
+    kwargs[param] = p
+    baseline, _ = algo(baseline_fitter, y, **kwargs)
+    r2 = r2_dw(y - baseline)
+    return r2, baseline
+
+
+def _stability_curve(steps: np.ndarray, param_range: np.ndarray,
+                     signal_range: float) -> np.ndarray:
+    """
+    Baseline-stability curve from the step-to-step baseline changes.
+
+    ``steps[i]`` is the rms change of the baseline from ``param_range``
+    ``[i-1]`` to ``[i]`` (``steps[0] = 0``). It is turned into a
+    scale-free sensitivity by dividing by the signal range and by the
+    log-frequency spacing, giving the rms baseline change *per decade of
+    cutoff frequency, relative to the signal*. This is large and erratic
+    where the baseline fit is unstable (low frequencies, Navarro-Huerta
+    et al. 2017 §3.1(iv)) and settles where it becomes reliable.
+    """
+    S = np.zeros_like(steps, dtype=float)
+    denom = max(float(signal_range), 1e-12)
+    dlog = np.abs(np.diff(np.log10(param_range)))
+    S[1:] = steps[1:] / denom / np.maximum(dlog, 1e-12)
+    return S
+
+
+def _r2_chunk(args: tuple) -> tuple[list[float], np.ndarray,
+                                    np.ndarray, np.ndarray]:
     """
     Evaluate `_r2` on a chunk of parameter values (worker helper).
 
@@ -420,21 +463,39 @@ def _r2_chunk(args: tuple) -> list[float]:
     -------
     r2_values : list of float
         The r2 value for each parameter in `chunk`, in order.
+    steps : numpy.ndarray, shape (len(chunk),)
+        The rms baseline change between consecutive parameters *within*
+        the chunk. ``steps[0]`` is 0 (the seam to the previous chunk is
+        stitched by the caller from the edge baselines below).
+    first_baseline, last_baseline : numpy.ndarray, shape (N,)
+        The baselines at the two ends of the chunk, so the caller can
+        compute the step across the chunk seam.
 
     """
     algo, baseline_fitter, signal, chunk, param, kwargs = args
-    r2_values = [
-        _r2(algo, baseline_fitter, signal, p, param=param, **kwargs)
-        for p in chunk
-    ]
-    return r2_values
+    r2_values = []
+    prev = None
+    steps = np.zeros(len(chunk))
+    first = last = None
+    for i, p in enumerate(chunk):
+        r2, b = _r2_and_baseline(algo, baseline_fitter, signal, p,
+                                 param=param, **kwargs)
+        r2_values.append(r2)
+        if i == 0:
+            first = b
+        else:
+            steps[i] = np.sqrt(np.mean((b - prev) ** 2))
+        prev = b
+    last = prev
+    return r2_values, steps, first, last
 
 def _r2_array(
     algo: Callable[..., tuple[np.ndarray, dict]],
     baseline_fitter: Baseline,
     signal: np.ndarray, param_range: np.ndarray,
-    param: str = "freq_cutoff", workers: int = 1, **kwargs
-) -> np.ndarray:
+    param: str = "freq_cutoff", workers: int = 1,
+    return_stability: bool = False, **kwargs
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """
     Calculate the array of `r2`, the Durbin-Watson autocorrelation of the
     baseline corrected signal, relative to a parameter on a specific range.
@@ -446,6 +507,10 @@ def _r2_array(
     because the iterative baseline fits hold the GIL. The parameter
     range is split into chunks of several evaluations each so that the
     inter-process overhead stays negligible compared to the fits.
+
+    The baseline-stability curve (`_stability_curve`) is computed
+    alongside r2 from the same fits, at no extra baseline fit; it is
+    returned only when `return_stability` is set.
 
     Parameters
     ----------
@@ -465,34 +530,56 @@ def _r2_array(
         Number of worker processes used to parallelize the sweep.
         Default is 1, which keeps the evaluation serial in the current
         process.
+    return_stability : bool, optional
+        If True, also return the baseline-stability curve. Default False.
     **kwargs
         Additional keyword arguments.
 
     Returns
     -------
     vr2 : numpy.ndarray, shape (M,)
-        The calculated array of r2.
+        The calculated array of r2. If `return_stability`, a tuple
+        ``(vr2, stability)`` is returned instead, with `stability` the
+        curve from `_stability_curve`.
 
     """
+    signal_range = float(np.max(signal) - np.min(signal))
     if workers is None or workers <= 1:
-        def _r2_wrapper(x):
-            return _r2(algo, baseline_fitter, signal, x, param=param,
-                       **kwargs)
-        vr2_func = np.vectorize(_r2_wrapper)
-        vr2 = vr2_func(param_range)
+        vr2 = np.empty(len(param_range))
+        steps = np.zeros(len(param_range))
+        prev = None
+        for i, p in enumerate(param_range):
+            vr2[i], b = _r2_and_baseline(algo, baseline_fitter, signal, p,
+                                         param=param, **kwargs)
+            if prev is not None:
+                steps[i] = np.sqrt(np.mean((b - prev) ** 2))
+            prev = b
+    else:
+        # Several chunks per worker to balance the varying cost of the fits.
+        # Chunks are contiguous slices, so the step within a chunk is exact
+        # and only the chunk seams need stitching from the edge baselines.
+        n_chunks = min(len(param_range), workers * 8)
+        chunks = [c for c in np.array_split(param_range, n_chunks) if len(c)]
+        payloads = [
+            (algo, baseline_fitter, signal, chunk, param, kwargs)
+            for chunk in chunks
+        ]
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            results = list(executor.map(_r2_chunk, payloads))
+        vr2 = np.array([r2 for r2s, _, _, _ in results for r2 in r2s])
+        steps = np.zeros(len(param_range))
+        i = 0
+        prev_last = None
+        for r2s, chunk_steps, first, last in results:
+            m = len(r2s)
+            if prev_last is not None:            # seam to previous chunk
+                steps[i] = np.sqrt(np.mean((first - prev_last) ** 2))
+            steps[i + 1:i + m] = chunk_steps[1:]
+            prev_last = last
+            i += m
+    if not return_stability:
         return vr2
-
-    # Several chunks per worker to balance the varying cost of the fits
-    n_chunks = min(len(param_range), workers * 8)
-    chunks = [c for c in np.array_split(param_range, n_chunks) if len(c)]
-    payloads = [
-        (algo, baseline_fitter, signal, chunk, param, kwargs)
-        for chunk in chunks
-    ]
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(_r2_chunk, payloads))
-    vr2 = np.array([r2 for chunk_r2 in results for r2 in chunk_r2])
-    return vr2
+    return vr2, _stability_curve(steps, param_range, signal_range)
 
 def _r2_cache_key(algo: Callable[..., tuple[np.ndarray, dict]],
                   signal: np.ndarray, param_range: np.ndarray,
@@ -533,6 +620,7 @@ def _r2_cache_key(algo: Callable[..., tuple[np.ndarray, dict]],
     # curves computed on the previous definition. Bump it whenever the
     # definition of `y_corr` in `_r2` changes.
     sha.update(_R2_CHANNEL.encode())
+    sha.update(_STABILITY_VERSION.encode())
     # Both float arrays are hashed at reduced precision, NOT from their
     # float64 bytes, because neither is bit-reproducible across numpy
     # versions and platforms:
@@ -581,8 +669,9 @@ def _r2_array_cached(
     baseline_fitter: Baseline,
     signal: np.ndarray, param_range: np.ndarray,
     param: str = "freq_cutoff", cache_dir: str | None = None,
-    path: str = "./file.txt", workers: int = 1, **kwargs
-) -> np.ndarray:
+    path: str = "./file.txt", workers: int = 1,
+    return_stability: bool = False, **kwargs
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """
     Compute the array of `r2` with an optional on-disk cache.
 
@@ -627,15 +716,25 @@ def _r2_array_cached(
     **kwargs
         Additional keyword arguments.
 
+    return_stability : bool, optional
+        If True, also return the cached/computed baseline-stability
+        curve. Default False.
+
     Returns
     -------
     vr2 : numpy.ndarray, shape (M,)
-        The calculated (or cached) array of r2.
+        The calculated (or cached) array of r2. If `return_stability`, a
+        tuple ``(vr2, stability)`` is returned instead.
 
     """
+    def _out(vr2, stab):
+        return (vr2, stab) if return_stability else vr2
+
     if cache_dir is None:
-        return _r2_array(algo, baseline_fitter, signal, param_range,
-                         param=param, workers=workers, **kwargs)
+        vr2, stab = _r2_array(algo, baseline_fitter, signal, param_range,
+                              param=param, workers=workers,
+                              return_stability=True, **kwargs)
+        return _out(vr2, stab)
 
     key = _r2_cache_key(algo, signal, param_range, param, kwargs)
     stem = os.path.splitext(os.path.basename(path))[0]
@@ -644,11 +743,13 @@ def _r2_array_cached(
     if os.path.isfile(cache_file):
         with np.load(cache_file) as data:
             vr2 = data["r2_val"]
+            stab = data["stability"]
         print(f"{'r2 cache:':<20}loaded {cache_file}")
-        return vr2
+        return _out(vr2, stab)
 
-    vr2 = _r2_array(algo, baseline_fitter, signal, param_range,
-                    param=param, workers=workers, **kwargs)
+    vr2, stab = _r2_array(algo, baseline_fitter, signal, param_range,
+                          param=param, workers=workers,
+                          return_stability=True, **kwargs)
     os.makedirs(cache_dir, exist_ok=True)
     # Keep at most one cached curve per data file: a new write replaces
     # any entry of the same stem computed from other inputs, so stale
@@ -657,9 +758,9 @@ def _r2_array_cached(
     for name in os.listdir(cache_dir):
         if name.startswith(prefix) and name.endswith(".npz"):
             os.remove(os.path.join(cache_dir, name))
-    np.savez(cache_file, fcut_range=param_range, r2_val=vr2)
+    np.savez(cache_file, fcut_range=param_range, r2_val=vr2, stability=stab)
     print(f"{'r2 cache:':<20}saved {cache_file}")
-    return vr2
+    return _out(vr2, stab)
 
 def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             smoothing_window: int = 15, slope_thresh: float = 5.0E-05,
@@ -767,9 +868,10 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     fcut_range = np.geomspace(0.00001, 0.5, num=num, endpoint=False)
 
     # y-data
-    r2_val = _r2_array_cached(algo, baseline_fitter, z, fcut_range,
-                              param=param, cache_dir=cache_dir, path=path,
-                              workers=workers, **kwargs)
+    r2_val, stability_val = _r2_array_cached(
+        algo, baseline_fitter, z, fcut_range, param=param,
+        cache_dir=cache_dir, path=path, workers=workers,
+        return_stability=True, **kwargs)
     #####
     # Diagnostics only: these four feed the r2 overlay in `r2_plots` and
     # nothing downstream of them reaches `fcut`. `find_plateaus` shares
@@ -938,6 +1040,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     plot_data = {
         "fcut_range": fcut_range,
         "r2_val": r2_val,
+        "stability_val": stability_val,
         "smooth_d0": smooth_d0,
         "test": test,
         "test3": test3,

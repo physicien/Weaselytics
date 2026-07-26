@@ -8,7 +8,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FixedLocator, MaxNLocator, MultipleLocator
 
 #: Colour of the baseline-stability curve. Kept clear of every other
 #: element of the r2 figure: blue is r2, red is the selected cutoff and
@@ -20,7 +20,19 @@ _STABILITY_COLOR = "darkslateblue"
 #: and the curves can be compared across signals; the instability
 #: spikes run orders of magnitude higher, so the true peak is annotated
 #: whenever it leaves the frame.
-_STABILITY_YMAX = 3.0
+_STABILITY_YMAX = 1.5
+
+#: Spacing of the stability panel's y ticks, in the same units as
+#: `_STABILITY_YMAX`: labelled majors, and unlabelled minors giving the
+#: finer reference scale. Both are absolute steps, so raising the
+#: ceiling without raising them crowds the axis.
+_STABILITY_YTICK_MAJOR = 0.5
+_STABILITY_YTICK_MINOR = 0.1
+
+#: TEMPORARY: horizontal reference grid on the stability panel, to read
+#: levels off the curve by eye while the stiff-side trim is being
+#: designed. Remove this and its use below once that work is settled.
+_STABILITY_GRID = True
 
 
 def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
@@ -321,12 +333,25 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                                 xycoords='axes fraction',
                                 ha='right', va='top', fontsize=7,
                                 color=_STABILITY_COLOR)
-        # A short panel needs few ticks. Keep the zero one: the curve
-        # settling to its floor is the feature being read. Only the top
-        # tick is pruned, since with hspace=0 it would collide with the
-        # panel above.
-        axs[1].yaxis.set_major_locator(MaxNLocator(nbins=3, prune='upper'))
+        # Ticks on fixed absolute steps, so a given level always sits at
+        # the same height and can be compared between figures. Only the
+        # majors are labelled; the minors carry the finer scale.
+        # `arange` stops before the ceiling, dropping the tick that would
+        # otherwise land on the boundary shared with the panel above.
+        axs[1].yaxis.set_major_locator(FixedLocator(
+            np.arange(0.0, _STABILITY_YMAX, _STABILITY_YTICK_MAJOR)))
+        axs[1].yaxis.set_minor_locator(
+            MultipleLocator(_STABILITY_YTICK_MINOR))
         axs[1].tick_params(axis='y', labelsize=8)
+        axs[1].tick_params(axis='y', which='minor', length=2)
+        # TEMPORARY reference grid, see `_STABILITY_GRID`. Drawn under
+        # the curve so it stays readable.
+        if _STABILITY_GRID:
+            axs[1].grid(axis='y', which='major', color='0.55',
+                        lw=0.6, alpha=0.9)
+            axs[1].grid(axis='y', which='minor', color='0.78',
+                        lw=0.4, alpha=0.8)
+            axs[1].set_axisbelow(True)
 
     axs[2].fill_between(x, 0, 1,
                         where=tol1_0,

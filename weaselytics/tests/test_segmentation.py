@@ -421,3 +421,64 @@ class TestInstabilityBoundary:
         assert not (on['surviving'] & on['instab_removed']).any()
         assert (on['surviving'] | on['instab_removed']).sum() == \
             off['surviving'].sum()
+
+
+class TestProtoPlateauFallback:
+    """The dip channel contributes only when the flat channel is empty.
+
+    `detect_dips` exists to catch the relative flattenings the absolute
+    flat test misses, so it is a fallback rather than a peer: without
+    this, dips found on the descent past the collapse survive as a
+    spurious second region.
+    """
+
+    def _curve_with_flat(self):
+        """A curve whose flat test finds a plateau."""
+        fcut_range, r2, _ = synthetic_curve()
+        segments = classify_segments(
+            segment_features(fcut_range, r2, pelt_linear(r2)))
+        return fcut_range, r2, segments
+
+    def _dip_far_right(self, fcut_range):
+        """A dip basin sitting high on the grid, past any plateau."""
+        n = len(fcut_range)
+        return [{'start': int(n * 0.88), 'end': int(n * 0.93),
+                 'level': 0.7, 'floor': 0.0, 'prominence': 0.5}]
+
+    def test_dip_is_dropped_when_a_flat_region_survives(self):
+        fcut_range, r2, segments = self._curve_with_flat()
+        dips = self._dip_far_right(fcut_range)
+        with_dips = trim_plateaus(fcut_range, segments, dips, 1000)
+        flat_only = trim_plateaus(fcut_range, segments, [], 1000)
+        assert flat_only['surviving'].any()          # premise
+        # the surviving set is exactly the flat channel's
+        assert np.array_equal(with_dips['surviving'],
+                              flat_only['surviving'])
+
+    def test_the_dropped_dip_is_reported_as_removed(self):
+        fcut_range, r2, segments = self._curve_with_flat()
+        dips = self._dip_far_right(fcut_range)
+        masks = trim_plateaus(fcut_range, segments, dips, 1000)
+        # it does not silently vanish: it shows up as trimmed
+        assert masks['removed'].any()
+        assert not (masks['surviving'] & masks['removed']).any()
+
+    def test_dip_is_kept_when_no_flat_region_survives(self):
+        # no flat segment at all -> the fallback must engage
+        rng = np.random.default_rng(5)
+        fcut_range = np.geomspace(1e-5, 0.5, num=1000, endpoint=False)
+        r2 = np.linspace(1.0, 0.0, 1000) + rng.normal(0, 1e-4, 1000)
+        segments = classify_segments(
+            segment_features(fcut_range, r2, pelt_linear(r2)))
+        flat_only = trim_plateaus(fcut_range, segments, [], 1000)
+        assert not flat_only['surviving'].any()      # premise
+        dips = [{'start': 400, 'end': 500, 'level': 0.6,
+                 'floor': 0.0, 'prominence': 0.5}]
+        masks = trim_plateaus(fcut_range, segments, dips, 1000)
+        assert masks['surviving'].any()
+
+    def test_no_dips_leaves_the_flat_result_untouched(self):
+        fcut_range, r2, segments = self._curve_with_flat()
+        a = trim_plateaus(fcut_range, segments, [], 1000)
+        b = trim_plateaus(fcut_range, segments, [], 1000)
+        assert np.array_equal(a['surviving'], b['surviving'])

@@ -11,7 +11,6 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 from pybaselines import Baseline
 from scipy.ndimage import gaussian_filter1d, median_filter
-from scipy.signal import argrelmax, argrelmin  #, medfilt
 
 from weaselytics.plot import r2_plots
 from weaselytics.segmentation import (
@@ -20,12 +19,11 @@ from weaselytics.segmentation import (
     dips_to_mask,
     pelt_linear,
     segment_features,
+    select_center,
     trim_plateaus,
 )
 from weaselytics.utils import (
-    continuous_ranges,
     end_window,
-    find_flat,
     find_plateaus,
     merge_intervals,
     peaks_params,
@@ -763,14 +761,11 @@ def _r2_array_cached(
     return _out(vr2, stab)
 
 def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
-            smoothing_window: int = 15, slope_thresh: float = 5.0E-05,
-            tol0: float = 1.0E-03, tol1_0: float = 1.0E-05,
-            tol1_1: float = 5.0E-04, tol2: float = 2.0E-06,
             num: int = 1000,
             method: str = "beads", param: str = "freq_cutoff",
             cache_dir: str | None = None, path: str = "./file.txt",
             workers: int = 1, snr_threshold: float = 25.0, **kwargs
-            ) -> tuple[float, int, dict]:
+            ) -> tuple[float, dict]:
     """
     Find the optimal cutoff frequency.
 
@@ -789,24 +784,6 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     scut : int
         Index of the last data point in `s` (signal cutoff) relevant to the
         calculation of the autocorrelation.
-    smoothing_window : int, optional
-        Standard deviation for Gaussian kernel used to smooth the signal.
-        Default is 15.
-    slope_thresh : float, optional
-        Threshold on the value of `smooth_d1` for the final shift of the
-        frequency cutoff. Default is 5.0E-05.
-    tol0 : float, optional
-        Threshold used to find the first plateau on the autocorrelation plot.
-        Default is 1.0E-03.
-    tol1_0 : float, optional
-        Tight threshold used to find plateaus on the first derivative of the
-        smoothed autocorrelation plot. Default is 1.0E-05.
-    tol1_1 : float, optional
-        Loose threshold used to find plateaus on the first derivative of the
-        smoothed autocorrelation plot. Default is 5.0E-04.
-    tol2 : float, optional
-        Threshold used to find plateaus on the second derivative of the
-        smoothed autocorrelation plot. Default is 2.0E-06.
     num : int, optional
         Number of x-values spanning the frequency range to evaluate r2.
         Default is 1000.
@@ -836,10 +813,6 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     fcut : float
         The cutoff frequency of the high pass filter, normalized such that
         0 < `freq_cutoff` < 0.5.
-    case : int,
-        The case rule from which `fcut` have been selected. Not necessarily
-        useful in the current implementation, but it is advisable to keep it
-        until proven otherwise.
     plot_data : dict
         Dictionary of internal variables needed to produce the r2 diagnostic
         plot. Empty dict if no plotting was requested.
@@ -880,13 +853,13 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     # the selection itself handles perfectly well, so a failure here
     # must disable the overlay, not abort the selection.
     try:
-        test_plateaus, ends, test, test3 = find_plateaus(r2_val)
+        test_plateaus, _, rolling_std, diff_std_mad = \
+            find_plateaus(r2_val)
     except (IndexError, ValueError) as exc:
         print(f"WARNING: plateau overlay unavailable ({exc}).")
         test_plateaus = np.zeros(len(r2_val), dtype=bool)
-        ends = np.zeros(len(r2_val), dtype=bool)
-        test = np.zeros(len(r2_val))
-        test3 = np.zeros(len(r2_val))
+        rolling_std = np.zeros(len(r2_val))
+        diff_std_mad = np.zeros(len(r2_val))
 
     # Changepoint-based prototype (issue #4), for diagnostics only: the
     # detected plateaus/proto-plateaus and the stage-1 trimming are
@@ -916,124 +889,25 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     cp_removed = cp_trim['removed']
     cp_snr_removed = cp_trim['snr_removed']
     cp_instab_removed = cp_trim['instab_removed']
+
+    # Stage 3, PRELIMINARY: the cutoff is the centre of the surviving
+    # plateau. This supersedes the legacy derivative route below, which
+    # is kept only because the diagnostic overlay is built from its
+    # intermediates. `None` means stage 2 left nothing, and the legacy
+    # value is used as a fallback.
+    fcut_center = select_center(fcut_range, cp_surviving)
     #####
 
-    ##########################################################################
-    # Smoothed data and derivatives
-    smooth_d0 = gaussian_filter1d(r2_val,smoothing_window)
-    #smooth_d0 = medfilt(r2_val, smoothing_window)
-    smooth_d1 = np.gradient(smooth_d0)
-    smooth_d2 = np.gradient(smooth_d1)
-    min_d1 = argrelmin(smooth_d1)[0]
-    max_d1 = argrelmax(smooth_d1)[0]
-    d1_min = np.argmin(smooth_d1)
-    #EB not general at all...
-    # The threshold is absolute while the scale of the r2 curve is not:
-    # on a signal whose baseline stays recoverable over the whole grid,
-    # r2 never collapses (total drop of a few percent, steepest slope
-    # below the threshold) and no point qualifies. Fall back on the
-    # steepest descent, which is what the limit stands for.
-    d1_drops = np.where(smooth_d1 < -1E-03)[0]
-    lim_d1_drop = d1_drops[0] if len(d1_drops) > 0 else d1_min
-
-    # Proto-plateaus from d1 and d2
-    tight_d1_flats = find_flat(smooth_d1, tol1_0)
-    loose_d1_flats = find_flat(smooth_d1, tol1_1)
-    d2_flats = np.where(np.absolute(smooth_d2) < tol2)[0]
-
-    # Find initial plateau
-    tight_continuous = continuous_ranges(tight_d1_flats)
-    starting_r2 = np.mean(smooth_d0[tight_continuous[0]])
-    # Same class of mistuning as the secondary-plateau guard below:
-    # `tol0` is an absolute level tolerance on a curve whose scale is
-    # not fixed. When the curve never sits within `tol0` of the level
-    # of its first tight-flat run before the steepest descent, there is
-    # no initial plateau to end and the selection has no starting
-    # point. Fail loudly rather than on an opaque IndexError.
-    starting_candidates = np.where(
-            np.absolute(starting_r2 - r2_val[:d1_min]) < tol0)[0]
-    if len(starting_candidates) == 0:
+    if fcut_center is None:
         raise ValueError(
-            "no initial plateau found: no point before the steepest "
-            f"descent (index {d1_min:d}) lies within tol0={tol0:.1e} "
-            f"of the level of the first flat run ({starting_r2:.4f}). "
-            "This tolerance is absolute while the scale of the r2 "
-            "curve is not; pass an explicit cutoff with "
-            "freq_cutoff=... to bypass the automatic selection."
+            "no surviving plateau: stage-2 trimming removed every "
+            "detected region, so there is no cutoff frequency to "
+            "select. Pass an explicit cutoff with freq_cutoff=... to "
+            "bypass the automatic selection."
         )
-    starting_end = starting_candidates[-1]
-    starting_plateau = np.arange(starting_end+1)
+    fcut = fcut_center
+    print(f"{'fcut route:':<20}centre of the surviving plateau")
 
-    # Remove final plateau if it is tight
-    last_r2 = num - 1
-    if np.isin(last_r2, tight_continuous[-1]).any():
-        last_r2 = tight_continuous[-1][0]
-
-    # Plateaus
-    plateaus = loose_d1_flats[(loose_d1_flats > starting_plateau[-1]) &
-                              (loose_d1_flats < last_r2)]
-    secondary_plateaus = np.intersect1d(plateaus, d2_flats)
-
-    # No secondary plateau at all: every downstream branch indexes into
-    # this array, so the legacy route has nothing to anchor on. Fail
-    # loudly rather than crash on an opaque IndexError, and rather than
-    # substitute a cutoff -- a wrong fcut silently biases every area
-    # derived from it, which is worse than no answer.
-    #
-    # The cause is a mistuning, not a property of the signal: `tol1_1`
-    # and `tol2` are absolute thresholds on the derivatives of a curve
-    # whose scale is not fixed (see segmentation.md section 1). `tol2`
-    # sits about 200x below the peak curvature of a typical r2 curve, so
-    # only near-linear stretches qualify, and the intersection with the
-    # d1-flat set can come out empty. Shorter signals are hit harder:
-    # on the synthetic benchmark the median count of secondary-plateau
-    # points is 111 for 800-point signals against 211 for 2500-point
-    # ones, at identical peak curvature.
-    if len(secondary_plateaus) == 0:
-        raise ValueError(
-            "no secondary plateau found: the d1-flat set (|d1| < "
-            f"tol1_1={tol1_1:.1e}) and the d2-flat set (|d2| < "
-            f"tol2={tol2:.1e}) do not overlap between the initial "
-            f"plateau (index {starting_plateau[-1]:d}) and index "
-            f"{last_r2:d}. These tolerances are absolute while the "
-            "scale of the r2 curve is not; pass an explicit cutoff "
-            "with freq_cutoff=... to bypass the automatic selection."
-        )
-
-    # Anchors
-    sec_max_d1 = np.intersect1d(secondary_plateaus,max_d1)
-    if len(sec_max_d1) == 0:
-        p2_start = secondary_plateaus[0]
-    else:
-        # Make sure this is not on the tail of the initial plateau (p1) by
-        # starting p2 at the first max of d1 on the secondary plateaus.
-        p2_start = sec_max_d1[0]
-    anchors = secondary_plateaus[((secondary_plateaus < lim_d1_drop) &
-                                  (secondary_plateaus > p2_start))]
-
-    # Differents cases
-    if len(anchors) == 0:
-        case = 1
-        arg_l = continuous_ranges(secondary_plateaus)[0][-1]
-        # Not needed if slope_arg is well chosen?
-        slope_thresh = tol1_1*0.5    #@EB temporary?
-    else:
-        case = 2
-        arg_l = anchors[np.argmin(np.absolute(smooth_d1[anchors]))]
-
-    ##########################################################################
-    # Shift relative to the chosen anchor
-    slope_arg = np.where(np.absolute(smooth_d1) >= slope_thresh)[0]
-    try:
-        cutoff = slope_arg[slope_arg >= arg_l][0]
-    except IndexError:
-        print("WARNING: slope_arg < arg_l.")
-        cutoff = arg_l
-
-    fcut = fcut_range[cutoff]
-    ##########################################################################
-
-    print(f"Case {case:d}")
     toc = time.perf_counter()
     print(f"Autocorrelation in {toc-tic:0.4f} seconds")
     fi_r2_val = _r2(algo, baseline_fitter, z, fcut, param=param, **kwargs)
@@ -1043,19 +917,11 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "fcut_range": fcut_range,
         "r2_val": r2_val,
         "stability_val": stability_val,
-        "smooth_d0": smooth_d0,
-        "test": test,
-        "test3": test3,
-        "min_d1": min_d1,
-        "max_d1": max_d1,
-        "ends": ends,
-        "secondary_plateaus": secondary_plateaus,
+        "rolling_std": rolling_std,
+        "diff_std_mad": diff_std_mad,
         "test_plateaus": test_plateaus,
-        "tol1_1": tol1_1,
-        "tol2": tol2,
         "fcut": fcut,
         "fi_r2_val": fi_r2_val,
-        "case": case,
         "cp_flat": cp_flat,
         "cp_dips": cp_dips,
         "cp_plateaus": cp_plateaus,
@@ -1068,7 +934,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         # data can constrain.
         "n_used": len(z),
     }
-    return fcut, case, plot_data
+    return fcut, plot_data
 
 ###############################################################################
 #BEADS baseline correction
@@ -1159,10 +1025,6 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         The calculated baseline.
     p : dict
         A dictionary with the various parameters depending of the method used.
-    case : int,
-        The case rule from which `fcut` have been selected. Not necessarily
-        useful in the current implementation, but it is advisable to keep it
-        until proven otherwise.
 
     Raises
     ------
@@ -1217,27 +1079,22 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
 
     # Cutoff frequency
     if freq_cutoff is None:
-        fcut, case, plot_data = _fcutoff(
+        fcut, plot_data = _fcutoff(
             s, x, scut, method=method, cache_dir=cache_dir, path=path,
             workers=workers, snr_threshold=snr_threshold, **method_kwargs)
     else:
         if ((freq_cutoff <= 0) or (freq_cutoff >= 0.5)):
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")
         fcut = freq_cutoff
-        case = 0
         plot_data = {}
     # plot_data is empty when freq_cutoff is user-provided: there is no
     # autocorrelation sweep, hence no r2 diagnostic plot to draw.
     if (show_plot or print_plot) and plot_data:
         r2_plots(
             plot_data["fcut_range"], plot_data["r2_val"],
-            plot_data["smooth_d0"], plot_data["test"],
-            plot_data["test3"], plot_data["min_d1"],
-            plot_data["max_d1"], plot_data["ends"],
-            plot_data["secondary_plateaus"], plot_data["test_plateaus"],
-            plot_data["tol1_1"], plot_data["tol2"],
+            plot_data["rolling_std"], plot_data["diff_std_mad"],
+            plot_data["test_plateaus"],
             plot_data["fcut"], plot_data["fi_r2_val"],
-            case=plot_data["case"],
             cp_flat=plot_data["cp_flat"],
             cp_dips=plot_data["cp_dips"],
             cp_removed=plot_data["cp_removed"],
@@ -1276,5 +1133,5 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     toc = time.perf_counter()                               #@TEMP
 
     print(f"Baseline correction in {toc-tic:0.4f} seconds") #@TEMP
-    return baseline, params, case
+    return baseline, params
 

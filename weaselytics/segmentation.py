@@ -774,6 +774,58 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
             'snr_removed': snr_removed, 'instab_removed': instab_removed}
 
 
+def select_center(fcut_range: np.ndarray,
+                  surviving: np.ndarray) -> float | None:
+    """
+    Cutoff frequency at the centre of the surviving plateau.
+
+    Preliminary stage-3 selection: the surviving mask of
+    ``trim_plateaus`` is reduced to a single cutoff by taking the centre
+    of its region. The centre is **geometric** — the midpoint in
+    log(fcut), equivalently ``sqrt(lo * hi)`` — because the sweep grid
+    is geometric and every position in this package is expressed in
+    decades; an arithmetic mean of frequencies would be pulled to the
+    high-frequency end of the region and is not the same point.
+
+    When several regions survive, the **last** one is used, per
+    Navarro-Huerta: the optimum lies on the last step of the stepped
+    ``y - b`` curve. On the 339-signal reference set the trimming now
+    leaves exactly one region per signal, so this only matters for
+    robustness.
+
+    Note the departure from the reference: it places the optimum near
+    the centre of that step but recommends **slightly below** the
+    centre in practice, to reduce baseline flexibility. This takes the
+    centre itself, which is the preliminary rule asked for; the offset
+    is deliberately not invented here.
+
+    Parameters
+    ----------
+    fcut_range : array-like, shape (N,)
+        The (geometrically spaced) cutoff frequencies.
+    surviving : array-like, shape (N,), dtype bool
+        The surviving mask from ``trim_plateaus``.
+
+    Returns
+    -------
+    fcut : float or None
+        The selected cutoff frequency, or None when nothing survives.
+
+    References
+    ----------
+    Navarro-Huerta et al. (2017), J. Chromatogr. A 1507, 1-10, §3.4.
+
+    """
+    idx = np.flatnonzero(surviving)
+    if idx.size == 0:
+        return None
+    splits = np.where(np.diff(idx) > 1)[0] + 1
+    region = np.split(idx, splits)[-1]
+    lo = float(fcut_range[region[0]])
+    hi = float(fcut_range[region[-1]])
+    return float(np.sqrt(lo * hi))
+
+
 def select_fcut(fcut_range: np.ndarray, r2: np.ndarray,
                 penalty: float | None = None, min_size: int = 15,
                 rel_slope_max: float = 0.2, rel_noise_max: float = 0.006,
@@ -786,8 +838,7 @@ def select_fcut(fcut_range: np.ndarray, r2: np.ndarray,
     classified with ``classify_segments``, and the plateau containing
     the optimal `fcut` is chosen as the last flat segment before the
     first steep descending segment (the "knee" of the curve). The
-    returned `fcut` is the right edge of that plateau, consistent with
-    the behavior of the ``slope_thresh`` shift in ``_fcutoff``. If no
+    returned `fcut` is the right edge of that plateau. If no
     flat segment precedes a steep drop, the flat segments whose mean is
     high enough (above ``level_frac`` of the total drop) are used as
     fallback candidates.

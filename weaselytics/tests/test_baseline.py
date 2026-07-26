@@ -78,19 +78,19 @@ class TestSnr:
         assert _snr(np.linspace(0., 1., 500)) == np.inf
 
 
-class TestFcutoffDegenerateCurves:
-    """The legacy derivative route must fail legibly, not on an
-    IndexError, when its absolute tolerances find nothing to anchor on.
+class TestFcutoffSelection:
+    """Stage 3 reduces the surviving plateau to a single cutoff.
 
-    Both conditions occur in practice: on the 72-signal synthetic
-    benchmark 7 signals crashed this way, 6 with an empty
-    secondary-plateau set and 1 with no initial plateau.
+    The record is deliberately long: the fundamental is `1 / n_used`,
+    so a short one puts the sub-fundamental clip ABOVE the plateau of
+    the test curve and stage 2 legitimately removes everything, which
+    would test the wrong thing.
     """
 
     _N = 1000
 
     def _drive(self, r2):
-        x = np.linspace(0, 10, 200)
+        x = np.linspace(0, 10, 4000)
         s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
         # _fcutoff requests the stability curve too, so the mock returns
         # the (r2, stability) tuple; the stability value is unused here.
@@ -101,31 +101,29 @@ class TestFcutoffDegenerateCurves:
             return baseline_module._fcutoff(s, x, len(s), num=self._N,
                                             method="beads")
 
-    def test_no_initial_plateau_raises_a_described_error(self):
-        # A curve that starts descending immediately: no point before
-        # the steepest descent sits within tol0 of the level of the
-        # first flat run.
-        t = np.linspace(0, 1, self._N)
-        with pytest.raises(ValueError, match="no initial plateau found"):
-            self._drive(0.999 * np.exp(-5.0 * t))
-
-    def test_no_secondary_plateau_raises_a_described_error(self):
-        # A rippled step. The ripple puts the d1-flat and d2-flat sets
-        # in antiphase -- the second derivative vanishes exactly where
-        # the slope peaks -- so their intersection is empty even though
-        # both sets are large.
-        t = np.linspace(0, 1, self._N)
-        r2 = (0.999 - 0.5 / (1 + np.exp(-(t - 0.55) * 25))
-              + 0.03 * np.sin(2 * np.pi * 14 * t))
-        with pytest.raises(ValueError, match="no secondary plateau found"):
-            self._drive(r2)
-
-    def test_a_well_formed_curve_still_selects(self):
+    def test_a_well_formed_curve_selects_the_centre(self):
         t = np.linspace(0, 1, self._N)
         r2 = 0.999 - 0.5 / (1 + np.exp(-(t - 0.55) * 25))
-        fcut, case, plot_data = self._drive(r2)
+        fcut, plot_data = self._drive(r2)
         assert 0.0 < fcut < 0.5
-        assert case in (1, 2)
+        # the cutoff is the geometric centre of what stage 2 left
+        surviving = plot_data["cp_surviving"]
+        grid = plot_data["fcut_range"]
+        idx = np.flatnonzero(surviving)
+        assert idx.size
+        splits = np.where(np.diff(idx) > 1)[0] + 1
+        region = np.split(idx, splits)[-1]
+        expected = np.sqrt(grid[region[0]] * grid[region[-1]])
+        assert fcut == pytest.approx(expected)
+
+    def test_no_surviving_plateau_raises_a_described_error(self):
+        # A pure descent: nothing is flat, so stage 2 leaves nothing and
+        # there is no region to take the centre of. Failing loudly beats
+        # substituting a cutoff -- a wrong fcut silently biases every
+        # area derived from it.
+        t = np.linspace(0, 1, self._N)
+        with pytest.raises(ValueError, match="no surviving plateau"):
+            self._drive(0.999 - 0.9 * t)
 
 
 class TestBeads:
@@ -310,11 +308,10 @@ class TestAutoBeads:
         y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
         y += 0.1 * (x - 5.0)
         y += 0.01 * rng.normal(size=len(x))
-        baseline, params, case = auto_beads(
+        baseline, params = auto_beads(
             y, x, freq_cutoff=0.01, method="beads"
         )
         assert len(baseline) == len(y)
-        assert case == 0
         assert "signal" in params
 
     def test_with_custom_beads_method(self):
@@ -323,11 +320,10 @@ class TestAutoBeads:
         y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
         y += 0.1 * (x - 5.0)
         y += 0.01 * rng.normal(size=len(x))
-        baseline, params, case = auto_beads(
+        baseline, params = auto_beads(
             y, x, freq_cutoff=0.01, method="custom_beads"
         )
         assert len(baseline) == len(y)
-        assert case == 0
         assert "noise" in params
 
     def test_raises_on_invalid_asymmetry(self):

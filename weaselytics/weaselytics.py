@@ -119,7 +119,7 @@ def main() -> None:
         mod_ydata = ydata
 
     if do_bl:
-        baseline, params, case = auto_beads(
+        baseline, params = auto_beads(
             mod_ydata, xdata, freq_cutoff=args.freq_cutoff,
             show_plot=args.show, print_plot=args.print, path=path,
             output_dir=output_dir,
@@ -155,7 +155,7 @@ def main() -> None:
         if do_sm:
             plot_kwargs["y_sm"] = ydata_sm
         if do_bl:
-            plot_kwargs.update(bl=baseline, case=case, s=signal)
+            plot_kwargs.update(bl=baseline, s=signal)
         if fit_data:
             plot_kwargs.update(
                 x_fit=x_robust, y_fit_g=y_robust_g, y_fit_sn=y_robust_sn,

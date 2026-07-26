@@ -81,7 +81,9 @@ GALLERY_FIELDS = ["molecule", "stem", "n_points", "n_used", "n_regions",
                   "regions", "n_images", "error"]
 
 
-def load_curve(path: str) -> tuple[np.ndarray, np.ndarray]:
+def load_curve(
+    path: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
     """
     Load an autocorrelation curve from a ``.npz`` cache file.
 
@@ -96,11 +98,16 @@ def load_curve(path: str) -> tuple[np.ndarray, np.ndarray]:
         The cutoff frequencies.
     r2 : numpy.ndarray, shape (N,)
         The autocorrelation coefficients.
+    stability : numpy.ndarray, shape (N,), or None
+        The baseline-stability curve, or None for caches written before
+        it was stored. Without it the instability exclusion cannot be
+        applied and the gallery would show the pre-exclusion survivors.
 
     """
     data = np.load(path)
     key = "r2_val" if "r2_val" in data else "r2"
-    return data["fcut_range"], data[key]
+    stability = data["stability"] if "stability" in data.files else None
+    return data["fcut_range"], data[key], stability
 
 
 def existing_labels(path: str) -> dict[str, str]:
@@ -199,7 +206,7 @@ def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
 
 def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
                       s: np.ndarray, snr_threshold: float = 25.0,
-                      c1: float = 1.0
+                      c1: float = 1.0, stability: np.ndarray | None = None
                       ) -> tuple[list[np.ndarray], dict]:
     """
     Regions surviving the stage-1 trimming, plus the overlay masks.
@@ -213,15 +220,16 @@ def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
     regions : list of numpy.ndarray
         The contiguous index runs of the surviving mask.
     overlay : dict of numpy.ndarray
-        ``cp_flat``, ``cp_dips``, ``cp_removed`` and ``cp_snr_removed``
-        masks, for the r2 summary figure.
+        ``cp_flat``, ``cp_dips``, ``cp_removed``, ``cp_snr_removed``
+        and ``cp_instab_removed`` masks, for the r2 summary figure.
     """
     segments = classify_segments(
         segment_features(fcut_range, r2, pelt_linear(r2)))
     dips = detect_dips(fcut_range, r2)
     high_snr = _snr(s) >= snr_threshold
     masks = trim_plateaus(fcut_range, segments, dips, n_used,
-                          exclude_collapse=high_snr, c1=c1)
+                          exclude_collapse=high_snr, c1=c1,
+                          stability=stability)
     cp_flat = np.zeros(len(fcut_range), dtype=bool)
     for seg in segments:
         if seg['flat']:
@@ -229,7 +237,8 @@ def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
     overlay = {"cp_flat": cp_flat,
                "cp_dips": dips_to_mask(fcut_range, dips),
                "cp_removed": masks['removed'],
-               "cp_snr_removed": masks['snr_removed']}
+               "cp_snr_removed": masks['snr_removed'],
+               "cp_instab_removed": masks['instab_removed']}
     return _mask_regions(masks['surviving']), overlay
 
 
@@ -371,6 +380,14 @@ def plot_r2(fcut_range: np.ndarray, r2: np.ndarray,
         ax.fill_between(fcut_range, 0, 1, where=overlay["cp_removed"],
                         color="red", alpha=0.15, label="trimmed",
                         transform=tr)
+        if np.any(overlay.get("cp_instab_removed", np.zeros(1, bool))):
+            # Stiff side removed because the baseline is still flailing
+            # there; same colour as the stability curve of the
+            # diagnostic figure.
+            ax.fill_between(fcut_range, 0, 1,
+                            where=overlay["cp_instab_removed"],
+                            color="darkslateblue", alpha=0.30,
+                            label="unstable", transform=tr)
         if np.any(overlay["cp_snr_removed"]):
             ax.fill_between(fcut_range, 0, 1,
                             where=overlay["cp_snr_removed"], color="none",
@@ -445,10 +462,11 @@ def process_signal(data_path: str, cache_path: str, out_root: str,
         peak_regions, sampling, scut = _relevant_regions(y, x)
         n_used = int(scut)
 
-        fcut_range, r2 = load_curve(cache_path)
+        fcut_range, r2, stability = load_curve(cache_path)
         if survive:
             regions, overlay = surviving_regions(fcut_range, r2, n_used, y,
-                                                 snr_threshold, c1)
+                                                 snr_threshold, c1,
+                                                 stability=stability)
         else:
             regions = candidate_regions(fcut_range, r2, n_used, trim=trim)
             overlay = None
@@ -539,8 +557,9 @@ def main() -> None:
     parser.add_argument("--survive", action="store_true",
                         help="restrict the sampling to the regions "
                              "surviving the stage-1 trimming (sub-"
-                             "fundamental clip, frozen tail, and the "
-                             "SNR-gated collapse exclusion), via "
+                             "fundamental clip, frozen tail, the "
+                             "SNR-gated collapse exclusion and the "
+                             "stiff-side instability exclusion), via "
                              "segmentation.trim_plateaus, and draw them "
                              "on 00_r2.png")
     parser.add_argument("--snr-threshold", type=float, default=25.0,

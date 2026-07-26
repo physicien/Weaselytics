@@ -907,7 +907,11 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
 
     toc = time.perf_counter()
     print(f"Autocorrelation in {toc-tic:0.4f} seconds")
-    fi_r2_val = _r2(algo, baseline_fitter, z, fcut, param=param, **kwargs)
+    # `select_center` returns a grid point, so the r2 there is already
+    # in the swept curve: reading it saves a full baseline fit on every
+    # run, and reports exactly the value the diagnostic draws rather
+    # than a re-fit that can differ at low frequencies.
+    fi_r2_val = float(r2_val[int(np.argmin(np.abs(fcut_range - fcut)))])
     print(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
 
     plot_data = {

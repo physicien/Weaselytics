@@ -782,10 +782,20 @@ def select_center(fcut_range: np.ndarray,
     Preliminary stage-3 selection: the surviving mask of
     ``trim_plateaus`` is reduced to a single cutoff by taking the centre
     of its region. The centre is **geometric** — the midpoint in
-    log(fcut), equivalently ``sqrt(lo * hi)`` — because the sweep grid
-    is geometric and every position in this package is expressed in
-    decades; an arithmetic mean of frequencies would be pulled to the
-    high-frequency end of the region and is not the same point.
+    log(fcut) — because the sweep grid is geometric and every position
+    in this package is expressed in decades; an arithmetic mean of
+    frequencies would be pulled to the high-frequency end of the region
+    and is not the same point.
+
+    The returned cutoff is a **grid point**: the midpoint is taken on
+    the index axis, which on a geometric grid is the same thing up to
+    half a step. That keeps the answer on a frequency the sweep actually
+    evaluated, so its r2 can be read from the cached curve instead of
+    costing another baseline fit, and the value reported is the same one
+    the diagnostic plots rather than a re-fit that may differ slightly.
+    The cost is at most half a grid step — 0.0024 decades on the
+    production grid, against a valley where being 0.3 decades off costs
+    about 1.8x the optimal baseline error.
 
     When several regions survive, the **last** one is used, per
     Navarro-Huerta: the optimum lies on the last step of the stepped
@@ -821,6 +831,5 @@ def select_center(fcut_range: np.ndarray,
         return None
     splits = np.where(np.diff(idx) > 1)[0] + 1
     region = np.split(idx, splits)[-1]
-    lo = float(fcut_range[region[0]])
-    hi = float(fcut_range[region[-1]])
-    return float(np.sqrt(lo * hi))
+    centre = int(round(0.5 * (region[0] + region[-1])))
+    return float(fcut_range[centre])

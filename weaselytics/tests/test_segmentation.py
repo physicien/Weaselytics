@@ -8,6 +8,7 @@ from weaselytics.segmentation import (
     instability_boundary,
     pelt_linear,
     segment_features,
+    select_center,
     stability_dispersion,
     trim_candidates,
     trim_plateaus,
@@ -484,3 +485,41 @@ class TestProtoPlateauFallback:
         accounted = (masks['surviving'] | masks['removed']
                      | masks['snr_removed'] | masks['instab_removed'])
         assert not (detected & ~accounted).any()
+
+
+class TestSelectCenter:
+    def _grid(self, n=1000):
+        return np.geomspace(1e-5, 0.5, num=n, endpoint=False)
+
+    def test_returns_a_grid_point(self):
+        """The r2 at the answer is read from the swept curve, so the
+        answer has to be a frequency that was actually swept."""
+        fcut_range = self._grid()
+        surviving = np.zeros(len(fcut_range), dtype=bool)
+        surviving[200:401] = True
+        fcut = select_center(fcut_range, surviving)
+        assert fcut in fcut_range
+
+    def test_is_the_geometric_not_the_arithmetic_centre(self):
+        fcut_range = self._grid()
+        surviving = np.zeros(len(fcut_range), dtype=bool)
+        surviving[200:401] = True
+        lo, hi = fcut_range[200], fcut_range[400]
+        fcut = select_center(fcut_range, surviving)
+        assert fcut == pytest.approx(np.sqrt(lo * hi), rel=1e-9)
+        # the arithmetic mean sits well to the right and is NOT the answer
+        assert abs(fcut - 0.5 * (lo + hi)) > 0.1 * fcut
+
+    def test_takes_the_last_region_when_several_survive(self):
+        # Navarro-Huerta 2017 §3.4: the optimum is on the LAST step
+        fcut_range = self._grid()
+        surviving = np.zeros(len(fcut_range), dtype=bool)
+        surviving[100:151] = True
+        surviving[600:701] = True
+        fcut = select_center(fcut_range, surviving)
+        assert fcut_range[600] <= fcut <= fcut_range[700]
+
+    def test_none_when_nothing_survives(self):
+        fcut_range = self._grid()
+        assert select_center(
+            fcut_range, np.zeros(len(fcut_range), dtype=bool)) is None

@@ -174,7 +174,7 @@ class TestTrimCandidates:
         fcut_range, y, segments = self._curve()
         n_used = 1000
         candidates = trim_candidates(fcut_range, segments, n_used)
-        assert not candidates[fcut_range < 0.5 / n_used].any()
+        assert not candidates[fcut_range < 1.0 / n_used].any()
         # ... but the region above the clip is not blanket-removed
         assert candidates.any()
 
@@ -184,22 +184,30 @@ class TestTrimCandidates:
         # the last, noise-free stretch must not be a candidate
         assert not candidates[-100:].any()
 
+    # The shelf of `_curve` sits at fcut ~8e-4, so with `n_used=1000`
+    # the sub-fundamental clip (1/n_used = 1e-3 at the default c1=1.0)
+    # would swallow it. These two tests are about the collapse
+    # exclusion and about the shelf surviving, not about the clip, so
+    # they use a longer record whose fundamental falls below the shelf.
+    N_USED_LONG = 3000
+
     def test_collapse_exclusion_removes_low_plateau(self):
         # The curve has a high shelf (r2 ~ 0.72) and a low live-tail
         # plateau (r2 ~ 0.3) past the drop. Without the gate both are
         # candidates; with it, the low plateau is removed as past the
         # collapse while the high shelf survives.
         fcut_range, y, segments = self._curve()
-        base = trim_candidates(fcut_range, segments, 1000)
+        base = trim_candidates(fcut_range, segments, self.N_USED_LONG)
         assert base[600]                      # low live tail, kept
-        excl = trim_candidates(fcut_range, segments, 1000,
+        excl = trim_candidates(fcut_range, segments, self.N_USED_LONG,
                                exclude_collapse=True)
         assert not excl[600]                  # low live tail, dropped
         assert excl[400]                      # high shelf, survives
 
     def test_shelf_remains_candidate(self):
         fcut_range, y, segments = self._curve()
-        candidates = trim_candidates(fcut_range, segments, 1000)
+        candidates = trim_candidates(fcut_range, segments,
+                                     self.N_USED_LONG)
         mid_shelf = 300 + 30 + 75
         assert candidates[mid_shelf]
 
@@ -376,7 +384,7 @@ class TestTrimPlateaus:
         fcut_range, y, segments, dips = self._curve()
         n_used = 1000
         masks = trim_plateaus(fcut_range, segments, dips, n_used)
-        sub = fcut_range < 0.5 / n_used
+        sub = fcut_range < 1.0 / n_used
         # nothing below the fundamental survives ...
         assert not masks['surviving'][sub].any()
 

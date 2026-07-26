@@ -390,7 +390,7 @@ def dips_to_mask(fcut_range: np.ndarray, dips: list[dict]) -> np.ndarray:
 
 
 def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
-                    n_used: int, c1: float = 0.5,
+                    n_used: int, c1: float = 1.0,
                     noise_floor: float = 4e-7,
                     cliff_min: float = 1.0,
                     bridge: bool = True,
@@ -448,7 +448,11 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
         (the length of the truncated, log-transformed signal).
     c1 : float, optional
         Safety factor of the sub-fundamental clip: grid points below
-        ``c1 / n_used`` are excluded. Default is 0.5.
+        ``c1 / n_used`` are excluded. Default is 1.0, the fundamental
+        itself: below it the data cannot determine the baseline at all,
+        and on the 51 hand-labeled reference signals no labeled optimum
+        has its stiff edge below 0.9x the fundamental (median 8.4x), so
+        clipping at the fundamental removes no usable cutoff.
     noise_floor : float, optional
         Relative residual noise at or below which a flat segment is
         considered frozen. Default is 4e-7.
@@ -498,7 +502,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
 
 def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
                   dips: list[dict], n_used: int,
-                  exclude_collapse: bool = False, c1: float = 0.5,
+                  exclude_collapse: bool = False, c1: float = 1.0,
                   collapse_level: float = 0.5) -> dict[str, np.ndarray]:
     """
     Stage-1 trimming of the detected plateau selection.
@@ -537,7 +541,8 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
         If True, apply the SNR-gated collapse exclusion. The caller sets
         this from the signal-to-noise ratio. Default is False.
     c1 : float, optional
-        Safety factor of the sub-fundamental clip. Default is 0.5.
+        Safety factor of the sub-fundamental clip. Default is 1.0 (the
+        fundamental itself); see ``trim_candidates``.
     collapse_level : float, optional
         Relative level of the total drop below which a plateau is past
         the collapse, in [0, 1]. Only used when ``exclude_collapse``.

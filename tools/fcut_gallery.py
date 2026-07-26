@@ -3,7 +3,7 @@
 Render a gallery of baselines across the representable cutoff range.
 
 For every signal of the dataset, the cutoff frequencies above the
-sub-fundamental limit ``0.5 / n_used`` are sampled at a constant
+sub-fundamental limit ``c1 / n_used`` are sampled at a constant
 geometric ratio and one baseline-correction figure is written per
 sampled cutoff frequency. The r2 curves are read from an existing
 ``r2_cache`` directory, so the expensive autocorrelation sweep is never
@@ -199,7 +199,7 @@ def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
 
 def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
                       s: np.ndarray, snr_threshold: float = 25.0,
-                      c1: float = 0.5
+                      c1: float = 1.0
                       ) -> tuple[list[np.ndarray], dict]:
     """
     Regions surviving the stage-1 trimming, plus the overlay masks.
@@ -411,7 +411,7 @@ def plot_r2(fcut_range: np.ndarray, r2: np.ndarray,
 def process_signal(data_path: str, cache_path: str, out_root: str,
                    ratio: float, dpi: int, trim: bool = False,
                    survive: bool = False,
-                   snr_threshold: float = 25.0, c1: float = 0.5) -> dict:
+                   snr_threshold: float = 25.0, c1: float = 1.0) -> dict:
     """
     Render the whole fcut gallery of one signal.
 
@@ -546,10 +546,10 @@ def main() -> None:
     parser.add_argument("--snr-threshold", type=float, default=25.0,
                         help="SNR above which the collapse exclusion is "
                              "applied under --survive (default: 25)")
-    parser.add_argument("--c1", type=float, default=0.5,
+    parser.add_argument("--c1", type=float, default=1.0,
                         help="sub-fundamental clip factor for --survive: "
                              "cutoffs below c1/n_used are trimmed on the "
-                             "stiff (low-frequency) side (default: 0.5)")
+                             "stiff (low-frequency) side (default: 1.0)")
     parser.add_argument("-w", "--workers", type=int, default=1,
                         help="number of worker processes (default: 1)")
     parser.add_argument("--dpi", type=int, default=200,

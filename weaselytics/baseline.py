@@ -16,6 +16,7 @@ from weaselytics.plot import r2_plots
 from weaselytics.segmentation import (
     classify_segments,
     detect_dips,
+    dip_curve,
     dips_to_mask,
     pelt_linear,
     segment_features,
@@ -24,7 +25,6 @@ from weaselytics.segmentation import (
 )
 from weaselytics.utils import (
     end_window,
-    find_plateaus,
     merge_intervals,
     peaks_params,
     r2_dw,
@@ -846,19 +846,6 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         cache_dir=cache_dir, path=path, workers=workers,
         return_stability=True, **kwargs)
     #####
-    # Diagnostics only: these four feed the r2 overlay in `r2_plots` and
-    # nothing downstream of them reaches `fcut`. `find_plateaus` shares
-    # the absolute-tolerance fragility of the route below (utils.py, the
-    # `tol0` level match on the initial plateau) and can raise on curves
-    # the selection itself handles perfectly well, so a failure here
-    # must disable the overlay, not abort the selection.
-    try:
-        _, _, rolling_std, diff_std_mad = find_plateaus(r2_val)
-    except (IndexError, ValueError) as exc:
-        print(f"WARNING: plateau overlay unavailable ({exc}).")
-        rolling_std = np.zeros(len(r2_val))
-        diff_std_mad = np.zeros(len(r2_val))
-
     # Changepoint-based prototype (issue #4), for diagnostics only: the
     # detected plateaus/proto-plateaus and the stage-1 trimming are
     # overlaid on the r2 diagnostic plot. The selected fcut is unaffected.
@@ -918,8 +905,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "fcut_range": fcut_range,
         "r2_val": r2_val,
         "stability_val": stability_val,
-        "rolling_std": rolling_std,
-        "diff_std_mad": diff_std_mad,
+        "dip_curve": dip_curve(r2_val),
         "fcut": fcut,
         "fi_r2_val": fi_r2_val,
         "cp_flat": cp_flat,
@@ -1091,7 +1077,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     if (show_plot or print_plot) and plot_data:
         r2_plots(
             plot_data["fcut_range"], plot_data["r2_val"],
-            plot_data["rolling_std"], plot_data["diff_std_mad"],
+            plot_data["dip_curve"],
             plot_data["fcut"], plot_data["fi_r2_val"],
             cp_flat=plot_data["cp_flat"],
             cp_dips=plot_data["cp_dips"],

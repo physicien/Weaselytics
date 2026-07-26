@@ -252,6 +252,40 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
     return segments
 
 
+def dip_curve(r2: np.ndarray, window: int = 3,
+              sigma: float = 8.0) -> np.ndarray:
+    """
+    The curve the proto-plateau detector actually reads.
+
+    The rolling standard deviation of `r2`, Gaussian-smoothed and
+    scaled to its own maximum. ``detect_dips`` finds proto-plateaus as
+    local MINIMA of this curve, so this — not the raw rolling standard
+    deviation, which is only an unsmoothed precursor — is what the
+    detection sees. Exposed so the diagnostic can draw the same array
+    the detector uses, rather than a lookalike that can drift from it.
+
+    Parameters
+    ----------
+    r2 : array-like, shape (N,)
+        The autocorrelation coefficients.
+    window : int, optional
+        Window of the rolling standard deviation. Default is 3.
+    sigma : float, optional
+        Standard deviation of the Gaussian smoothing. Default is 8.0.
+
+    Returns
+    -------
+    curve : numpy.ndarray, shape (N,)
+        The normalised curve, in [0, 1]; all zeros if `r2` is constant.
+
+    """
+    rss = gaussian_filter1d(_rolling_std(r2, window=window), sigma)
+    peak = float(rss.max())
+    if peak <= 0.0:
+        return np.zeros_like(rss)
+    return rss / peak
+
+
 def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
                 min_prominence: float = 0.03, level_min: float = 0.08,
                 level_max: float = 0.92, window: int = 3,
@@ -332,11 +366,9 @@ def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
 
     """
     n = len(r2)
-    rss = gaussian_filter1d(_rolling_std(r2, window=window), sigma)
-    peak = rss.max()
-    if peak <= 0.0:
+    norm = dip_curve(r2, window=window, sigma=sigma)
+    if not norm.any():
         return []
-    norm = rss / peak
     imin = int(np.argmin(r2))
     drop = r2.max() - r2.min()
     if imin < 2 or drop <= 0.0:

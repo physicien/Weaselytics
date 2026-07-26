@@ -4,6 +4,7 @@ import pytest
 from weaselytics.segmentation import (
     classify_segments,
     detect_dips,
+    dip_curve,
     dips_to_mask,
     instability_boundary,
     pelt_linear,
@@ -523,3 +524,31 @@ class TestSelectCenter:
         fcut_range = self._grid()
         assert select_center(
             fcut_range, np.zeros(len(fcut_range), dtype=bool)) is None
+
+
+class TestDipCurve:
+    def test_is_what_detect_dips_reads(self):
+        """The panel must show the detector's own curve, so the dips it
+        reports have to sit at minima of it."""
+        fcut_range, r2, _ = staircase_curve(shelf=True)
+        curve = dip_curve(r2)
+        dips = detect_dips(fcut_range, r2)
+        assert dips
+        for d in dips:
+            floor = d['floor']
+            lo = max(0, floor - 30)
+            hi = min(len(curve), floor + 31)
+            # the reported floor is the lowest point of its neighbourhood
+            assert curve[floor] == pytest.approx(curve[lo:hi].min())
+
+    def test_is_normalised(self):
+        _, r2, _ = staircase_curve(shelf=True)
+        curve = dip_curve(r2)
+        assert curve.min() >= 0.0
+        assert curve.max() == pytest.approx(1.0)
+
+    def test_constant_curve_gives_zeros_and_no_dips(self):
+        fcut_range = np.geomspace(1e-5, 0.5, num=500, endpoint=False)
+        r2 = np.ones(500)
+        assert not dip_curve(r2).any()
+        assert detect_dips(fcut_range, r2) == []

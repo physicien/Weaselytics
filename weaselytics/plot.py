@@ -121,8 +121,7 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
     plt.close()
     return None
 
-def r2_plots(x: np.ndarray, r2: np.ndarray, rolling_std: np.ndarray,
-             diff_std_mad: np.ndarray,
+def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
              freq_cutoff: float, fcut_r2: float,
              cp_flat: np.ndarray | None = None,
              cp_dips: np.ndarray | None = None,
@@ -143,11 +142,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, rolling_std: np.ndarray,
         The x-values of the parameter on which depend the autocorrelation.
     r2 : array-like, shape (N,)
         The y-values of the autocorrelation.
-    rolling_std : array-like, shape (N,)
-        Rolling standard deviation of the autocorrelation, from
-        ``utils.find_plateaus``.
-    diff_std_mad : array-like, shape (N,)
-        Its consecutive-difference / MAD companion, same source.
+    dip_curve : array-like, shape (N,)
+        The curve the proto-plateau detector reads
+        (``segmentation.dip_curve``): the rolling standard deviation of
+        `r2`, Gaussian-smoothed and normalised to its own maximum.
+        ``detect_dips`` marks proto-plateaus at its local minima, so the
+        orange basins above line up with the dips of this panel.
     freq_cutoff : float
         Frequency cutoff.
     fcut_r2 : float
@@ -308,8 +308,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, rolling_std: np.ndarray,
                         lw=0.4, alpha=0.8)
             axs[1].set_axisbelow(True)
 
-    axs[2].semilogx(x, rolling_std, ls='-', label='rolling std')
-    axs[2].semilogx(x, diff_std_mad, ls='-', label='diff std/MAD')
+    axs[2].semilogx(x, dip_curve, ls='-', lw=0.9, color='tab:orange')
 
     for ax in axs.flat:
         ax.axvline(x=freq_cutoff, c='tab:red', ls='dashed')
@@ -325,23 +324,16 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, rolling_std: np.ndarray,
     # rms change of the fitted baseline between adjacent cutoffs, as a
     # fraction of the range of the log-transformed signal, per decade.
     axs[1].set_ylabel(r"rms $\Delta b$" "\n" r"/range/dec", fontsize=9)
-    axs[2].set_ylabel(r"Rolling Std($r^2_{y-b}$)")
+    axs[2].set_ylabel("dip curve\n(norm. rolling std)", fontsize=9)
 #    axs[1].set_ylabel(r"$r^2_{y-b}$'")
 #    axs[2].set_ylabel(r"$r^2_{y-b}$''")
 
-    p1_ymax = 2E-3
-    p1_ymin = -1E-4#-0.05*p1_ymax
-#    axs[0].set_ylim(r2_ymin,1.0)
-    axs[2].set_ylim(bottom=p1_ymin, top=p1_ymax)
-    axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
-    # With hspace=0 the scientific offset text is drawn just above this
-    # panel, i.e. inside the stability panel; shrink it so it stops
-    # colliding with that panel's own ticks.
-    axs[2].yaxis.get_offset_text().set_fontsize(7)
-    # Its top tick sits exactly on the boundary shared with the
-    # stability panel, where it collides with that panel's zero. Prune
-    # it so the stability floor stays labelled.
-    axs[2].yaxis.set_major_locator(MaxNLocator(nbins=4, prune='upper'))
+    # The curve is normalised to its own maximum, so the scale is fixed
+    # and comparable between figures. A little headroom below zero keeps
+    # the floor readable, as on the stability panel.
+    axs[2].set_ylim(bottom=-0.06, top=1.05)
+    axs[2].yaxis.set_major_locator(MaxNLocator(nbins=3, prune='upper'))
+    axs[2].tick_params(axis='y', labelsize=8)
     #axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
     axs[0].legend()
     plt.tight_layout()

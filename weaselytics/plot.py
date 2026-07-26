@@ -8,6 +8,19 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from matplotlib.ticker import MaxNLocator
+
+#: Colour of the baseline-stability curve. Kept clear of every other
+#: element of the r2 figure: blue is r2, red is the selected cutoff and
+#: the trimmed fill, orange the proto-plateaus, purple the flat set.
+_STABILITY_COLOR = "darkslateblue"
+
+#: Fixed top of the baseline-stability panel. Fixed rather than
+#: data-scaled so that the panel means the same thing on every figure
+#: and the curves can be compared across signals; the instability
+#: spikes run orders of magnitude higher, so the true peak is annotated
+#: whenever it leaves the frame.
+_STABILITY_YMAX = 3.0
 
 
 def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
@@ -118,6 +131,8 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
              cp_dips: np.ndarray | None = None,
              cp_removed: np.ndarray | None = None,
              cp_snr_removed: np.ndarray | None = None,
+             stability: np.ndarray | None = None,
+             n_used: int | None = None,
              show_plot: bool = False, print_plot: bool = False,
              path: str = "./file.txt",
              output_dir: str = "results") -> None:
@@ -190,6 +205,20 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         would remove (beyond ``cp_removed``), drawn as a dark-red
         cross-hatch. A preview only; it does not affect the selection.
         Default is None, which disables the overlay.
+    stability : array-like, shape (N,), optional
+        Baseline-stability curve from ``baseline._stability_curve``: the
+        rms change of the fitted baseline between adjacent cutoff
+        frequencies, relative to the signal range, per decade. Drawn on
+        its own middle panel on a linear y-axis (the quantity is linear,
+        and a log axis stretches the settled floor into structure that
+        is not there). Large and erratic where the BEADS fit is
+        unstable, settling where it becomes reliable. Default is None,
+        which leaves the panel empty.
+    n_used : int, optional
+        Number of signal points used by the sweep. Its reciprocal is the
+        record's fundamental frequency — the slowest baseline the data
+        can constrain — marked on the stability panel. Default is None,
+        which omits the marker.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
     print_plot : bool, optional
@@ -204,7 +233,10 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
     #@EB
     #fig = plt.figure(figsize=[6.4,9.6],num="Autocorrelation plots")
     fig = plt.figure(figsize=[9.4,9.6],num="Autocorrelation plots")
-    gs = fig.add_gridspec(2, hspace=0)
+    # Three stacked panels at the unchanged figure size: r2 takes half
+    # the height, the baseline-stability curve and the rolling-std
+    # panel split the other half evenly.
+    gs = fig.add_gridspec(3, hspace=0, height_ratios=[2.0, 1.0, 1.0])
     axs = gs.subplots(sharex=True)
     # Red fill: the detected plateaus/proto-plateaus removed by the
     # stage-1 trimming (sub-fundamental clip and frozen tail).
@@ -260,13 +292,49 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                             label='CP bracket',
                             transform=axs[0].get_xaxis_transform())
 
-    axs[1].fill_between(x, 0, 1,
+    # Middle panel: the baseline-stability curve, on a LINEAR y-axis.
+    # The quantity is linear, and a log axis turns the settled floor
+    # into structure that is not there.
+    if stability is not None:
+        axs[1].semilogx(x, stability, ls='-', lw=0.8,
+                        color=_STABILITY_COLOR)
+        # The fundamental, 1/n_used: the slowest baseline the record can
+        # constrain. Below it the fit has nothing to fix the baseline
+        # against, which is where the instability lives.
+        if n_used:
+            axs[1].axvline(x=1.0 / n_used, c='k', ls='dotted', lw=1.2,
+                           label='fundamental')
+            axs[1].legend(fontsize=7, loc='upper right')
+        # Fixed limits, with a little headroom below zero so the settled
+        # floor reads as a curve resting on zero rather than as the axis
+        # itself. The instability spikes run orders of magnitude above
+        # the frame, so the true peak is annotated below and a clipped
+        # spike is never silent.
+        axs[1].set_ylim(bottom=-0.06 * _STABILITY_YMAX,
+                        top=_STABILITY_YMAX)
+        finite = np.asarray(stability)[np.isfinite(stability)]
+        if finite.size:
+            peak = float(np.max(finite))
+            if peak > _STABILITY_YMAX:
+                axs[1].annotate(f'peak {peak:.3g}',
+                                xy=(0.995, 0.80),
+                                xycoords='axes fraction',
+                                ha='right', va='top', fontsize=7,
+                                color=_STABILITY_COLOR)
+        # A short panel needs few ticks. Keep the zero one: the curve
+        # settling to its floor is the feature being read. Only the top
+        # tick is pruned, since with hspace=0 it would collide with the
+        # panel above.
+        axs[1].yaxis.set_major_locator(MaxNLocator(nbins=3, prune='upper'))
+        axs[1].tick_params(axis='y', labelsize=8)
+
+    axs[2].fill_between(x, 0, 1,
                         where=tol1_0,
                         color="none", ec="white", alpha=0.3, fc="purple",
                         hatch="//", hatch_linewidth=4,
-                        transform=axs[1].get_xaxis_transform())
-    axs[1].semilogx(x, sm_d1, ls='-', label=r'corrected')
-    axs[1].semilogx(x, sm_d2, ls='-', label=r'smooth')
+                        transform=axs[2].get_xaxis_transform())
+    axs[2].semilogx(x, sm_d1, ls='-', label=r'corrected')
+    axs[2].semilogx(x, sm_d2, ls='-', label=r'smooth')
 
     for ax in axs.flat:
         ax.axvline(x=freq_cutoff, c='tab:red', ls='dashed')
@@ -289,7 +357,10 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                 )
 #    axs[2].set_xlabel('Cutoff frequency')
     axs[0].set_ylabel(r'$r^2_{y-b}$')
-    axs[1].set_ylabel(r"Rolling Std($r^2_{y-b}$)")
+    # rms change of the fitted baseline between adjacent cutoffs, as a
+    # fraction of the range of the log-transformed signal, per decade.
+    axs[1].set_ylabel(r"rms $\Delta b$" "\n" r"/range/dec", fontsize=9)
+    axs[2].set_ylabel(r"Rolling Std($r^2_{y-b}$)")
 #    axs[1].set_ylabel(r"$r^2_{y-b}$'")
 #    axs[2].set_ylabel(r"$r^2_{y-b}$''")
 
@@ -300,8 +371,16 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
     p1_ymax = 2E-3#np.max(sm_d1[tol1_0])*2.50
     p1_ymin = -1E-4#-0.05*p1_ymax
 #    axs[0].set_ylim(r2_ymin,1.0)
-    axs[1].set_ylim(bottom=p1_ymin, top=p1_ymax)
-    axs[1].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
+    axs[2].set_ylim(bottom=p1_ymin, top=p1_ymax)
+    axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
+    # With hspace=0 the scientific offset text is drawn just above this
+    # panel, i.e. inside the stability panel; shrink it so it stops
+    # colliding with that panel's own ticks.
+    axs[2].yaxis.get_offset_text().set_fontsize(7)
+    # Its top tick sits exactly on the boundary shared with the
+    # stability panel, where it collides with that panel's zero. Prune
+    # it so the stability floor stays labelled.
+    axs[2].yaxis.set_major_locator(MaxNLocator(nbins=4, prune='upper'))
     #axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
     axs[0].legend()
     plt.tight_layout()

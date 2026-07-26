@@ -1060,6 +1060,10 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "cp_surviving": cp_surviving,
         "cp_removed": cp_removed,
         "cp_snr_removed": cp_snr_removed,
+        # Number of points the sweep actually used; its reciprocal is
+        # the record's fundamental frequency, the slowest baseline the
+        # data can constrain.
+        "n_used": len(z),
     }
     return fcut, case, plot_data
 
@@ -1235,6 +1239,8 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             cp_dips=plot_data["cp_dips"],
             cp_removed=plot_data["cp_removed"],
             cp_snr_removed=plot_data["cp_snr_removed"],
+            stability=plot_data["stability_val"],
+            n_used=plot_data["n_used"],
             show_plot=show_plot, print_plot=print_plot,
             path=path, output_dir=output_dir,
         )

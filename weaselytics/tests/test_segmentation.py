@@ -482,3 +482,29 @@ class TestProtoPlateauFallback:
         a = trim_plateaus(fcut_range, segments, [], 1000)
         b = trim_plateaus(fcut_range, segments, [], 1000)
         assert np.array_equal(a['surviving'], b['surviving'])
+
+    def test_every_detected_point_is_accounted_for(self):
+        """No detected region may fall outside all four masks.
+
+        The diagnostic draws the masks, so a point that is detected,
+        does not survive, and is in no removal mask is simply invisible
+        -- the reader sees a proto-plateau that was silently dropped.
+        The fallback path returns the flat channel's masks, which are
+        computed WITHOUT the dips, so it has to re-attribute them.
+        """
+        fcut_range, r2, segments = self._curve_with_flat()
+        # a dip straddling the sub-fundamental clip, so part of it is
+        # removed by the clip and part by the fallback
+        n_used = 1000
+        clip = int(np.searchsorted(fcut_range, 1.0 / n_used))
+        dips = [{'start': clip - 20, 'end': clip + 20, 'level': 0.7,
+                 'floor': 0.0, 'prominence': 0.5}]
+        masks = trim_plateaus(fcut_range, segments, dips, n_used)
+        cp_flat = np.zeros(len(fcut_range), dtype=bool)
+        for seg in segments:
+            if seg['flat']:
+                cp_flat[seg['start']:seg['end']] = True
+        detected = cp_flat | dips_to_mask(fcut_range, dips)
+        accounted = (masks['surviving'] | masks['removed']
+                     | masks['snr_removed'] | masks['instab_removed'])
+        assert not (detected & ~accounted).any()

@@ -754,9 +754,24 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
                             stability)
     if not flat_only['surviving'].any():
         return masks
-    dropped = masks['surviving'] & ~flat_only['surviving']
-    flat_only['removed'] = flat_only['removed'] | dropped
-    return flat_only
+
+    # The flat channel suffices, so the surviving set is its own. The
+    # removal masks, however, must still account for the WHOLE detected
+    # selection: `flat_only` was computed without the dips, so on its
+    # own it leaves the dip basins in no mask at all and they would be
+    # drawn nowhere on the diagnostic. Attribute every detected point
+    # that does not survive, whatever removed it.
+    cp_flat = np.zeros(len(fcut_range), dtype=bool)
+    for seg in segments:
+        if seg['flat']:
+            cp_flat[seg['start']:seg['end']] = True
+    detected = cp_flat | dips_to_mask(fcut_range, dips)
+    surviving = flat_only['surviving']
+    snr_removed = flat_only['snr_removed']
+    instab_removed = flat_only['instab_removed']
+    removed = detected & ~surviving & ~snr_removed & ~instab_removed
+    return {'surviving': surviving, 'removed': removed,
+            'snr_removed': snr_removed, 'instab_removed': instab_removed}
 
 
 def select_fcut(fcut_range: np.ndarray, r2: np.ndarray,

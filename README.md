@@ -90,6 +90,13 @@ Contributed by Emmanuel Bourret
 ## TO DO
 
 - Generalize hardcoded `__LPYE__` pattern in `export_dist`
+- `weaselytics/__init__.py` re-exports the `plot` **function**, which shadows
+  the `weaselytics.plot` **submodule** of the same name. `import
+  weaselytics.plot as p` therefore binds the function, not the module, and
+  reaching the module needs `sys.modules["weaselytics.plot"]`. This silently
+  breaks any script that introspects or patches module-level names (e.g.
+  `_STABILITY_COLOR`); it fails by doing nothing rather than by raising.
+  Consider renaming the function or the module.
 - Make `ParsedData` parser more general (support different delimiters, extra columns, headers)
 - Clean up `#@EB`, `#@TEMP`, `#TODO` markers
 - Add `examples/` directory with sample output images

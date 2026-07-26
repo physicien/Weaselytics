@@ -910,10 +910,12 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     # PREVIEW overlay only (`cp_snr_removed`, dark red); it is not yet
     # applied to the selection.
     cp_trim = trim_plateaus(fcut_range, cp_segments, cp_detected_dips,
-                            len(z), exclude_collapse=_snr(s) >= snr_threshold)
+                            len(z), exclude_collapse=_snr(s) >= snr_threshold,
+                            stability=stability_val)
     cp_surviving = cp_trim['surviving']
     cp_removed = cp_trim['removed']
     cp_snr_removed = cp_trim['snr_removed']
+    cp_instab_removed = cp_trim['instab_removed']
     #####
 
     ##########################################################################
@@ -1060,6 +1062,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "cp_surviving": cp_surviving,
         "cp_removed": cp_removed,
         "cp_snr_removed": cp_snr_removed,
+        "cp_instab_removed": cp_instab_removed,
         # Number of points the sweep actually used; its reciprocal is
         # the record's fundamental frequency, the slowest baseline the
         # data can constrain.
@@ -1239,6 +1242,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             cp_dips=plot_data["cp_dips"],
             cp_removed=plot_data["cp_removed"],
             cp_snr_removed=plot_data["cp_snr_removed"],
+            cp_instab_removed=plot_data["cp_instab_removed"],
             stability=plot_data["stability_val"],
             n_used=plot_data["n_used"],
             show_plot=show_plot, print_plot=print_plot,

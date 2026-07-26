@@ -89,6 +89,17 @@ Contributed by Emmanuel Bourret
 
 ## TO DO
 
+- **Ground the instability-exclusion thresholds.** `segmentation.instability_boundary`
+  trims the stiff side up to where the baseline stops flailing, using
+  `trigger=0.10` (is the fundamental inside a flailing region?) and
+  `settled=0.05` (are the oscillations small enough?). Both are **adopted
+  provisionally, not grounded**: they are amplitudes of the dimensionless
+  stability curve, so they read as statements about tolerable baseline
+  movement rather than as instrument constants, but no reference fixes where
+  that tolerance lies. `settled` is the sensitive one — it sets how far the
+  exclusion reaches, and label violations appear below ~0.02 while `trigger`
+  only changes how many signals are affected. Ground it against baseline error
+  on synthetic ground truth, where the true baseline is known.
 - Generalize hardcoded `__LPYE__` pattern in `export_dist`
 - `weaselytics/__init__.py` re-exports the `plot` **function**, which shadows
   the `weaselytics.plot` **submodule** of the same name. `import

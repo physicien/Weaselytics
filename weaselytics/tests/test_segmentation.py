@@ -5,10 +5,12 @@ from weaselytics.segmentation import (
     classify_segments,
     detect_dips,
     dips_to_mask,
+    instability_boundary,
     pelt_linear,
     refine_candidates,
     segment_features,
     select_fcut,
+    stability_dispersion,
     trim_candidates,
     trim_plateaus,
 )
@@ -398,3 +400,82 @@ class TestTrimPlateaus:
                            exclude_collapse=True)
         assert off['surviving'][600] and not on['surviving'][600]
         assert on['snr_removed'][600]
+
+
+class TestInstabilityBoundary:
+    """The stiff-side exclusion driven by the baseline-stability curve.
+
+    Its thresholds are not grounded (see `instability_boundary`), so
+    these tests pin the BEHAVIOUR of the rule -- fires only when the
+    fundamental sits in a flailing region, and stops once the
+    oscillations settle -- not the particular values.
+    """
+
+    def _curve(self, flail_lo, flail_hi, amp=1.0, n=1000):
+        """Stability curve that flails between two cutoffs and is quiet
+        elsewhere."""
+        rng = np.random.default_rng(3)
+        fcut_range = np.geomspace(1e-5, 0.5, num=n, endpoint=False)
+        stability = np.full(n, 1e-3)
+        band = (fcut_range >= flail_lo) & (fcut_range <= flail_hi)
+        stability[band] = rng.uniform(0, amp, band.sum())
+        return fcut_range, stability
+
+    def test_fires_when_the_fundamental_is_inside_the_flailing(self):
+        n_used = 1000                      # fundamental at 1e-3
+        fcut_range, stability = self._curve(2e-4, 5e-3)
+        boundary = instability_boundary(fcut_range, stability, n_used)
+        assert boundary is not None
+        # the exclusion reaches past the fundamental, and stops inside
+        # the quiet zone beyond the flailing
+        assert boundary > 1.0 / n_used
+        assert boundary >= 5e-3
+
+    def test_silent_when_the_fundamental_is_in_a_quiet_zone(self):
+        # same flailing band, but a much shorter record puts the
+        # fundamental above it, where the curve is already settled
+        fcut_range, stability = self._curve(1e-4, 5e-4)
+        assert instability_boundary(fcut_range, stability, 100) is None
+
+    def test_silent_on_the_flexible_ramp(self):
+        # The flexible side: stability climbs smoothly toward the
+        # collapse instead of scattering. A ramp of realistic height
+        # (the reference signals reach ~0.16) leaves the fundamental
+        # quiet, so no stiff-side exclusion is triggered.
+        fcut_range = np.geomspace(1e-5, 0.5, num=1000, endpoint=False)
+        stability = np.linspace(0, 0.16, 1000)
+        assert instability_boundary(fcut_range, stability, 1000) is None
+
+    def test_dispersion_is_far_smaller_on_a_ramp_than_on_scatter(self):
+        # Note what this does NOT claim: the dispersion of a window is
+        # the spread of the values in it, so a steep enough ramp does
+        # register (0 -> 50 over the grid gives ~1.05 at fcut 1e-3, well
+        # above the trigger). What separates the two sides in practice
+        # is that the flexible ramp is gentle AND far from the
+        # fundamental, where the rule is evaluated.
+        fcut_range = np.geomspace(1e-5, 0.5, num=1000, endpoint=False)
+        rng = np.random.default_rng(0)
+        amplitude = 1.0
+        d_ramp = stability_dispersion(
+            fcut_range, np.linspace(0, amplitude, 1000))
+        d_scatter = stability_dispersion(
+            fcut_range, rng.uniform(0, amplitude, 1000))
+        # measured separation is a factor of ~4.3 between the ramp's
+        # worst window and the scatter's quietest one
+        assert d_ramp.max() < 0.5 * d_scatter.min()
+
+    def test_trim_plateaus_reports_the_extra_cut(self):
+        fcut_range, r2, _ = synthetic_curve()
+        segments = classify_segments(
+            segment_features(fcut_range, r2, pelt_linear(r2)))
+        dips = detect_dips(fcut_range, r2)
+        _, stability = self._curve(2e-4, 5e-3)
+        off = trim_plateaus(fcut_range, segments, dips, 1000)
+        on = trim_plateaus(fcut_range, segments, dips, 1000,
+                           stability=stability)
+        assert not off['instab_removed'].any()
+        assert on['instab_removed'].any()
+        # what it removes came out of the survivors, and nothing else
+        assert not (on['surviving'] & on['instab_removed']).any()
+        assert (on['surviving'] | on['instab_removed']).sum() == \
+            off['surviving'].sum()

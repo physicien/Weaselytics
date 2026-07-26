@@ -500,10 +500,120 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     return candidates
 
 
+def stability_dispersion(fcut_range: np.ndarray, stability: np.ndarray,
+                         win_dec: float = 0.2) -> np.ndarray:
+    """
+    Local dispersion of the baseline-stability curve.
+
+    The interquartile range of `stability` inside a sliding window of
+    `win_dec` decades of cutoff frequency. Where the BEADS fit is
+    undetermined the baseline swings between adjacent cutoffs, so the
+    stability values do not merely run high, they *scatter*: dispersion
+    separates that from a baseline that moves steadily, which is what
+    happens on the flexible side approaching the collapse, where the
+    values are high but tightly ordered.
+
+    The interquartile range rather than a standard deviation, and a
+    window rather than a smoothing kernel, because the excursions are
+    the signal here and must set the level they belong to instead of
+    being averaged away.
+
+    Parameters
+    ----------
+    fcut_range : array-like, shape (N,)
+        The (geometrically spaced) cutoff frequencies.
+    stability : array-like, shape (N,)
+        The baseline-stability curve (``baseline._stability_curve``).
+    win_dec : float, optional
+        Width of the window, in decades of cutoff frequency. Default is
+        0.2.
+
+    Returns
+    -------
+    dispersion : numpy.ndarray, shape (N,)
+        The windowed interquartile range of `stability`.
+
+    """
+    per_dec = (len(fcut_range) - 1) / np.log10(fcut_range[-1] / fcut_range[0])
+    width = max(5, int(round(win_dec * per_dec)) | 1)
+    half = width // 2
+    padded = np.pad(np.asarray(stability, dtype=float), half, mode='edge')
+    windows = np.lib.stride_tricks.sliding_window_view(padded, width)
+    q75, q25 = np.percentile(windows, [75, 25], axis=-1)
+    return q75 - q25
+
+
+def instability_boundary(fcut_range: np.ndarray, stability: np.ndarray,
+                         n_used: int, trigger: float = 0.10,
+                         settled: float = 0.05,
+                         win_dec: float = 0.2) -> float | None:
+    """
+    Cutoff frequency up to which the fit is undetermined, or None.
+
+    Implements the rule that when the record's fundamental falls inside
+    a region where the baseline is flailing, that region is unusable up
+    to the point where the oscillations become small again. The test is
+    made at the fundamental itself, so it is local to the signal and
+    needs no prior classification of the curve.
+
+    Below the fundamental the data cannot constrain the baseline at all
+    and ``trim_candidates`` already clips there; this extends the
+    exclusion upward over the frequencies where the fit is still
+    swinging, which the sub-fundamental clip cannot reach.
+
+    .. warning::
+       `trigger` and `settled` are **not grounded**. They are amplitudes
+       of the stability curve, which is dimensionless (rms baseline
+       change as a fraction of the signal range, per decade), so they
+       read as physical statements about tolerable baseline movement
+       rather than as instrument constants — but no reference fixes
+       where that tolerance lies. The values are adopted provisionally
+       from a review of all 339 reference signals. `settled` is the
+       sensitive one: it sets how far the exclusion reaches. See the
+       README TO DO.
+
+    Parameters
+    ----------
+    fcut_range : array-like, shape (N,)
+        The (geometrically spaced) cutoff frequencies.
+    stability : array-like, shape (N,)
+        The baseline-stability curve (``baseline._stability_curve``).
+    n_used : int
+        Number of signal points used for the autocorrelation sweep; its
+        reciprocal is the fundamental.
+    trigger : float, optional
+        Dispersion at the fundamental above which the fit counts as
+        flailing there. Default is 0.10.
+    settled : float, optional
+        Dispersion below which the oscillations count as small enough.
+        Default is 0.05.
+    win_dec : float, optional
+        Window of ``stability_dispersion``, in decades. Default is 0.2.
+
+    Returns
+    -------
+    boundary : float or None
+        The cutoff frequency up to which the fit is undetermined, or
+        None when the fundamental is not inside a flailing region.
+
+    """
+    dispersion = stability_dispersion(fcut_range, stability, win_dec=win_dec)
+    fundamental = 1.0 / n_used
+    start = int(np.argmin(np.abs(fcut_range - fundamental)))
+    if dispersion[start] <= trigger:
+        return None
+    end = start
+    while end < len(fcut_range) and dispersion[end] >= settled:
+        end += 1
+    return float(fcut_range[min(end, len(fcut_range) - 1)])
+
+
 def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
                   dips: list[dict], n_used: int,
                   exclude_collapse: bool = False, c1: float = 1.0,
-                  collapse_level: float = 0.5) -> dict[str, np.ndarray]:
+                  collapse_level: float = 0.5,
+                  stability: np.ndarray | None = None) -> dict[
+                      str, np.ndarray]:
     """
     Stage-1 trimming of the detected plateau selection.
 
@@ -547,6 +657,11 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
         Relative level of the total drop below which a plateau is past
         the collapse, in [0, 1]. Only used when ``exclude_collapse``.
         Default is 0.5.
+    stability : array-like, shape (N,), optional
+        The baseline-stability curve. When given, the stiff-side
+        instability exclusion of ``instability_boundary`` is applied on
+        top of the others — note its thresholds are not grounded.
+        Default is None, which disables that exclusion.
 
     Returns
     -------
@@ -554,7 +669,9 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
         ``surviving`` — regions that survive every applied exclusion;
         ``removed`` — detected regions cut by the clip and frozen tail;
         ``snr_removed`` — the extra cut by the collapse exclusion beyond
-        ``removed`` (all False when ``exclude_collapse`` is False).
+        ``removed`` (all False when ``exclude_collapse`` is False);
+        ``instab_removed`` — the extra cut by the instability exclusion
+        (all False when `stability` is None).
 
     """
     cp_flat = np.zeros(len(fcut_range), dtype=bool)
@@ -585,8 +702,21 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     else:
         trimmed_123 = trimmed_12
     snr_removed = trimmed_12 & ~trimmed_123
+
+    # Stiff-side instability exclusion. Applied last, on whatever has
+    # survived: it removes the frequencies at which the fit is still
+    # undetermined above the fundamental, which the sub-fundamental clip
+    # cannot reach.
+    instab_removed = np.zeros(len(fcut_range), dtype=bool)
+    if stability is not None:
+        boundary = instability_boundary(fcut_range, stability, n_used)
+        if boundary is not None:
+            surviving = trimmed_123 & (fcut_range > boundary)
+            instab_removed = trimmed_123 & ~surviving
+            trimmed_123 = surviving
+
     return {'surviving': trimmed_123, 'removed': removed,
-            'snr_removed': snr_removed}
+            'snr_removed': snr_removed, 'instab_removed': instab_removed}
 
 
 def refine_candidates(fcut_range: np.ndarray, candidates: np.ndarray,

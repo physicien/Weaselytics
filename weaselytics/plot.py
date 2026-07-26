@@ -143,6 +143,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
              cp_dips: np.ndarray | None = None,
              cp_removed: np.ndarray | None = None,
              cp_snr_removed: np.ndarray | None = None,
+             cp_instab_removed: np.ndarray | None = None,
              stability: np.ndarray | None = None,
              n_used: int | None = None,
              show_plot: bool = False, print_plot: bool = False,
@@ -217,6 +218,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         would remove (beyond ``cp_removed``), drawn as a dark-red
         cross-hatch. A preview only; it does not affect the selection.
         Default is None, which disables the overlay.
+    cp_instab_removed : array-like, shape (N,), dtype bool, optional
+        Mask of the regions removed by the stiff-side instability
+        exclusion (``segmentation.instability_boundary``), drawn as a
+        solid fill in the colour of the stability curve, so the cut can
+        be read directly against the panel that produced it. Default is
+        None, which disables the overlay.
     stability : array-like, shape (N,), optional
         Baseline-stability curve from ``baseline._stability_curve``: the
         rms change of the fitted baseline between adjacent cutoff
@@ -268,6 +275,16 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                             color="none", ec="darkred", alpha=0.9,
                             hatch="xxx", hatch_linewidth=1.0,
                             label='SNR-trimmed',
+                            transform=axs[0].get_xaxis_transform())
+    # The stiff-side instability cut, in the colour of the stability
+    # curve below: this region is removed because that curve is still
+    # flailing there, and drawing them alike lets the two be read
+    # together.
+    if cp_instab_removed is not None and np.any(cp_instab_removed):
+        axs[0].fill_between(x, 0, 1,
+                            where=cp_instab_removed,
+                            color=_STABILITY_COLOR, alpha=0.30,
+                            label='unstable',
                             transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
 

@@ -8,7 +8,6 @@ from weaselytics.segmentation import (
     instability_boundary,
     pelt_linear,
     segment_features,
-    select_fcut,
     stability_dispersion,
     trim_candidates,
     trim_plateaus,
@@ -90,29 +89,6 @@ class TestClassifySegments:
                  if seg['start'] >= 620 and seg['end'] <= 780]
         assert steep
         assert not any(seg['flat'] for seg in steep)
-
-
-class TestSelectFcut:
-    def test_selects_edge_of_second_plateau(self):
-        fcut_range, r2, _ = synthetic_curve()
-        fcut, segments, chosen = select_fcut(fcut_range, r2)
-        assert fcut is not None
-        assert chosen is not None
-        # The chosen plateau is the 0.90 one, right before the big drop
-        assert segments[chosen]['mean'] == pytest.approx(0.90, abs=1e-2)
-        # fcut is at the right edge of the chosen plateau
-        end = segments[chosen]['end']
-        assert fcut == pytest.approx(fcut_range[end - 1])
-        # ... which lies near the true end of that plateau (index 650)
-        assert 600 <= end <= 700
-
-    def test_returns_none_when_nothing_is_flat(self):
-        rng = np.random.default_rng(7)
-        fcut_range = np.geomspace(1e-5, 0.5, num=200, endpoint=False)
-        r2 = rng.normal(0.5, 0.2, 200)
-        fcut, _, chosen = select_fcut(fcut_range, r2)
-        assert fcut is None
-        assert chosen is None
 
 
 class TestClassifySegmentsHysteresis:

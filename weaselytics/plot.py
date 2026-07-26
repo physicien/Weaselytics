@@ -122,7 +122,7 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
     return None
 
 def r2_plots(x: np.ndarray, r2: np.ndarray, rolling_std: np.ndarray,
-             diff_std_mad: np.ndarray, plateau_mask: np.ndarray,
+             diff_std_mad: np.ndarray,
              freq_cutoff: float, fcut_r2: float,
              cp_flat: np.ndarray | None = None,
              cp_dips: np.ndarray | None = None,
@@ -148,9 +148,6 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, rolling_std: np.ndarray,
         ``utils.find_plateaus``.
     diff_std_mad : array-like, shape (N,)
         Its consecutive-difference / MAD companion, same source.
-    plateau_mask : array-like, shape (N,), dtype bool
-        Boolean mask of the plateau region found by ``find_plateaus``,
-        hatched on the rolling-std panel.
     freq_cutoff : float
         Frequency cutoff.
     fcut_r2 : float
@@ -311,11 +308,6 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, rolling_std: np.ndarray,
                         lw=0.4, alpha=0.8)
             axs[1].set_axisbelow(True)
 
-    axs[2].fill_between(x, 0, 1,
-                        where=plateau_mask,
-                        color="none", ec="white", alpha=0.3, fc="purple",
-                        hatch="//", hatch_linewidth=4,
-                        transform=axs[2].get_xaxis_transform())
     axs[2].semilogx(x, rolling_std, ls='-', label='rolling std')
     axs[2].semilogx(x, diff_std_mad, ls='-', label='diff std/MAD')
 

@@ -853,11 +853,9 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     # the selection itself handles perfectly well, so a failure here
     # must disable the overlay, not abort the selection.
     try:
-        test_plateaus, _, rolling_std, diff_std_mad = \
-            find_plateaus(r2_val)
+        _, _, rolling_std, diff_std_mad = find_plateaus(r2_val)
     except (IndexError, ValueError) as exc:
         print(f"WARNING: plateau overlay unavailable ({exc}).")
-        test_plateaus = np.zeros(len(r2_val), dtype=bool)
         rolling_std = np.zeros(len(r2_val))
         diff_std_mad = np.zeros(len(r2_val))
 
@@ -876,7 +874,6 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             cp_flat[seg['start']:seg['end']] = True
     cp_detected_dips = detect_dips(fcut_range, r2_val)
     cp_dips = dips_to_mask(fcut_range, cp_detected_dips)
-    cp_plateaus = cp_flat | cp_dips
     # Stage-1 trimming (single source: segmentation.trim_plateaus). The
     # sub-fundamental clip (#1) and frozen tail (#2) give `cp_removed`
     # (drawn red). The SNR-gated collapse exclusion (#3) is computed as a
@@ -919,12 +916,10 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "stability_val": stability_val,
         "rolling_std": rolling_std,
         "diff_std_mad": diff_std_mad,
-        "test_plateaus": test_plateaus,
         "fcut": fcut,
         "fi_r2_val": fi_r2_val,
         "cp_flat": cp_flat,
         "cp_dips": cp_dips,
-        "cp_plateaus": cp_plateaus,
         "cp_surviving": cp_surviving,
         "cp_removed": cp_removed,
         "cp_snr_removed": cp_snr_removed,
@@ -1093,7 +1088,6 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         r2_plots(
             plot_data["fcut_range"], plot_data["r2_val"],
             plot_data["rolling_std"], plot_data["diff_std_mad"],
-            plot_data["test_plateaus"],
             plot_data["fcut"], plot_data["fi_r2_val"],
             cp_flat=plot_data["cp_flat"],
             cp_dips=plot_data["cp_dips"],

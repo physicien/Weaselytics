@@ -99,6 +99,19 @@ Contributed by Emmanuel Bourret
   can be reproduced or checked. Decide whether it records anything worth keeping.
   The same caution applies to any other prose in the docs quoting measurements with
   no surviving dataset behind them.
+- **Consider dropping the rolling-std panel of `r2_plots`.** Its two curves,
+  `rolling_std` and `diff_std_mad`, are **used nowhere in the selection** — they
+  are produced by `utils.find_plateaus` solely to be drawn. Three reasons to
+  reconsider them: (a) the panel does not show the quantity that drives the
+  proto-plateau detection — `detect_dips` computes its own rolling standard
+  deviation and then Gaussian-smooths it (sigma 8) and normalises it, so the
+  plotted raw curve is only an unsmoothed precursor of what is actually used;
+  (b) `find_plateaus` costs ~170 ms per signal and its first two returns
+  (`plateaus`, `ends`) are now discarded, so the diptest and the
+  Sauvola/triangle thresholding inside it run purely to be thrown away — on a
+  cached signal that is about a third of the whole call; (c) it also prints
+  `pval:` and `Threshold:` on every run, which are diagnostics of that discarded
+  result. Dropping the panel would let the `find_plateaus` call go entirely.
 - **Ground the instability-exclusion thresholds.** `segmentation.instability_boundary`
   trims the stiff side up to where the baseline stops flailing, using
   `trigger=0.10` (is the fundamental inside a flailing region?) and

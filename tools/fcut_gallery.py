@@ -184,8 +184,9 @@ def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
     sampled only inside the candidate regions **and** drew them on the
     summary figure, so the resulting labels were both restricted to,
     and visually anchored on, the machinery they were later used to
-    calibrate (`refine_candidates`). A label set collected that way
-    cannot test the boundaries of `trim_candidates`.
+    calibrate (the `refine_candidates` bracket, since removed). A label
+    set collected that way cannot test the boundaries of
+    `trim_candidates`.
 
     The sub-fundamental clip is kept even when untrimmed: below
     ``C1 / n_used`` a cutoff describes an oscillation slower than half
@@ -553,7 +554,8 @@ def main() -> None:
                              "on 00_r2.png. Off by default: it censors "
                              "and visually anchors the labels, which is "
                              "how the 2026-07-20 gallery came to be "
-                             "unusable for calibrating refine_candidates")
+                             "unusable for the calibration it was "
+                             "collected for")
     parser.add_argument("--survive", action="store_true",
                         help="restrict the sampling to the regions "
                              "surviving the stage-1 trimming (sub-"

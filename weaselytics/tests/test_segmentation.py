@@ -7,7 +7,6 @@ from weaselytics.segmentation import (
     dips_to_mask,
     instability_boundary,
     pelt_linear,
-    refine_candidates,
     segment_features,
     select_fcut,
     stability_dispersion,
@@ -212,63 +211,6 @@ class TestTrimCandidates:
                                      self.N_USED_LONG)
         mid_shelf = 300 + 30 + 75
         assert candidates[mid_shelf]
-
-
-class TestRefineCandidates:
-    _N = 1000
-
-    def _grid(self):
-        return np.geomspace(1e-5, 0.5, self._N, endpoint=False)
-
-    def _mask(self, *regions):
-        mask = np.zeros(self._N, dtype=bool)
-        for a, b in regions:
-            mask[a:b] = True
-        return mask
-
-    def test_empty_mask_stays_empty(self):
-        fcut_range = self._grid()
-        refined = refine_candidates(fcut_range, self._mask())
-        assert not refined.any()
-
-    def test_sliver_region_is_removed(self):
-        # 4.7 decades over 1000 points: 0.5 decades ~ 106 points
-        fcut_range = self._grid()
-        refined = refine_candidates(fcut_range,
-                                    self._mask((100, 150), (300, 600)))
-        assert not refined[100:150].any()
-        assert refined[300:600].any()
-
-    def test_all_slivers_keep_the_widest(self):
-        fcut_range = self._grid()
-        refined = refine_candidates(fcut_range,
-                                    self._mask((100, 130), (300, 360)))
-        assert refined[300:360].any()
-        assert not refined[100:130].any()
-
-    def test_third_region_is_removed(self):
-        fcut_range = self._grid()
-        refined = refine_candidates(
-            fcut_range, self._mask((50, 250), (400, 600), (700, 900)))
-        assert refined[400:600].any()
-        assert not refined[700:900].any()
-
-    def test_left_cut_of_first_region(self):
-        fcut_range = self._grid()
-        refined = refine_candidates(fcut_range, self._mask((200, 500)))
-        # the geometric grid makes log-relative == index-relative
-        assert not refined[200:230].any()
-        assert refined[240:500].all()
-
-    def test_right_cut_of_second_region(self):
-        fcut_range = self._grid()
-        refined = refine_candidates(fcut_range,
-                                    self._mask((50, 250), (400, 700)))
-        assert refined[400:560].all()
-        assert not refined[575:700].any()
-        # the second region is not left-cut (spanner optima sit at its
-        # very beginning)
-        assert refined[400]
 
 
 def staircase_curve(shelf=True, noise_scale=1e-4, seed=0):

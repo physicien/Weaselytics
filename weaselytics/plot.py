@@ -137,8 +137,6 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
              max_d1: np.ndarray, ends: np.ndarray, sec_p: np.ndarray,
              tol1_0: np.ndarray, tol1_1: float, tol2: float,
              freq_cutoff: float, fcut_r2: float, case: int = 0,
-             cp_candidates: np.ndarray | None = None,
-             cp_refined: np.ndarray | None = None,
              cp_flat: np.ndarray | None = None,
              cp_dips: np.ndarray | None = None,
              cp_removed: np.ndarray | None = None,
@@ -188,16 +186,6 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
         The case rule from which `fcut` have been selected. Not necessarily
         useful in the current implementation, but it is advisable to keep it
         until proven otherwise. Default is 0.
-    cp_candidates : array-like, shape (N,), dtype bool, optional
-        Mask of the candidate plateau regions returned by
-        ``segmentation.trim_candidates``, overlaid on the
-        autocorrelation panel as hatched purple regions. Default is None,
-        which disables the overlay.
-    cp_refined : array-like, shape (N,), dtype bool, optional
-        Mask of the label-calibrated bracket returned by
-        ``segmentation.refine_candidates``, overlaid as orange hatching
-        (opposite direction to the candidate hatching) on top of the
-        candidate regions. Default is None, which disables the overlay.
     cp_flat : array-like, shape (N,), dtype bool, optional
         Mask of the full flat set from ``segmentation.classify_segments``
         (before any trimming), drawn as a light solid blue fill beneath
@@ -305,22 +293,6 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, sm_d0: np.ndarray,
                             color="tab:orange", alpha=0.25,
                             label='proto-plateau',
                             transform=axs[0].get_xaxis_transform())
-    # trimmed candidate plateau regions
-    if cp_candidates is not None:
-        axs[0].fill_between(x, 0, 1,
-                            where=cp_candidates,
-                            color="none", ec="tab:purple", alpha=0.3,
-                            hatch="\\\\", hatch_linewidth=2,
-                            label='CP candidates',
-                            transform=axs[0].get_xaxis_transform())
-    if cp_refined is not None:
-        axs[0].fill_between(x, 0, 1,
-                            where=cp_refined,
-                            color="none", ec="tab:orange", alpha=0.6,
-                            hatch="//", hatch_linewidth=2,
-                            label='CP bracket',
-                            transform=axs[0].get_xaxis_transform())
-
     # Middle panel: the baseline-stability curve, on a LINEAR y-axis.
     # The quantity is linear, and a log axis turns the settled floor
     # into structure that is not there.

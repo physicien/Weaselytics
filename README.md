@@ -89,6 +89,16 @@ Contributed by Emmanuel Bourret
 
 ## TO DO
 
+- **Re-read `segmentation.md` §4c and decide whether to delete it.** It records the
+  removed `refine_candidates` bracket. That route was ill advised: its constants
+  were fitted to a hand-labeled gallery that sampled only inside the very regions
+  the bracket narrows and drew them on the figures the labeller saw, so the labels
+  were anchored on the machinery they calibrated and could not test its boundaries.
+  It also tied three shipped constants to one labeling session on one instrument.
+  Both label sets have since been deleted, so none of the numbers in that section
+  can be reproduced or checked. Decide whether it records anything worth keeping.
+  The same caution applies to any other prose in the docs quoting measurements with
+  no surviving dataset behind them.
 - **Ground the instability-exclusion thresholds.** `segmentation.instability_boundary`
   trims the stiff side up to where the baseline stops flailing, using
   `trigger=0.10` (is the fundamental inside a flailing region?) and

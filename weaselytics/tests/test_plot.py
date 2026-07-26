@@ -58,13 +58,13 @@ class TestR2Plots:
     def test_r2_plots_with_changepoint_overlay(self, tmp_path):
         x = np.geomspace(0.0001, 0.5, 100)
         r2 = np.linspace(1.0, 0.0, 100)
-        cp_candidates = np.zeros(100, dtype=bool)
-        cp_candidates[20:60] = True
+        cp_flat = np.zeros(100, dtype=bool)
+        cp_flat[20:60] = True
         r2_plots(x, r2, r2, np.gradient(r2), np.gradient(np.gradient(r2)),
                  np.array([10]), np.array([30]),
                  np.zeros(100, dtype=bool), np.array([40, 41], dtype=int),
                  np.zeros(100, dtype=bool), 5e-4, 2e-6, 0.01, 0.95,
-                 cp_candidates=cp_candidates,
+                 cp_flat=cp_flat,
                  print_plot=True, path="/tmp/test_cp.txt",
                  output_dir=str(tmp_path))
         expected = tmp_path / "r2_plots" / "test_cp_r2.png"

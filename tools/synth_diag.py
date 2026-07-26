@@ -6,7 +6,7 @@ For every signal of a dataset produced by ``tools/synth_dataset.py``:
 
 * run the production autocorrelation sweep (cached r2 curve);
 * run the changepoint chain (``trim_candidates`` +
-  ``refine_candidates``);
+  the candidate regions);
 * compute the TRUE error curve ``E(fcut)``: the RMSE between the
   baseline fitted with the final-correction configuration of
   ``auto_beads`` and the known true baseline, on a subsampled fcut
@@ -43,7 +43,6 @@ from weaselytics.parsers import ParsedData
 from weaselytics.segmentation import (
     classify_segments,
     pelt_linear,
-    refine_candidates,
     segment_features,
     trim_candidates,
 )
@@ -132,7 +131,6 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     segments = classify_segments(
         segment_features(fcut_range, r2, pelt_linear(r2)))
     candidates = trim_candidates(fcut_range, segments, n_used)
-    refined = refine_candidates(fcut_range, candidates)
 
     fcuts = fcut_range[::stride]
     err = error_curve(x, s, b_true, fcuts)
@@ -141,7 +139,7 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
 
     np.savez(os.path.join(diag_dir, f'{stem}__diag.npz'),
              fcut_range=fcut_range, r2=r2, candidates=candidates,
-             refined=refined, fcuts=fcuts, err=err, n_used=n_used)
+             fcuts=fcuts, err=err, n_used=n_used)
     idx = min(np.searchsorted(fcut_range, fc_best),
               len(fcut_range) - 1)
     return {
@@ -150,7 +148,6 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
         'e_med': float(np.nanmedian(err)),
         'n_fail': int((~np.isfinite(err)).sum()),
         'in_candidates': bool(candidates[idx]),
-        'in_bracket': bool(refined[idx]),
     }
 
 
@@ -190,8 +187,7 @@ def main() -> None:
             continue
         rows.append(row)
         print(f"{stem}: fc*={row['fc_best']:0.3e} "
-              f"cand={row['in_candidates']} "
-              f"bracket={row['in_bracket']}")
+              f"cand={row['in_candidates']}")
 
     out = os.path.join(args.dataset, 'diag_summary.csv')
     with open(out, 'w') as f:
@@ -200,9 +196,8 @@ def main() -> None:
         for r in rows:
             f.write(','.join(str(r[k]) for k in keys) + '\n')
     n_cand = sum(r['in_candidates'] for r in rows)
-    n_brk = sum(r['in_bracket'] for r in rows)
-    print(f'\ntrue optimum inside candidates: {n_cand}/{len(rows)}, '
-          f'inside bracket: {n_brk}/{len(rows)} -> {out}')
+    print(f'\ntrue optimum inside candidates: {n_cand}/{len(rows)}'
+          f' -> {out}')
     if failures:
         print(f'{len(failures)} failures: {failures}')
 

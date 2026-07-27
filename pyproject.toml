@@ -12,8 +12,13 @@ description = "Python package to extract and analyse chromatographic data."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "numpy>=1.22",
-    "scipy>=1.8",
+    # Floors set to the versions running on Rorqual, so a cluster sweep
+    # and a local one are at least not separated by a KNOWN-divergent
+    # pair. They do not make the two identical: the r2 curve is
+    # ill-conditioned at low fcut and any version change moves it. See
+    # requirements/requirements.txt for the measurement.
+    "numpy>=2.4.2",
+    "scipy>=1.17.0",
     "matplotlib>=3.5",
     "seaborn>=0.13.0",
     "pandas>=2.0",

@@ -111,6 +111,32 @@ Contributed by Emmanuel Bourret
   exclusion reaches, while `trigger` only changes how many signals are
   affected. Ground it against baseline error on synthetic ground truth, where
   the true baseline is known.
+- **The stiff-side instability trim is not reproducible across library
+  versions, and that is a requirement its grounding must meet.** Measured
+  2026-07-27 on one machine, same code, same pinned pybaselines, with **only
+  numpy/scipy differing** (2.2.4/1.15.3 vs 2.5.0/1.18.0): the swept `r2` curve
+  agrees to 1 ulp above fcut 0.1 but diverges by up to **5.6e-2 near fcut
+  1e-4**, a one-ulp input difference amplified ~2e14 by the method's own
+  low-frequency instability (Navarro-Huerta 2017 §3.1(iv)). That is the same
+  magnitude as the Rorqual-vs-workstation difference, so **the cluster was
+  never the variable — the library version is**, and no pin fixes it because
+  every upgrade re-rolls it. Effect on the selected cutoff across that version
+  pair, with the trim off and on:
+
+  | | trim OFF | trim ON |
+  |---|---|---|
+  | identical fcut | 280/339 | 190/339 |
+  | >= 0.1 decade apart | 1 | 6 |
+
+  So the trim accounts for **5 of the 6 large shifts** and takes identical
+  selections from 280 down to 190; every other stage — detection, the
+  sub-fundamental clip, the frozen tail, the collapse exclusion — is close to
+  version-proof. `trigger`/`settled` must therefore be grounded against a
+  **robustness** criterion as well as an accuracy one: a threshold that scores
+  well but moves six signals more than 0.1 decade under a library upgrade is
+  fitted, not grounded. Do not calibrate either constant to a precision finer
+  than ~1e-3 near the fundamental. The `numpy`/`scipy` floors now match
+  Rorqual, which narrows the gap but does not close it.
 - **`baseline._snr` is not a signal-to-noise ratio on quantisation-limited
   data, and the name hides it.** The LPYE detector output is digitised at a
   step of q = 0.008996 mV: every consecutive difference in all 339 reference

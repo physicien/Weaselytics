@@ -1,5 +1,28 @@
-numpy>=1.22
-scipy>=1.8
+# numpy and scipy floors are the versions installed on Rorqual
+# (numpy 2.4.2, scipy 1.17.0), so a cluster sweep and a local one are
+# not separated by a pair already MEASURED to diverge.
+#
+# This narrows the risk; it does not remove it. Measured 2026-07-27 on
+# one machine, same code, same pinned pybaselines, ONLY numpy/scipy
+# differing (2.2.4/1.15.3 vs 2.5.0/1.18.0): the swept r2 curve differs
+# by up to 5.6e-2 near fcut 1e-4 while agreeing to 1 ulp above fcut 0.1
+# — a one-ulp input difference amplified ~2e14 by the method's own
+# low-frequency instability (Navarro-Huerta 2017 §3.1(iv)). That is the
+# same magnitude as the Rorqual-vs-workstation difference, so the
+# cluster was never the variable: the library version is.
+#
+# Consequence: 6 of 339 signals select a cutoff more than 0.1 decade
+# apart across that version pair, 5 of them via the stiff-side
+# instability trim. No pin fixes this — every upgrade re-rolls it. The
+# real fix is a trim that is robust to ~1e-3 wobble near the
+# fundamental. See the README TO DO.
+#
+# Beware: `_r2_cache_key` quantises to float32, so a one-ulp grid change
+# does NOT invalidate the cache. After changing numpy or scipy, rebuild
+# the r2 cache from empty or curves from the old version are served
+# silently.
+numpy>=2.4.2
+scipy>=1.17.0
 matplotlib>=3.5
 seaborn>=0.13.0
 pandas>=2.0

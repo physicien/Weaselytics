@@ -6,11 +6,40 @@ In an autocorrelation plot of the baseline-corrected signal, a plateau represent
 2. Exclude plateaus that do not meet certain criteria, with the goal of identifying the plateau that includes the optimal value of `fcut`;
 3. Find the optimal value of `fcut` on that plateau.
 
+> ## ⚠ Status of this document (2026-07-26)
+>
+> **The three-step strategy above is current.** The three sections that
+> implement it — [§1](#1-plateaus-identification), [§2](#2-plateau-exclusions)
+> and [§3](#3-choosing-the-right-fcut-on-a-given-plateau) — are **HISTORICAL**.
+> They describe the derivative-based route that was **removed on 2026-07-26**
+> (commit `a3b7159`), together with its four absolute tolerances, the `Case`
+> machinery, `select_fcut`, `refine_candidates` and `find_plateaus`. They are
+> kept deliberately, as a record of what was tried and why it failed; do not
+> read them as a description of the code.
+>
+> Sections [§0a](#0a-the-low-frequency-end-of-the-curve-is-not-reproducible),
+> [§0b](#0b-what-the-autocorrelation-measures) and
+> [§0](#0-preprocessing) remain current.
+>
+> **Where the live pipeline is documented:** [segmentation.md](./segmentation.md),
+> and the docstrings of `segmentation.classify_segments` (detect),
+> `segmentation.trim_plateaus` (exclude — four exclusions: sub-fundamental
+> clip, frozen tail, SNR-gated collapse, stiff-side instability) and
+> `segmentation.select_center` (select — the geometric centre of the surviving
+> region, preliminary).
+>
+> **A standing caution for everything below.** Several passages quote
+> measurements made against a set of 51 hand labels that was **deleted on
+> 2026-07-26** as untrustworthy — 11 of the 51 sat below 0.90 of the r²
+> shoulder and 5 below 0.80, where the optimum is expected near 0.97. Those
+> numbers cannot be reproduced or checked against any surviving dataset. They
+> are marked individually where they appear.
+
 ### 0b. What the autocorrelation measures
 
 The quantity plotted is $`r^2 = \big((2 - DW)/2\big)^2`$, where $`DW`$ is the Durbin-Watson statistic — that is, approximately $`\rho_1^2`$, the squared lag-1 autocorrelation. It is therefore **not** a goodness of fit: it measures *how much smooth, structured content remains* in the channel it is computed on. $`r^2 \to 1`$ means what remains is strongly correlated point to point; $`r^2 \to 0`$ means it is white noise, i.e. nothing structured survives.
 
-This has a consequence worth stating plainly, because it bounds what any plateau-based method can achieve. The drop in $`r^2`$ marks the cutoff at which the baseline starts absorbing the autocorrelated content of the measurement — but the statistic **cannot tell whether that content is analyte peaks or baseline structure**. For a strong analyte, crossing the drop destroys peak area and must be avoided; for a weak analyte on a large baseline (a blank), the structured content *is* the baseline, absorbing it is precisely the job, and a lower shelf beyond the drop can be the right answer. The information needed to choose is the ratio of analyte structure to baseline structure, which is *orthogonal to the curve*. Empirically this is exactly what is observed: on the labeled dataset, rules based on the shape of the $`r^2`$ curve select the correct `fcut` at 23–25%, against 25.9% for a random pick inside the candidate regions. **The curve brackets the answer; it does not select it.**
+This has a consequence worth stating plainly, because it bounds what any plateau-based method can achieve. The drop in $`r^2`$ marks the cutoff at which the baseline starts absorbing the autocorrelated content of the measurement — but the statistic **cannot tell whether that content is analyte peaks or baseline structure**. For a strong analyte, crossing the drop destroys peak area and must be avoided; for a weak analyte on a large baseline (a blank), the structured content *is* the baseline, absorbing it is precisely the job, and a lower shelf beyond the drop can be the right answer. The information needed to choose is the ratio of analyte structure to baseline structure, which is *orthogonal to the curve*. Empirically this is exactly what was observed: on the labeled dataset, rules based on the shape of the $`r^2`$ curve selected the correct `fcut` at 23–25%, against 25.9% for a random pick inside the candidate regions. *(Those two figures come from the 51 hand labels deleted on 2026-07-26 and cannot be reproduced; the conclusion they support was independently reached from the structure of the problem — the deciding information is the analyte-to-baseline ratio, which is orthogonal to the curve.)* **The curve brackets the answer; it does not select it.**
 
 ### 0a. The low-frequency end of the curve is not reproducible
 
@@ -48,7 +77,7 @@ A point of vocabulary first, because it is easy to get backwards. The paper's lo
    Superseded by this change: the earlier claim that switching to the paper's quantity "did not locate the optimum better". That rested on three signals and an uncommitted script, and the alternative it tested was the log-scale residual rather than Eq. (12).
 
    **Still open — the scale.** Eq. (12) is $`(c+e)_{corr,y} = y - 10^{b_z} - \min(y) + \varepsilon`$, i.e. the corrected signal back-transformed to the **original** scale, because linearity is not preserved on the way back; the upstream pybaselines example agrees, computing `autocorrelation(y - fit)` after back-transforming. We monitor $`z - b`$ on the log scale. Note the paper's stated reason for using $`c+e`$ concerns original-scale separability, so it does not by itself settle the log-scale case either way. This remains to be measured against synthetic ground truth.
-2. **The region.** The paper places the optimum near the centre of the *last* step at high frequencies, recommending in practice a point between the beginning and the centre of that last horizontal region. This implementation does the opposite: `last_r2` here and the frozen-tail exclusion in `trim_candidates` discard the final region, and a first-two-regions rule in `refine_candidates` narrowed what remained to the first two (that function was REMOVED on 2026-07-26; it was never in the production path, and its label-calibrated constants became unauditable when the labels were deleted). On synthetic ground truth the paper's landmark missed the true optimum by roughly a factor of three on the clearest case, so the departure is deliberate.
+2. **The region.** The paper places the optimum near the centre of the *last* step at high frequencies, recommending in practice a point between the beginning and the centre of that last horizontal region. **This is no longer a departure.** `segmentation.select_center` takes the **last** surviving region and its centre, citing NH17 §3.4 — the remaining difference is that the paper biases slightly below that centre and we do not yet (see §3). The earlier implementation did the opposite: `last_r2` and the frozen-tail exclusion discarded the final region, and a first-two-regions rule in `refine_candidates` narrowed what remained to the first two. Both `last_r2` and `refine_candidates` were removed on 2026-07-26; `refine_candidates` was never in the production path, and its label-calibrated constants became unauditable when the labels were deleted. The frozen-tail exclusion survives in `trim_plateaus`, but it removes a *degenerate* tail rather than the last step as such. The older note that the paper's landmark missed the true optimum by roughly a factor of three on the clearest case was measured on the pre-`41a7580` r² channel and has not been rechecked since.
 
    It is not unopposed, and the counter-evidence should be cited with its conditions. The upstream `plot_beads_param_selection.py` selects "the middle of the last plateau" and reports that it coincides with the cutoff giving the lowest MSE against the *known* baseline — a ground-truth-validated hit for the paper's landmark. But it runs on `pybaselines.utils.make_data()`, a single synthetic trace with a simple baseline, monitored on the original scale after back-transforming, with `lam_d` fixed by hand and no region splitting. Those are not the conditions here, and the disagreement is a reason to re-test the landmark on our own ground truth rather than to assume either side.
 
@@ -61,11 +90,26 @@ Before searching for plateaus, the signal must be restricted to a region of inte
 In the current implementation, this occurs at the start of `auto_beads` via the `_relevant_regions` function. In short, if we assume that a raw signal consists of a baseline, noise, and a sparse signal component with a reasonable signal-to-noise ratio, then we can approximately locate the positions and widths of the signal peaks directly in the raw signal. This is (part of) what `_relevant_regions` is designed to do. For reference, this function is also used to identify the regions of interest and the sampling strategy for `custom_bc`. As of today, the signal is only truncated on the right (via `scut`), but not on the left. In the future, it may be advantageous to clip the signal on the left side as well.
 
 ### 1. Plateaus identification
-> **Note:** a changepoint-based alternative to the plateau detection described below is prototyped in `segmentation.py` and documented in [segmentation.md](./segmentation.md).
+> **HISTORICAL — removed 2026-07-26 (`a3b7159`).** The derivative-tolerance
+> method described below is no longer in the code. Detection is now
+> `segmentation.classify_segments` (changepoint segmentation, `CP flat`), with
+> `segmentation.detect_dips` supplying proto-plateaus as a **fallback** that
+> contributes only when the flat channel leaves nothing surviving. See
+> [segmentation.md](./segmentation.md). The paragraph below is kept as the
+> record of what was tried; its closing sentence — that a more robust method
+> was required — is what motivated the replacement.
 
 In my view, plateau detection is the most challenging aspect of this problem. Up to now, the most effective approach I have found is to impose a small threshold around 0 on both the first (see the yellow \[loose tolerance\] and dashed orange regions \[tight tolerance\] on the [autocorrelation plot](#fig_scut)) and second derivatives (see the blue region on the [autocorrelation plot](#fig_scut)), and to mark as plateaus those points that fall within these tolerances. I experimented with several alternative techniques based on identifying features in the autocorrelation curve (for instance, inflection points or the extrema of its first derivative), but these approaches were too sensitive to the instabilities and discontinuities that can occur in the autocorrelation plot. A more robust method is therefore required in order to correctly identify all the plateaus.
 
 ### 2. Plateau exclusions
+> **HISTORICAL — removed 2026-07-26 (`a3b7159`).** `last_r2`, named below, no
+> longer exists anywhere in the code; nor does the derivative-threshold
+> detection of `p_ini`. Exclusion is now `segmentation.trim_plateaus`, whose
+> four exclusions are the sub-fundamental clip (`c1=1.0`, below `1/n_used` —
+> the physical successor to the `p_ini` rule below), the frozen tail (the
+> successor to `last_r2`), the SNR-gated collapse, and the stiff-side
+> instability trim. Kept as the record of the reasoning that led there.
+
 Regarding the regions to discard, let us first assume that there is always an “initial” plateau, `p_ini`, on the far left of the autocorrelation curve, i.e. where the `fcut` values are smallest. On this plateau, any choice of `fcut` yields a baseline that is overly rigid. In addition, when `fit_parabola` is set to True, the baseline begins to deform, much like a stiff beam under compression. Consequently, `p_ini` (in red on the [autocorrelation plot](#fig_scut)) is systematically excluded from the set of candidate plateaus. At present, this plateau is detected using a threshold on the drop of the `r2` value in reference to the average value of the first (from the left) tight flat region of the first derivative and by selecting the last point (before the minimum of the first derivative) that still satisfies this threshold. This approach allows us to better approximate the true end of the first plateau when it is very noisy. However, a more robust method is required.
 
 If the last point (right side) of the autocorrelation is part of a continuous region where the first derivative is tightly flat, this last region is also not considered further through the use of `last_r2`.
@@ -75,7 +119,19 @@ At this point in time, there is no reliable way to find the "anchoring" plateau.
 ### 3. Choosing the right `fcut` on a given plateau
 Finally, once we assume that the correct plateau has been located, selecting `fcut` should be fairly straightforward, taking the plateau’s center and/or boundaries as references.
 
-This last step is **the open half of the problem**, and it is harder than it looks. What is established so far, from the hand-labeled dataset and from synthetic signals with a known baseline:
+> **HISTORICAL, and partly unverifiable — 2026-07-26.** Selection is now
+> `segmentation.select_center`: the geometric centre of the surviving region,
+> snapped to a grid point so its r² is read from the swept curve rather than
+> refitted. That is preliminary — NH17 §3.4 recommends *slightly below* the
+> centre, and no offset has been derived. Of the four bullets below, the first
+> and the last rest wholly or partly on the **deleted** 51 hand labels and
+> cannot be checked; the second and third also cite synthetic measurements
+> from a benchmark that predates the current `_r2` channel (`41a7580`) and
+> peak-width geometry (`6a1a380`), so their numbers are not comparable with
+> anything measurable today. The *conclusions* — not the edges, and not a
+> power law — were reached by more than one route and are still held.
+
+This last step is **the open half of the problem**, and it is harder than it looks. What was established at the time, from the (since deleted) hand-labeled dataset and from synthetic signals with a known baseline:
 
 - **Where the answer sits.** In log-relative position inside the first wide candidate region (0 = left edge, 1 = right edge), the hand-labeled ranges have their centre at 0.55 and their upper edge at 0.71, and the objectively optimal cutoff of the synthetic signals has a median of 0.65 with an interquartile range of 0.55–0.77. The two agree, which is the strongest signal available.
 - **Not the edges.** Taking the right edge of the region — the natural reading of “anchor near the drop” — costs a median of 3.5× the optimal baseline error, roughly 19× the noise level, and lands within 1.25× of the optimum for only 8 of 71 synthetic signals. The interior matters.

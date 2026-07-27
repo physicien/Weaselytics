@@ -18,7 +18,7 @@ weaselytics [OPTION] filename
 ```console
 weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb] [-sm]
             [-x0 STARTX] [-x1 ENDX] [-od OUTPUT_DIR] [-cd CACHE_DIR]
-            [-w WORKERS] [-fc FREQ_CUTOFF]
+            [-w WORKERS] [-fc FREQ_CUTOFF] [-snr SNR_THRESHOLD]
             path
 ```
 
@@ -41,6 +41,7 @@ weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb] [-sm]
 | `-cd` | Cache directory for the autocorrelation curves used to select `freq_cutoff`; reruns on an unchanged signal skip the expensive BEADS sweep. At most one cached curve is kept per data file (default: no caching) |
 | `-w` | Number of worker processes for the autocorrelation sweep (default: 1, serial) |
 | `-fc` | Bypass the automatic selection and use this cutoff frequency, `0 < freq_cutoff < 0.5` (default: automatic selection) |
+| `-snr` | Threshold on `baseline._snr` above which the collapsed (past-drop) plateaus are excluded from the candidate cutoff regions (default: 25.0). **Note:** on quantisation-limited data this statistic is not a signal-to-noise ratio — see the TO DO below |
 
 ## Library usage
 
@@ -51,12 +52,12 @@ data = wl.ParsedData("chromato.txt")
 x, y = data.data
 
 # Fixed cutoff frequency
-baseline, params, case = wl.auto_beads(y, x, freq_cutoff=0.01)
+baseline, params = wl.auto_beads(y, x, freq_cutoff=0.01)
 
 # Automatic cutoff frequency, with the autocorrelation curve cached so
 # that reruns on the same signal skip the expensive BEADS sweep
-baseline, params, case = wl.auto_beads(y, x, freq_cutoff=None,
-                                       cache_dir="r2_cache")
+baseline, params = wl.auto_beads(y, x, freq_cutoff=None,
+                                 cache_dir="r2_cache")
 ```
 
 ## Requirements
@@ -99,37 +100,43 @@ Contributed by Emmanuel Bourret
   can be reproduced or checked. Decide whether it records anything worth keeping.
   The same caution applies to any other prose in the docs quoting measurements with
   no surviving dataset behind them.
-- **Consider dropping the rolling-std panel of `r2_plots`.** Its two curves,
-  `rolling_std` and `diff_std_mad`, are **used nowhere in the selection** — they
-  are produced by `utils.find_plateaus` solely to be drawn. Three reasons to
-  reconsider them: (a) the panel does not show the quantity that drives the
-  proto-plateau detection — `detect_dips` computes its own rolling standard
-  deviation and then Gaussian-smooths it (sigma 8) and normalises it, so the
-  plotted raw curve is only an unsmoothed precursor of what is actually used;
-  (b) `find_plateaus` costs ~170 ms per signal and its first two returns
-  (`plateaus`, `ends`) are now discarded, so the diptest and the
-  Sauvola/triangle thresholding inside it run purely to be thrown away — on a
-  cached signal that is about a third of the whole call; (c) it also prints
-  `pval:` and `Threshold:` on every run, which are diagnostics of that discarded
-  result. Dropping the panel would let the `find_plateaus` call go entirely.
 - **Ground the instability-exclusion thresholds.** `segmentation.instability_boundary`
   trims the stiff side up to where the baseline stops flailing, using
   `trigger=0.10` (is the fundamental inside a flailing region?) and
   `settled=0.05` (are the oscillations small enough?). Both are **adopted
   provisionally, not grounded**: they are amplitudes of the dimensionless
-  stability curve, so they read as statements about tolerable baseline
+  sensitivity curve, so they read as statements about tolerable baseline
   movement rather than as instrument constants, but no reference fixes where
   that tolerance lies. `settled` is the sensitive one — it sets how far the
-  exclusion reaches, and label violations appear below ~0.02 while `trigger`
-  only changes how many signals are affected. Ground it against baseline error
-  on synthetic ground truth, where the true baseline is known.
+  exclusion reaches, while `trigger` only changes how many signals are
+  affected. Ground it against baseline error on synthetic ground truth, where
+  the true baseline is known.
+- **`baseline._snr` is not a signal-to-noise ratio on quantisation-limited
+  data, and the name hides it.** The LPYE detector output is digitised at a
+  step of q = 0.008996 mV: every consecutive difference in all 339 reference
+  signals is an exact integer multiple of q, and ~25% of consecutive samples
+  are identical. `_snr`'s denominator, `1.4826 * MAD(diff) / sqrt(2)`, is
+  therefore pinned to that lattice — it takes **five distinct finite values
+  across the whole dataset**, 86% of signals sharing one — so `_snr` reduces
+  to the tallest excursion divided by a constant (corr of the logs = 0.979).
+  `SNR >= 25` is in practice `excursion >= ~0.47 mV`, an absolute amplitude in
+  mV wearing a dimensionless name, and therefore instrument-specific. It is
+  load-bearing: it gates the collapse exclusion, which since a3b7159 moves the
+  selected cutoff. Two further consequences: `_snr` returns `inf` on 34 of 339
+  signals — the docstring attributes this to "a flat or perfectly linear
+  trace", but the real cause is that quantisation makes over half the
+  consecutive differences exactly zero — and the synthetic benchmark adds
+  Gaussian noise without quantising, so there `_snr` *is* a true ratio and the
+  recorded "95% synthetic / 100% real" agreement compared two different
+  quantities under one name. Decide whether the statistic keeps its role under
+  an honest name and rationale, or is replaced.
 - Generalize hardcoded `__LPYE__` pattern in `export_dist`
 - `weaselytics/__init__.py` re-exports the `plot` **function**, which shadows
   the `weaselytics.plot` **submodule** of the same name. `import
   weaselytics.plot as p` therefore binds the function, not the module, and
   reaching the module needs `sys.modules["weaselytics.plot"]`. This silently
   breaks any script that introspects or patches module-level names (e.g.
-  `_STABILITY_COLOR`); it fails by doing nothing rather than by raising.
+  `_SENSITIVITY_COLOR`); it fails by doing nothing rather than by raising.
   Consider renaming the function or the module.
 - Make `ParsedData` parser more general (support different delimiters, extra columns, headers)
 - Clean up `#@EB`, `#@TEMP`, `#TODO` markers

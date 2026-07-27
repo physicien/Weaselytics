@@ -22,8 +22,6 @@ dependencies = [
     # Pin forward only — the new default is the literature-backed L1
     # scaling. See requirements/requirements.txt for the measured impact.
     "pybaselines @ git+https://github.com/derb12/pybaselines@c36ce6128a8acae93503d0167207a99a035e9095",
-    "scikit-image>=0.19.0",
-    "diptest>=0.11.0",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

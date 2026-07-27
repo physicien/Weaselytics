@@ -42,7 +42,11 @@ matplotlib.use('Agg')
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-from scipy.ndimage import gaussian_filter1d  # noqa: E402
+from scipy.ndimage import (  # noqa: E402
+    binary_dilation,
+    gaussian_filter1d,
+    median_filter,
+)
 from scipy.stats import exponnorm  # noqa: E402
 
 PEAK_CASES = {
@@ -76,6 +80,151 @@ N_CASES = [900, 1800, 4000]
 PTS_PER_MIN = 120
 
 _FWHM_PER_SIGMA = 2.3548
+
+# Quantisation step of the LPYE detector, in mV. MEASURED, not taken from
+# a datasheet: in all 339 reference signals every consecutive difference
+# is an exact integer multiple of it to within 1e-9, a ~900-point record
+# holds only 45-60 distinct values, and ~25% of consecutive samples are
+# identical. See tools/synthetic_data.md §7.
+ADC_STEP_MV = 0.008996
+
+# Normal-consistency factor of the median absolute deviation, used by
+# Niezen et al. (2022) Eqs. (12a)/(12b) to turn a MAD into a sigma.
+MAD_TO_SIGMA = 1.4826
+
+# Selection heuristic for the peak-free stretch (synthetic_data.md §3.1).
+# NOT GROUNDED: these decide only which real data is admitted to the
+# background pool, never a reported number, and the regions they produce
+# are reviewed by eye before use. Reviewed and accepted 2026-07-27.
+PEAK_FREE_SIGMA = 8.0        # excursion threshold, in sigma
+PEAK_FREE_WINDOW_FRAC = 40   # median-filter width = len(signal) / this
+
+
+def noise_sigma_mad(y: np.ndarray, on_derivative: bool = True) -> float:
+    """
+    Estimate the noise level of a trace by the median absolute deviation.
+
+    Niezen et al. (2022) Eq. (12a) applies the MAD to the signal itself;
+    their Eq. (12b) applies it to the first derivative, and they note
+    that in the presence of a baseline and peaks the derivative gives a
+    "more representative value", which is the default here. Both are
+    scaled by `MAD_TO_SIGMA` for consistency with a normal distribution.
+
+    Parameters
+    ----------
+    y : array-like, shape (N,)
+        The trace.
+    on_derivative : bool, optional
+        If True (default), Eq. (12b); otherwise Eq. (12a).
+
+    Returns
+    -------
+    sigma : float
+        The noise estimate, in the units of `y`.
+
+    Notes
+    -----
+    On quantised data this does not measure analogue noise: it returns a
+    small integer multiple of the quantisation step, so it is an upper
+    bound. See tools/synthetic_data.md §6.
+
+    References
+    ----------
+    Niezen, Schoenmakers & Pirok (2022), Anal. Chim. Acta 1201, 339605,
+    Eqs. (12a) and (12b).
+
+    """
+    v = np.diff(np.asarray(y, dtype=float)) if on_derivative else \
+        np.asarray(y, dtype=float)
+    return float(MAD_TO_SIGMA * np.median(np.abs(v - np.median(v))))
+
+
+def peak_free_stretch(y: np.ndarray, k_sigma: float = PEAK_FREE_SIGMA,
+                      window_frac: int = PEAK_FREE_WINDOW_FRAC
+                      ) -> slice:
+    """
+    Locate the longest stretch of a trace showing no peak.
+
+    Niezen et al. (2022) §4.1.1 require a background containing "only
+    low-frequency drift and a small amount of initial noise", and obtain
+    it by removing peaks from experimental blanks by curve fitting and
+    subtraction. Here the same requirement is met by *selecting* a
+    peak-free stretch instead, so the drift is the recorded signal
+    itself and nothing is fitted or subtracted.
+
+    A point is busy when the residual against a median filter exceeds
+    `k_sigma` times the derivative-MAD noise estimate; busy points are
+    dilated by half the filter width so a peak's shoulders are excluded
+    with it, and the longest surviving run is returned.
+
+    .. warning::
+       `k_sigma` and `window_frac` are **not grounded**. They decide only
+       which real data enters the background pool, never a reported
+       number, and the regions they select are reviewed by eye. The
+       criterion cannot certify the absence of peaks -- only the absence
+       of excursions it can see, so a very broad, low feature could
+       survive it and would then be scored as drift.
+
+    Parameters
+    ----------
+    y : array-like, shape (N,)
+        The trace to search.
+    k_sigma : float, optional
+        Excursion threshold in units of the noise estimate.
+    window_frac : int, optional
+        The median filter spans ``len(y) / window_frac`` points.
+
+    Returns
+    -------
+    region : slice
+        The longest peak-free run. Empty (``slice(0, 0)``) when the
+        whole trace is busy or the noise estimate is degenerate.
+
+    """
+    y = np.asarray(y, dtype=float)
+    sigma = noise_sigma_mad(y)
+    if sigma <= 0 or len(y) < 8:
+        return slice(0, 0)
+    width = max(31, len(y) // window_frac) | 1
+    resid = np.abs(y - median_filter(y, size=width))
+    busy = binary_dilation(resid > k_sigma * sigma,
+                           np.ones(max(width // 2, 1), dtype=bool))
+    idx = np.flatnonzero(~busy)
+    if idx.size == 0:
+        return slice(0, 0)
+    runs = np.split(idx, np.flatnonzero(np.diff(idx) > 1) + 1)
+    best = max(runs, key=len)
+    return slice(int(best[0]), int(best[-1]) + 1)
+
+
+def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
+    """
+    Round a trace onto the detector's quantisation lattice.
+
+    The LPYE detector digitises at `ADC_STEP_MV`; synthetic signals are
+    rounded likewise so the benchmark exercises the same code paths as
+    real data. This is not cosmetic: `baseline._snr` divides by a MAD of
+    consecutive differences, which on quantised data is pinned to the
+    lattice and on continuous data is a true noise estimate, so an
+    unquantised benchmark measures a different quantity under the same
+    name. See tools/synthetic_data.md §7.
+
+    Parameters
+    ----------
+    y : array-like, shape (N,)
+        The trace, in mV.
+    step : float, optional
+        Quantisation step in mV. Default `ADC_STEP_MV`.
+
+    Returns
+    -------
+    yq : numpy.ndarray, shape (N,)
+        `y` rounded to the nearest multiple of `step`.
+
+    """
+    if step <= 0:
+        raise ValueError("step must be greater than 0.")
+    return np.round(np.asarray(y, dtype=float) / step) * step
 
 
 def emg_peak(t: np.ndarray, tc: float, sigma: float, tau: float,
@@ -154,6 +303,507 @@ def gauss_peak(t: np.ndarray, tc: float, sigma: float,
 
     """
     return height * np.exp(-0.5 * ((t - tc) / sigma) ** 2)
+
+
+# Parameter ranges of the modified Pearson VII. Each range is kept under
+# its own provenance rather than blended, so any number taken from here
+# can be attributed. See tools/synthetic_data.md §4.2.
+#
+# PUBLISHED: fitted by Niezen et al. (2022), Table 2, to gradient-RPLC of
+# small uncharged molecules. The paper states the parameters "may change
+# significantly in other modes of chromatography", so these are not
+# transplantable on their own.
+PEARSON7_KURTOSIS_NIEZEN = (3.5, 51.0)        # m
+PEARSON7_ASYMMETRY_NIEZEN = (0.01, 0.28)      # A_s, tailing only
+#
+# MEASURED here on 60 randomly-chosen LPYE peaks (p10-p90), fitted by the
+# procedure of synthetic_data.md §4.1. Two departures from the published
+# range: peaks that are effectively Gaussian (m far above 51), and a
+# substantial fraction that FRONT rather than tail (A_s < 0), which a
+# positive-only range excludes outright.
+PEARSON7_KURTOSIS_LPYE = (2.2, 2.1e4)
+PEARSON7_ASYMMETRY_LPYE = (-0.191, 0.174)
+#
+# The generator samples the UNION, so the benchmark represents *a*
+# chromatogram rather than one instrument's. The kurtosis upper bound is
+# taken from the published range rather than the measured one: beyond
+# m ~ 50 the profile is already indistinguishable from a Gaussian to
+# within the quantisation step, so the measured 2.1e4 carries no extra
+# shape -- it is the fit reporting "Gaussian", not a wider family.
+PEARSON7_KURTOSIS = (min(PEARSON7_KURTOSIS_NIEZEN[0],
+                         PEARSON7_KURTOSIS_LPYE[0]),
+                     PEARSON7_KURTOSIS_NIEZEN[1])
+PEARSON7_ASYMMETRY = (min(PEARSON7_ASYMMETRY_NIEZEN[0],
+                          PEARSON7_ASYMMETRY_LPYE[0]),
+                      max(PEARSON7_ASYMMETRY_NIEZEN[1],
+                          PEARSON7_ASYMMETRY_LPYE[1]))
+
+
+# --------------------------------------------------------------------
+# The `pyb` family: idealised signals transcribed from the pybaselines
+# documentation. See tools/synthetic_data.md §10.
+#
+# TRANSCRIBED, NOT IMPORTED. `pybaselines.utils.make_data` states that
+# its output "may change without notice ... outside users are advised
+# not to rely on the exact output", and this project has already been
+# bitten once by an undocumented pybaselines change (the beads lam_0/1/2
+# defaults). Calling it would make every score depend on the install
+# date. The formulas below are copied verbatim from the documentation at
+# the pinned commit and are covered by tests.
+#
+# Sources, both at pybaselines commit c36ce6128:
+#   [A] docs/examples/misc/plot_beads_preprocessing.py, make_data()
+#       -- three baselines forming a deliberate ladder of violation of
+#          the BEADS periodicity requirement (Navarro-Huerta 2017
+#          §3.3.1): ends at zero on both / one / neither end.
+#   [B] docs/algorithms/algorithms_1d/misc.rst, create_data()
+#       -- five datasets varying peak density, noise level and baseline
+#          shape, one of which carries NEGATIVE peaks.
+
+def _g(x: np.ndarray, height: float, center: float,
+       sigma: float) -> np.ndarray:
+    """
+    ``pybaselines.utils.gaussian`` in its own argument order.
+
+    Defined here so the transcribed formulas below read exactly as they
+    do in the documentation, and evaluated with pybaselines' own
+    expression, ``h * exp(-0.5 * (x - c)**2 / s**2)``, rather than with
+    `gauss_peak`'s ``h * exp(-0.5 * ((x - c) / s)**2)``. The two are
+    algebraically identical but differ in the last bits, and the point
+    of this family is that the signals reproduce the published figures
+    exactly; the tests assert bit-equality with pybaselines and
+    approximate equality with `gauss_peak`.
+
+    """
+    return height * np.exp(-0.5 * ((x - center) ** 2) / sigma ** 2)
+
+
+def pyb_peaks(x: np.ndarray, group: str) -> np.ndarray:
+    """
+    Evaluate one of the pybaselines peak groups.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+        The abscissa.
+    group : {'A', 'B', 'C', 'preproc'}
+        ``'A'``, ``'B'`` and ``'C'`` are ``signal``, ``signal_2`` and
+        ``signal_3`` of source [B]; ``'preproc'`` is the eight-peak
+        signal of source [A].
+
+    Returns
+    -------
+    signal : numpy.ndarray, shape (N,)
+
+    """
+    if group == 'A':
+        return (_g(x, 6, 180, 5) + _g(x, 8, 350, 10)
+                + _g(x, 6, 550, 5) + _g(x, 9, 800, 10))
+    if group == 'B':
+        return (_g(x, 9, 100, 12) + _g(x, 15, 400, 8)
+                + _g(x, 13, 700, 12) + _g(x, 9, 880, 8))
+    if group == 'C':
+        return (_g(x, 8, 150, 10) + _g(x, 20, 120, 12)
+                + _g(x, 16, 300, 20) + _g(x, 12, 550, 5)
+                + _g(x, 20, 750, 12) + _g(x, 18, 800, 18)
+                + _g(x, 15, 830, 12))
+    if group == 'preproc':
+        return (_g(x, 9, 100, 12) + _g(x, 6, 180, 5) + _g(x, 8, 350, 11)
+                + _g(x, 15, 400, 18) + _g(x, 6, 550, 6)
+                + _g(x, 13, 700, 8) + _g(x, 9, 800, 9)
+                + _g(x, 9, 880, 7))
+    raise ValueError(f"unknown peak group {group!r}")
+
+
+def pyb_baseline(x: np.ndarray, kind: str) -> np.ndarray:
+    """
+    Evaluate one of the pybaselines baselines.
+
+    The three ``ends_*`` kinds are source [A] and are named for what
+    they do to the BEADS periodicity requirement, which is the reason
+    they exist: `ends_both` reaches zero at both ends, `ends_one` at
+    one, `ends_neither` at neither.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+        The abscissa.
+    kind : str
+        One of ``'ends_both'``, ``'ends_one'``, ``'ends_neither'``,
+        ``'linear'``, ``'exponential'``, ``'gaussian'``,
+        ``'decreasing_bump'``, ``'linear_offset'``.
+
+    Returns
+    -------
+    baseline : numpy.ndarray, shape (N,)
+
+    """
+    if kind == 'ends_both':          # [A] type 0, parabola
+        return 2e-5 * (x - 500) ** 2 - 5
+    if kind == 'ends_one':           # [A] type 1
+        return 10 - 10 * np.exp(-x / 600)
+    if kind == 'ends_neither':       # [A] type 2, integrated gaussian
+        return (-np.cumsum(_g(x, 0.05, 400, 100))
+                + _g(x, 3, 800, 100) - 5)
+    if kind == 'linear':             # [B] linear_baseline
+        return 3 + 0.01 * x
+    if kind == 'exponential':        # [B] exponential_baseline
+        return 5 + 15 * np.exp(-x / 400)
+    if kind == 'gaussian':           # [B] gaussian_baseline
+        return 5 + _g(x, 20, 500, 500)
+    if kind == 'decreasing_bump':    # [B] baseline_4
+        return 10 - 0.005 * x + _g(x, 5, 850, 200)
+    if kind == 'linear_offset':      # [B] baseline_5
+        return 3 + 0.01 * x + 20
+    raise ValueError(f"unknown baseline kind {kind!r}")
+
+
+#: The eight `pyb` cases. Each is
+#: ``(n_points, x_range, peak_expression, baseline_kind, noise_scale,
+#:   published_seed, source)``. The five from [B] reproduce y1..y5 of
+#: that figure exactly, including its documented BEADS parameters; the
+#: three from [A] reproduce its endpoint ladder. `neg` marks the case
+#: carrying negative peaks -- the published analogue of the LPYE
+#: dead-time undershoot, and the one for which the pybaselines
+#: documentation itself uses ``asymmetry=1`` while using 6-8 elsewhere.
+PYB_CASES = {
+    #                       n     x_range      peaks          baseline
+    'B1_sparse_hi_noise': (500, (1., 1000.), ('2A',),      'linear',
+                           5.0, 1, 'B'),
+    'B2_dense':           (500, (1., 1000.), ('A', 'B', 'C'), 'gaussian',
+                           1.0, 1, 'B'),
+    'B3_medium':          (500, (1., 1000.), ('A', 'B'),   'exponential',
+                           1.0, 1, 'B'),
+    'B4_lo_noise':        (500, (1., 1000.), ('A', 'B'),   'decreasing_bump',
+                           0.5, 1, 'B'),
+    'B5_negative_peaks':  (500, (1., 1000.), ('2A', '-B'), 'linear_offset',
+                           1.0, 1, 'B'),
+    'A0_ends_both':       (1000, (0., 1000.), ('preproc',), 'ends_both',
+                           1.0, 0, 'A'),
+    'A1_ends_one':        (1000, (0., 1000.), ('preproc',), 'ends_one',
+                           1.0, 0, 'A'),
+    'A2_ends_neither':    (1000, (0., 1000.), ('preproc',), 'ends_neither',
+                           1.0, 0, 'A'),
+}
+
+#: Base noise standard deviation of both sources, scaled per case by the
+#: `noise_scale` entry of `PYB_CASES`.
+PYB_NOISE_STD = 0.2
+
+
+# --------------------------------------------------------------------
+# Randomised `pyb` generation.
+#
+# The eight fixed cases above are a vocabulary, not a benchmark: eight
+# signals cannot separate a real effect from a coincidence. The ranges
+# below turn that vocabulary into a population, and every one of them is
+# the span of values actually used across the pybaselines documentation
+# at the pinned commit -- collected from docs/examples/*/*.py,
+# docs/algorithms/algorithms_1d/*.rst and utils.make_data. Where a range
+# is WIDER than the published span, it says so and why.
+#
+# Peak parameters, from the published peak lists (heights 4-20, centres
+# 100-880 on a span of 1000, sigmas 5-20, counts 4-15). The height upper
+# bound is 40 because two of the published datasets use `signal * 2`.
+PYB_N_PEAKS = (4, 15)
+PYB_PEAK_HEIGHT = (4.0, 40.0)
+PYB_PEAK_CENTER_FRAC = (0.10, 0.88)     # of the abscissa span
+PYB_PEAK_SIGMA_FRAC = (0.005, 0.020)    # of the abscissa span
+
+# Noise: the documentation uses std 0.05 and 0.2, scaled per dataset by
+# 0.5, 1 and 5, giving 0.025 to 1.0.
+PYB_NOISE_STD_RANGE = (0.025, 1.0)
+
+# Record length: the documentation uses 500 and 1000 points. WIDENED to
+# 300-4000 deliberately -- the real LPYE records span 473-39129 points,
+# and record length changes the fundamental (1/n_used), which is what
+# the instability trim keys on. A benchmark fixed at two lengths could
+# not detect a constant that depends on it.
+PYB_N_POINTS = (300, 4000)
+
+#: Baseline component vocabulary. Each entry is a builder taking
+#: ``(x, rng)`` and returning ``(values, description)``. Coefficient
+#: ranges are the spans observed in the documentation; the sources for
+#: each are named in tools/synthetic_data.md §9.4.
+def _bc_linear(x, rng):
+    a = rng.uniform(1., 30.)             # offsets 1, 3, 5, 10, 15, 30
+    b = rng.uniform(-0.005, 0.01)        # slopes -0.005 .. +0.01
+    return a + b * x, f'linear(a={a:.3g}, b={b:.3g})'
+
+
+def _bc_exponential(x, rng):
+    a = rng.uniform(5., 10.)
+    c = rng.uniform(-15., 15.)           # both signs appear (10-10exp)
+    tau = rng.uniform(150., 1200.)       # published 150 .. 1200
+    span = x[-1] - x[0]
+    return (a + c * np.exp(-(x - x[0]) / (tau / 1000. * span)),
+            f'exponential(a={a:.3g}, c={c:.3g}, tau={tau:.3g})')
+
+
+def _bc_gaussian_bump(x, rng):
+    a = rng.uniform(5., 30.)
+    h = rng.uniform(-6., 20.)            # gaussian(x, -6, ...) appears
+    span = x[-1] - x[0]
+    c = x[0] + rng.uniform(0.3, 0.9) * span
+    s = rng.uniform(0.1, 0.5) * span     # published 100 .. 500 on 1000
+    return (a + _g(x, h, c, s),
+            f'gaussian_bump(a={a:.3g}, h={h:.3g}, c={c:.3g}, s={s:.3g})')
+
+
+def _bc_sine(x, rng):
+    a = rng.uniform(10., 70.)
+    amp = rng.uniform(1., 5.)            # published 1 and 5
+    # Period: only x/50 appears; WIDENED to 30-150 so the benchmark
+    # spans baselines the cutoff selector must treat differently.
+    period = rng.uniform(30., 150.)
+    return (a + amp * np.sin((x - x[0]) / period),
+            f'sine(a={a:.3g}, amp={amp:.3g}, period={period:.3g})')
+
+
+def _bc_parabola(x, rng):
+    span = x[-1] - x[0]
+    k = rng.uniform(1e-5, 3e-5) * (1000. / span) ** 2
+    x0 = x[0] + rng.uniform(0.35, 0.65) * span
+    a = rng.uniform(-10., 5.)
+    return k * (x - x0) ** 2 + a, f'parabola(k={k:.3g}, x0={x0:.3g})'
+
+
+def _bc_logistic(x, rng):
+    # The 'ends_neither' shape: a logistic approximated by integrating a
+    # gaussian, which is the hardest published case for BEADS because it
+    # is near zero at neither end.
+    span = x[-1] - x[0]
+    h = rng.uniform(0.02, 0.08)
+    c = x[0] + rng.uniform(0.25, 0.6) * span
+    s = rng.uniform(0.05, 0.2) * span
+    a = rng.uniform(-10., 0.)
+    return (-np.cumsum(_g(x, h, c, s)) + a,
+            f'logistic(h={h:.3g}, c={c:.3g}, s={s:.3g})')
+
+
+PYB_BASELINE_COMPONENTS = {
+    'linear': _bc_linear,
+    'exponential': _bc_exponential,
+    'gaussian_bump': _bc_gaussian_bump,
+    'sine': _bc_sine,
+    'parabola': _bc_parabola,
+    'logistic': _bc_logistic,
+}
+
+
+def pyb_random_signal(seed: int, n_points: int | None = None,
+                      negative_fraction: float = 0.2,
+                      max_components: int = 2) -> dict:
+    """
+    Generate one randomised ``pyb`` signal with exact ground truth.
+
+    Built from the same vocabulary as `PYB_CASES` -- Gaussian peaks on a
+    composed analytic baseline with white noise -- but with every
+    parameter drawn from the ranges observed across the pybaselines
+    documentation, so the family becomes a population rather than eight
+    points. See tools/synthetic_data.md §9.4.
+
+    The baseline is the sum of one or two components, as the
+    documentation itself does (``10 - 0.005x + gaussian(x, 5, 850,
+    200)``). Nothing forces an endpoint condition: where the baseline
+    sits relative to zero at each end is *recorded* in the metadata
+    rather than imposed, so the periodicity axis is measurable without
+    being a design variable.
+
+    Parameters
+    ----------
+    seed : int
+        Seed for all draws, including the noise. The signal is a pure
+        function of it.
+    n_points : int, optional
+        Record length. Default None draws from `PYB_N_POINTS`.
+    negative_fraction : float, optional
+        Probability that the signal carries a negative peak group, as
+        the published ``B5`` case does. Default 0.2.
+    max_components : int, optional
+        Maximum number of summed baseline components. Default 2.
+
+    Returns
+    -------
+    components : dict
+        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise`` and
+        ``meta``. ``meta`` records every drawn parameter, so a signal can
+        be regenerated and any dependence on a parameter measured.
+
+    """
+    rng = np.random.default_rng(seed)
+    n = int(n_points if n_points is not None
+            else rng.integers(PYB_N_POINTS[0], PYB_N_POINTS[1] + 1))
+    x = np.linspace(0., 1000., n)
+    span = x[-1] - x[0]
+
+    n_peaks = int(rng.integers(PYB_N_PEAKS[0], PYB_N_PEAKS[1] + 1))
+    centers = x[0] + rng.uniform(*PYB_PEAK_CENTER_FRAC, n_peaks) * span
+    heights = np.exp(rng.uniform(*np.log(PYB_PEAK_HEIGHT), n_peaks))
+    sigmas = rng.uniform(*PYB_PEAK_SIGMA_FRAC, n_peaks) * span
+    negative = rng.random() < negative_fraction
+    signs = np.ones(n_peaks)
+    if negative:
+        # As in the published B5 case, a subset of the peaks is
+        # subtracted rather than added.
+        signs[rng.random(n_peaks) < 0.35] = -1.
+        if np.all(signs > 0):
+            signs[int(rng.integers(n_peaks))] = -1.
+    signal = np.zeros(n)
+    peaks = []
+    for h, c, s, sg in zip(heights, centers, sigmas, signs):
+        signal = signal + sg * _g(x, h, c, s)
+        peaks.append({'height': float(sg * h), 'center': float(c),
+                      'sigma': float(s)})
+
+    kinds = list(PYB_BASELINE_COMPONENTS)
+    n_comp = int(rng.integers(1, max_components + 1))
+    chosen = list(rng.choice(kinds, size=n_comp, replace=False))
+    baseline = np.zeros(n)
+    descs = []
+    for k in chosen:
+        vals, desc = PYB_BASELINE_COMPONENTS[k](x, rng)
+        baseline = baseline + vals
+        descs.append(desc)
+
+    noise_std = float(np.exp(rng.uniform(*np.log(PYB_NOISE_STD_RANGE))))
+    noise = rng.normal(0., noise_std, n)
+
+    rng_b = baseline.max() - baseline.min()
+    ends = (abs(baseline[0] - baseline.min()) / max(rng_b, 1e-12),
+            abs(baseline[-1] - baseline.min()) / max(rng_b, 1e-12))
+    return {'x': x, 'y': signal + baseline + noise, 'signal': signal,
+            'baseline': baseline, 'noise': noise,
+            'meta': {'family': 'pyb_random', 'seed': seed, 'n_points': n,
+                     'n_peaks': n_peaks, 'has_negative_peaks': bool(negative),
+                     'baseline_kinds': [str(k) for k in chosen],
+                     'baseline_desc': '; '.join(descs),
+                     'noise_std': noise_std,
+                     'baseline_range': float(rng_b),
+                     'end_offsets': [float(e) for e in ends],
+                     'peaks': peaks}}
+
+
+def pyb_signal(case: str, seed: int | None = None) -> dict:
+    """
+    Assemble one ``pyb`` synthetic signal with its exact ground truth.
+
+    Parameters
+    ----------
+    case : str
+        A key of `PYB_CASES`.
+    seed : int, optional
+        Seed of the noise generator. Default None uses the seed
+        published with the source, so the signal reproduces the
+        documentation figure exactly; pass an integer for a replicate.
+
+    Returns
+    -------
+    components : dict
+        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise``, and
+        ``meta`` describing the case and its provenance.
+
+    """
+    if case not in PYB_CASES:
+        raise ValueError(f"unknown pyb case {case!r}")
+    n, (x0, x1), groups, bkind, nscale, pub_seed, src = PYB_CASES[case]
+    x = np.linspace(x0, x1, n)
+    signal = np.zeros(n)
+    for g in groups:
+        if g.startswith('2'):
+            signal = signal + 2. * pyb_peaks(x, g[1:])
+        elif g.startswith('-'):
+            signal = signal - pyb_peaks(x, g[1:])
+        else:
+            signal = signal + pyb_peaks(x, g)
+    baseline = pyb_baseline(x, bkind)
+    rng_seed = pub_seed if seed is None else seed
+    noise = (np.random.default_rng(rng_seed).normal(0., PYB_NOISE_STD, n)
+             * nscale)
+    return {'x': x, 'y': signal + baseline + noise, 'signal': signal,
+            'baseline': baseline, 'noise': noise,
+            'meta': {'family': 'pyb', 'case': case, 'source': src,
+                     'baseline_kind': bkind, 'noise_scale': nscale,
+                     'seed': rng_seed, 'n_points': n,
+                     'has_negative_peaks': any(g.startswith('-')
+                                               for g in groups)}}
+
+
+def pearson7_peak(t: np.ndarray, tc: float, sigma: float, kurtosis: float,
+                  asymmetry: float, height: float) -> np.ndarray:
+    r"""
+    Evaluate a modified Pearson VII peak.
+
+    .. math::
+
+       f(t) = A\left(1 + \frac{(t-\mu)^2}
+                          {m\,(\sigma + A_s (t-\mu))^2}\right)^{-m}
+
+    Two independent groups selected this shape over the usual
+    alternatives for chromatographic peaks. Niezen et al. compared 15
+    distributions by the Akaike information criterion on real peaks and
+    found it best overall (Table 1: sum-AIC -7.20e3, against -6.91e3 for
+    the exponentially-modified Gaussian). Milani et al. reached the same
+    function from a different direction, calling it the Skewed
+    Lorentz-Normal, and measured RMSE <= 0.0045 against <= 0.0048 for a
+    Gaussian over 458 fitted peaks.
+
+    The shape interpolates between a Gaussian (``kurtosis`` -> infinity)
+    and a Lorentzian (``kurtosis`` -> 1), with ``asymmetry`` producing
+    tailing (positive) or fronting (negative).
+
+    Parameters
+    ----------
+    t : array-like, shape (N,)
+        Time axis.
+    tc : float
+        Peak centre, the retention time (``mu`` above).
+    sigma : float
+        Width parameter, in the units of `t`.
+    kurtosis : float
+        Shape parameter ``m``. See `PEARSON7_KURTOSIS` for the range
+        fitted to real peaks.
+    asymmetry : float
+        Skew parameter ``A_s``. See `PEARSON7_ASYMMETRY`.
+    height : float
+        Peak maximum; ``f(tc) == height`` exactly.
+
+    Returns
+    -------
+    y : numpy.ndarray, shape (N,)
+        The peak profile.
+
+    Notes
+    -----
+    For ``asymmetry != 0`` the denominator vanishes at
+    ``t - tc = -sigma / asymmetry``, and beyond that point the
+    expression rises again into a spurious second lobe. It is tiny --
+    measured at 9.3e-7 of `height` at the widest fitted asymmetry, some
+    five orders below the detector's quantisation step -- but it is
+    clipped to zero rather than left to a numerical accident, so the
+    function is exactly single-lobed by construction.
+
+    References
+    ----------
+    Niezen, Schoenmakers & Pirok (2022), Anal. Chim. Acta 1201, 339605,
+    Eq. (14) and Table 2.
+    Milani et al. (2024), Anal. Chim. Acta 1312, 342724, Eq. (2).
+
+    """
+    if sigma <= 0:
+        raise ValueError("sigma must be greater than 0.")
+    if kurtosis <= 0:
+        raise ValueError("kurtosis must be greater than 0.")
+    dt = t - tc
+    denom = sigma + asymmetry * dt
+    with np.errstate(divide='ignore', invalid='ignore'):
+        y = height * (1. + dt ** 2 / (kurtosis * denom ** 2)) ** -kurtosis
+    y = np.nan_to_num(y, nan=0., posinf=0., neginf=0.)
+    if asymmetry != 0.:
+        # Keep only the lobe containing the centre: the sign of the
+        # denominator at t == tc.
+        y = np.where(np.sign(denom) == np.sign(sigma), y, 0.)
+    return y
 
 
 def dead_time_artifact(t: np.ndarray, t0: float, dt: float,

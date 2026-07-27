@@ -8,12 +8,30 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from matplotlib.colors import to_rgba
 from matplotlib.ticker import FixedLocator, MaxNLocator, MultipleLocator
 
 #: Colour of the baseline-sensitivity curve. Kept clear of every other
 #: element of the r2 figure: blue is r2, red is the selected cutoff and
 #: the trimmed fill, orange the proto-plateaus, purple the flat set.
 _SENSITIVITY_COLOR = "darkslateblue"
+
+#: _HATCH_NOTE -- why the hatched overlays set `facecolor`/`edgecolor`
+#: explicitly instead of `color="none", ec=..., alpha=...`.
+#:
+#: matplotlib 3.11 made the hatch colour a property of its own, and
+#: changed the default of `rcParams["hatch.color"]` from ``"black"`` to
+#: ``"edge"``. With `color="none"` the hatch colour then resolves
+#: against that "none" rather than against the `ec=` given afterwards,
+#: and the hatch is not drawn at all -- silently, with no warning and
+#: with every artist property still reporting the expected value
+#: (`get_hatch()`, `get_edgecolor()` and `get_linewidth()` are identical
+#: on 3.10 and 3.11). The only visible symptom is the missing hatch in
+#: the rendered figure.
+#:
+#: Passing `facecolor="none"` with an RGBA `edgecolor` carrying the
+#: alpha renders identically on both versions -- verified by pixel count
+#: on 3.10.1 and 3.11.0. Do not "simplify" it back to `color=`/`alpha=`.
 
 #: Fixed top of the baseline-sensitivity panel. Fixed rather than
 #: data-scaled so that the panel means the same thing on every figure
@@ -224,9 +242,14 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     # Only drawn (and labelled) when it actually removes something, so
     # blanks do not carry a phantom legend entry.
     if cp_snr_removed is not None and np.any(cp_snr_removed):
+        # facecolor/edgecolor set explicitly, with the alpha carried in
+        # the RGBA edge colour rather than passed as `alpha`. See
+        # `_HATCH_NOTE` below: `color="none"` silently kills the hatch
+        # from matplotlib 3.11 on.
         axs[0].fill_between(x, 0, 1,
                             where=cp_snr_removed,
-                            color="none", ec="darkred", alpha=0.9,
+                            facecolor="none",
+                            edgecolor=to_rgba("darkred", 0.9),
                             hatch="xxx", hatch_linewidth=1.0,
                             label='SNR-trimmed',
                             transform=axs[0].get_xaxis_transform())
@@ -247,7 +270,8 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     if cp_flat is not None:
         axs[0].fill_between(x, 0, 1,
                             where=cp_flat,
-                            color="none", ec="tab:purple", alpha=0.3,
+                            facecolor="none",
+                            edgecolor=to_rgba("tab:purple", 0.3),
                             hatch="\\\\", hatch_linewidth=2,
                             label='CP flat',
                             transform=axs[0].get_xaxis_transform())

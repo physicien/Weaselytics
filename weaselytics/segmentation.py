@@ -842,6 +842,29 @@ def select_center(fcut_range: np.ndarray,
     centre itself, which is the preliminary rule asked for; the offset
     is deliberately not invented here.
 
+    .. warning::
+       **The centre is a placeholder, not a claim.** It is a neutral
+       position in the middle of the geometric range, used while the
+       real rule is missing; nothing here asserts that the optimum lies
+       at the midpoint. Measured against exact ground truth it does
+       not: on the three ``donnie`` signals the optimum sits at 0.71
+       and 0.74 of the surviving region's log-width (the third case
+       excludes it altogether), and earlier synthetic work gave a
+       median of 0.65.
+
+       **Do not turn those numbers into a fixed offset.** Replacing 0.5
+       with 0.7 substitutes one arbitrary ratio for another and would
+       be a constant fitted to the cases that produced it. They are a
+       validation target: a rule derived from the *features* of the
+       signal or the curves can be checked against them, but must not
+       be derived from them.
+
+       One measurement constrains what such a feature can be. Between
+       the selected and the truly optimal cutoff, ``r2`` differs by
+       only about 0.003 while the baseline error differs by 10-13%, so
+       the deciding feature is very unlikely to be the ``r2`` level
+       itself.
+
     Parameters
     ----------
     fcut_range : array-like, shape (N,)

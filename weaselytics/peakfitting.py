@@ -2,6 +2,7 @@
 """
 Functions to perform Peak fitting.
 """
+import logging
 from collections.abc import Callable
 
 import numpy as np
@@ -10,6 +11,8 @@ from scipy.special import erf
 
 from weaselytics.export import export_dist
 from weaselytics.utils import peaks_params
+
+logger = logging.getLogger(__name__)
 
 
 def gauss(x: np.ndarray, params: np.ndarray) -> np.ndarray:
@@ -248,19 +251,20 @@ def fit_peak(
     y_robust_g = gauss(x_robust, p_lsq_g)
     A_g, x0_g, sigma_g = p_lsq_g
     sigma_g = abs(sigma_g)
-    print('The amplitude of the gaussian fit is', A_g)
-    print('The center of the gaussian fit is', x0_g)
-    print('The sigma of the gaussian fit is', sigma_g,"\n")
+    logger.info('The amplitude of the gaussian fit is %s', A_g)
+    logger.info('The center of the gaussian fit is %s', x0_g)
+    logger.info('The sigma of the gaussian fit is %s \n', sigma_g)
 
     # Skew-Normal curve fit
     p_lsq_sn = _lsq_skew_norm_fit(xdata, ydata)
     y_robust_sn = skew_norm(x_robust, p_lsq_sn)
     A_sn, x0_sn, sigma_sn, alpha_sn = p_lsq_sn
     sigma_sn = abs(sigma_sn)
-    print('The amplitude of the skew-normal fit is', A_sn)
-    print('The center of the skew-normal fit is', x0_sn)
-    print('The sigma of the skew-normal fit is', sigma_sn)
-    print('The skew parameter of the skew-normal fit is', alpha_sn)
+    logger.info('The amplitude of the skew-normal fit is %s', A_sn)
+    logger.info('The center of the skew-normal fit is %s', x0_sn)
+    logger.info('The sigma of the skew-normal fit is %s', sigma_sn)
+    logger.info('The skew parameter of the skew-normal fit is %s',
+                alpha_sn)
 
     #if name is given - csv generation
     if mol and path:

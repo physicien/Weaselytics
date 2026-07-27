@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import argparse
+import logging
 import os
 import sys
 
@@ -12,6 +13,35 @@ from weaselytics.parsers import ParsedData
 from weaselytics.peakfitting import fit_peak
 from weaselytics.plot import plot
 from weaselytics.utils import smooth_SG
+
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """
+    Send the package's progress messages to stdout.
+
+    Configures the ``weaselytics`` logger rather than the root logger:
+    ``logging.basicConfig`` is a no-op once the root logger has any
+    handler, so it silently produces no output when the CLI runs inside
+    a host that has already configured logging (pytest, for one). Owning
+    a single package-level handler also means importing the library
+    never installs one, which is what keeps library use quiet.
+
+    Returns
+    -------
+    None
+
+    """
+    pkg_logger = logging.getLogger("weaselytics")
+    pkg_logger.handlers.clear()
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    pkg_logger.addHandler(handler)
+    pkg_logger.setLevel(logging.INFO)
+    # The messages are the CLI's own output; do not hand them to the
+    # root logger as well, or a configured host prints them twice.
+    pkg_logger.propagate = False
 
 
 def main() -> None:
@@ -25,7 +55,15 @@ def main() -> None:
     ValueError
         Raised if ``--start-x`` and ``--end-x`` are equal, reversed order, or
         negative.
+
+    Notes
+    -----
+    Progress messages are emitted through the ``logging`` module by the
+    library code, and are silent on import. This entry point is what
+    turns them on, so running the CLI prints what it always printed
+    while ``import weaselytics`` stays quiet.
     """
+    _configure_logging()
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog='weaselytics',
         description='Parse and analyse chromatographic data from .txt file'
@@ -104,7 +142,7 @@ def main() -> None:
     path: str = args.path
     if not os.path.isfile(path):
         raise FileNotFoundError(f"file not found: {path}")
-    print(path)
+    logger.info(path)
     parsed: ParsedData = ParsedData(path)
     xdata: np.ndarray
     ydata: np.ndarray
@@ -167,5 +205,5 @@ if __name__ == "__main__":
     try:
         main()
     except ValueError as e:
-        print(f"Error: {e}")
+        logger.error("Error: %s", e)
         sys.exit(1)

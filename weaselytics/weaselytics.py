@@ -176,7 +176,7 @@ def main() -> None:
         export_csv(xdata, ydata, path=path, output_dir=output_dir)
 
     if fit_data:
-        x_robust, y_robust_g, y_robust_sn = fit_peak(
+        x_robust, y_robust_g, y_robust_sn, y_robust_p7 = fit_peak(
             mod_ydata, xdata,
             x0=args.start_x, x1=args.end_x,
             mol=args.output_stats, path=path,
@@ -196,7 +196,8 @@ def main() -> None:
             plot_kwargs.update(bl=baseline, s=signal)
         if fit_data:
             plot_kwargs.update(
-                x_fit=x_robust, y_fit_g=y_robust_g, y_fit_sn=y_robust_sn,
+                x_fit=x_robust, y_fit_g=y_robust_g,
+                y_fit_sn=y_robust_sn, y_fit_p7=y_robust_p7,
             )
         plot(xdata, ydata, **plot_kwargs)
 

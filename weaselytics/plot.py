@@ -58,6 +58,7 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
          x_fit: np.ndarray | None = None,
          y_fit_g: np.ndarray | None = None,
          y_fit_sn: np.ndarray | None = None,
+         y_fit_p7: np.ndarray | None = None,
          show_plot: bool = False, print_plot: bool = False,
          path: str = "./file.txt",
          output_dir: str = "results") -> None:
@@ -88,6 +89,9 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
     y_fit_sn : array-like, shape (M,), optional
         The y-values of the Skew-Normal distribution fitted on a peak. If set
         to None (default), will not be plotted.
+    y_fit_p7 : array-like, shape (M,), optional
+        The y-values of the modified Pearson VII distribution fitted on a
+        peak. If set to None (default), will not be plotted.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
     print_plot : bool, optional
@@ -118,6 +122,9 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
     if (x_fit is not None) and (y_fit_sn is not None):
         plt.plot(x_fit, y_fit_sn, ls='-.', c=palette[3], lw=2.0,
                  label='robust skew-normal fit')
+    if (x_fit is not None) and (y_fit_p7 is not None):
+        plt.plot(x_fit, y_fit_p7, ls=':', c=palette[4], lw=2.0,
+                 label='robust Pearson VII fit')
 
     plt.annotate(f"{'# data pts:'}{len(x):>6d}",
                  xy=(1.0,1.01),

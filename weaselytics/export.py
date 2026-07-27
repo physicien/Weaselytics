@@ -81,7 +81,8 @@ def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
     return None
 
 def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
-                path: str, output_dir: str = "results") -> None:
+                path: str, output_dir: str = "results",
+                p7_fit: np.ndarray | None = None) -> None:
     """
     Export the statistics of the fitted distribution for a peak to a csv file.
 
@@ -115,6 +116,20 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
         File path of the original data.
     output_dir : str, optional
         Output directory for exported files. Default is "results".
+    p7_fit : ndarray with shape (5,), optional
+        Parameters of the modified Pearson VII fit: amplitude, centre,
+        sigma, shape ``m`` and asymmetry ``E``. Default None, which
+        writes the original two-row, seven-column file unchanged; when
+        given, a third row is written and the columns ``m`` and ``E``
+        are appended.
+
+        Note ``m`` is **censored at 1000**, the upper bound of
+        `peakfitting.PEARSON7_M_BOUNDS`: the Gaussian is only reached in
+        the limit, so a genuinely Gaussian peak drives ``m`` to the rail
+        and the value there means "Gaussian" rather than a fitted
+        number. It occurs on about 10% of real analyte peaks. ``m`` and
+        ``E`` are left empty on the Gaussian and Skew-Normal rows --
+        not applicable, which is not the same as zero.
 
     Returns
     -------
@@ -147,8 +162,29 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
     mol_list = list()
     mol_list.append(data_gauss)
     mol_list.append(data_skew_norm)
-    df = pd.DataFrame(mol_list)
     header = ["mol","solvent","distribution","A","x0","sigma","alpha"]
+    if p7_fit is not None:
+        # The modified Pearson VII carries two shape parameters where
+        # the other two distributions carry one, so `m` and `E` are
+        # appended as their own columns rather than folded into
+        # `alpha`. They are left empty on the Gaussian and Skew-Normal
+        # rows: not applicable, which is not the same as zero.
+        for row in (data_gauss, data_skew_norm):
+            row["m"] = np.nan
+            row["E"] = np.nan
+        mol_list.append({
+            "mol": mol,
+            "solvent": solvent,
+            "distribution": "Pearson VII",
+            "A": p7_fit[0],
+            "x0": p7_fit[1],
+            "sigma": abs(p7_fit[2]),
+            "alpha": np.nan,
+            "m": p7_fit[3],
+            "E": p7_fit[4],
+            })
+        header = header + ["m", "E"]
+    df = pd.DataFrame(mol_list)
     mobile_phase = os.path.basename(os.path.dirname(path))
     outdir = (
         os.path.join(output_dir, mobile_phase)

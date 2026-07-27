@@ -92,8 +92,8 @@ class TestFcutoffSelection:
     def _drive(self, r2):
         x = np.linspace(0, 10, 4000)
         s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
-        # _fcutoff requests the stability curve too, so the mock returns
-        # the (r2, stability) tuple; the stability value is unused here.
+        # _fcutoff requests the sensitivity curve too, so the mock returns
+        # the (r2, sensitivity) tuple; the sensitivity value is unused here.
         with mock.patch.object(
                 baseline_module, "_r2_array_cached",
                 return_value=(np.ascontiguousarray(r2),
@@ -467,7 +467,7 @@ class TestR2ArrayParallel:
         assert np.allclose(parallel, serial)
 
 
-class TestStabilityCurve:
+class TestSensitivityCurve:
     def _setup(self):
         x = np.linspace(0, 10, 101)
         rng = np.random.default_rng(107)
@@ -478,7 +478,7 @@ class TestStabilityCurve:
 
     def test_shape_first_zero_and_nonnegative(self):
         fitter, y, pr = self._setup()
-        r2, stab = _r2_array(_beads, fitter, y, pr, return_stability=True)
+        r2, stab = _r2_array(_beads, fitter, y, pr, return_sensitivity=True)
         assert stab.shape == r2.shape == pr.shape
         assert stab[0] == 0.0
         assert np.all(stab >= 0.0)
@@ -493,20 +493,20 @@ class TestStabilityCurve:
         # The seam stitching across worker chunks must reproduce the
         # serial step-to-step baseline change exactly.
         fitter, y, pr = self._setup()
-        _, s_serial = _r2_array(_beads, fitter, y, pr, return_stability=True)
+        _, s_serial = _r2_array(_beads, fitter, y, pr, return_sensitivity=True)
         _, s_par = _r2_array(_beads, fitter, y, pr, workers=3,
-                             return_stability=True)
+                             return_sensitivity=True)
         assert np.allclose(s_par, s_serial)
 
-    def test_cache_stores_and_restores_stability(self, tmp_path):
+    def test_cache_stores_and_restores_sensitivity(self, tmp_path):
         fitter, y, pr = self._setup()
         cd = str(tmp_path / "cache")
         r2c, sc = _r2_array_cached(_beads, fitter, y, pr, cache_dir=cd,
-                                   path="./s.txt", return_stability=True)
+                                   path="./s.txt", return_sensitivity=True)
         r2w, sw = _r2_array_cached(_beads, fitter, y, pr, cache_dir=cd,
-                                   path="./s.txt", return_stability=True)
+                                   path="./s.txt", return_sensitivity=True)
         assert np.array_equal(sc, sw)
         assert np.array_equal(r2c, r2w)
         cache_file = list((tmp_path / "cache").glob("*.npz"))[0]
         with np.load(cache_file) as d:
-            assert "stability" in d.files
+            assert "sensitivity" in d.files

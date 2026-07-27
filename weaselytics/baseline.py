@@ -3,6 +3,7 @@
 Functions to perform the baseline correction.
 """
 import hashlib
+import logging
 import os
 import time  #@EB temporary?
 from collections.abc import Callable
@@ -30,15 +31,20 @@ from weaselytics.utils import (
     r2_dw,
 )
 
+logger = logging.getLogger(__name__)
+
 # Quantity the autocorrelation of `_r2` is computed on. Part of the
 # cache key: bump it whenever the definition changes, so that curves
 # cached under the previous one are recomputed rather than reused.
 _R2_CHANNEL = "y-baseline"
 
-# The cache now also stores the baseline-stability curve (see
-# `_stability_curve`). Bump this token whenever the stability definition
-# or the cache contents change, so old caches (lacking it) are recomputed.
-_STABILITY_VERSION = "stab-1"
+# The cache also stores the baseline-sensitivity curve (see
+# `_sensitivity_curve`). Bump this token whenever the sensitivity
+# definition or the cache contents change, so old caches are recomputed
+# rather than served silently. Bumped to "sens-1" on 2026-07-26 when the
+# curve and its stored array were renamed from `stability`: the values
+# are unchanged, but the npz key is not, so pre-rename caches must miss.
+_SENSITIVITY_VERSION = "sens-1"
 
 
 def _relevant_regions(
@@ -414,7 +420,7 @@ def _r2_and_baseline(
 
     The baseline is computed anyway to form ``y - baseline``; returning
     it lets the sweep measure how much it moves between adjacent cutoff
-    frequencies (see `_stability_curve`) at no extra fit.
+    frequencies (see `_sensitivity_curve`) at no extra fit.
     """
     kwargs[param] = p
     baseline, _ = algo(baseline_fitter, y, **kwargs)
@@ -422,10 +428,10 @@ def _r2_and_baseline(
     return r2, baseline
 
 
-def _stability_curve(steps: np.ndarray, param_range: np.ndarray,
+def _sensitivity_curve(steps: np.ndarray, param_range: np.ndarray,
                      signal_range: float) -> np.ndarray:
     """
-    Baseline-stability curve from the step-to-step baseline changes.
+    Baseline-sensitivity curve from the step-to-step baseline changes.
 
     ``steps[i]`` is the rms change of the baseline from ``param_range``
     ``[i-1]`` to ``[i]`` (``steps[0] = 0``). It is turned into a
@@ -492,7 +498,7 @@ def _r2_array(
     baseline_fitter: Baseline,
     signal: np.ndarray, param_range: np.ndarray,
     param: str = "freq_cutoff", workers: int = 1,
-    return_stability: bool = False, **kwargs
+    return_sensitivity: bool = False, **kwargs
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """
     Calculate the array of `r2`, the Durbin-Watson autocorrelation of the
@@ -506,9 +512,9 @@ def _r2_array(
     range is split into chunks of several evaluations each so that the
     inter-process overhead stays negligible compared to the fits.
 
-    The baseline-stability curve (`_stability_curve`) is computed
+    The baseline-sensitivity curve (`_sensitivity_curve`) is computed
     alongside r2 from the same fits, at no extra baseline fit; it is
-    returned only when `return_stability` is set.
+    returned only when `return_sensitivity` is set.
 
     Parameters
     ----------
@@ -528,17 +534,17 @@ def _r2_array(
         Number of worker processes used to parallelize the sweep.
         Default is 1, which keeps the evaluation serial in the current
         process.
-    return_stability : bool, optional
-        If True, also return the baseline-stability curve. Default False.
+    return_sensitivity : bool, optional
+        If True, also return the baseline-sensitivity curve. Default False.
     **kwargs
         Additional keyword arguments.
 
     Returns
     -------
     vr2 : numpy.ndarray, shape (M,)
-        The calculated array of r2. If `return_stability`, a tuple
-        ``(vr2, stability)`` is returned instead, with `stability` the
-        curve from `_stability_curve`.
+        The calculated array of r2. If `return_sensitivity`, a tuple
+        ``(vr2, sensitivity)`` is returned instead, with `sensitivity` the
+        curve from `_sensitivity_curve`.
 
     """
     signal_range = float(np.max(signal) - np.min(signal))
@@ -575,9 +581,9 @@ def _r2_array(
             steps[i + 1:i + m] = chunk_steps[1:]
             prev_last = last
             i += m
-    if not return_stability:
+    if not return_sensitivity:
         return vr2
-    return vr2, _stability_curve(steps, param_range, signal_range)
+    return vr2, _sensitivity_curve(steps, param_range, signal_range)
 
 def _r2_cache_key(algo: Callable[..., tuple[np.ndarray, dict]],
                   signal: np.ndarray, param_range: np.ndarray,
@@ -618,7 +624,7 @@ def _r2_cache_key(algo: Callable[..., tuple[np.ndarray, dict]],
     # curves computed on the previous definition. Bump it whenever the
     # definition of `y_corr` in `_r2` changes.
     sha.update(_R2_CHANNEL.encode())
-    sha.update(_STABILITY_VERSION.encode())
+    sha.update(_SENSITIVITY_VERSION.encode())
     # Both float arrays are hashed at reduced precision, NOT from their
     # float64 bytes, because neither is bit-reproducible across numpy
     # versions and platforms:
@@ -668,7 +674,7 @@ def _r2_array_cached(
     signal: np.ndarray, param_range: np.ndarray,
     param: str = "freq_cutoff", cache_dir: str | None = None,
     path: str = "./file.txt", workers: int = 1,
-    return_stability: bool = False, **kwargs
+    return_sensitivity: bool = False, **kwargs
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """
     Compute the array of `r2` with an optional on-disk cache.
@@ -714,24 +720,24 @@ def _r2_array_cached(
     **kwargs
         Additional keyword arguments.
 
-    return_stability : bool, optional
-        If True, also return the cached/computed baseline-stability
+    return_sensitivity : bool, optional
+        If True, also return the cached/computed baseline-sensitivity
         curve. Default False.
 
     Returns
     -------
     vr2 : numpy.ndarray, shape (M,)
-        The calculated (or cached) array of r2. If `return_stability`, a
-        tuple ``(vr2, stability)`` is returned instead.
+        The calculated (or cached) array of r2. If `return_sensitivity`, a
+        tuple ``(vr2, sensitivity)`` is returned instead.
 
     """
     def _out(vr2, stab):
-        return (vr2, stab) if return_stability else vr2
+        return (vr2, stab) if return_sensitivity else vr2
 
     if cache_dir is None:
         vr2, stab = _r2_array(algo, baseline_fitter, signal, param_range,
                               param=param, workers=workers,
-                              return_stability=True, **kwargs)
+                              return_sensitivity=True, **kwargs)
         return _out(vr2, stab)
 
     key = _r2_cache_key(algo, signal, param_range, param, kwargs)
@@ -741,13 +747,13 @@ def _r2_array_cached(
     if os.path.isfile(cache_file):
         with np.load(cache_file) as data:
             vr2 = data["r2_val"]
-            stab = data["stability"]
-        print(f"{'r2 cache:':<20}loaded {cache_file}")
+            stab = data["sensitivity"]
+        logger.info(f"{'r2 cache:':<20}loaded {cache_file}")
         return _out(vr2, stab)
 
     vr2, stab = _r2_array(algo, baseline_fitter, signal, param_range,
                           param=param, workers=workers,
-                          return_stability=True, **kwargs)
+                          return_sensitivity=True, **kwargs)
     os.makedirs(cache_dir, exist_ok=True)
     # Keep at most one cached curve per data file: a new write replaces
     # any entry of the same stem computed from other inputs, so stale
@@ -756,8 +762,8 @@ def _r2_array_cached(
     for name in os.listdir(cache_dir):
         if name.startswith(prefix) and name.endswith(".npz"):
             os.remove(os.path.join(cache_dir, name))
-    np.savez(cache_file, fcut_range=param_range, r2_val=vr2, stability=stab)
-    print(f"{'r2 cache:':<20}saved {cache_file}")
+    np.savez(cache_file, fcut_range=param_range, r2_val=vr2, sensitivity=stab)
+    logger.info(f"{'r2 cache:':<20}saved {cache_file}")
     return _out(vr2, stab)
 
 def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
@@ -836,15 +842,15 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
 
     # log transform of the signal
     z = _log_transform(s[:scut])
-    print(f"{'Used points:':<20}{len(z):d}")
+    logger.info(f"{'Used points:':<20}{len(z):d}")
 
     fcut_range = np.geomspace(0.00001, 0.5, num=num, endpoint=False)
 
     # y-data
-    r2_val, stability_val = _r2_array_cached(
+    r2_val, sensitivity_val = _r2_array_cached(
         algo, baseline_fitter, z, fcut_range, param=param,
         cache_dir=cache_dir, path=path, workers=workers,
-        return_stability=True, **kwargs)
+        return_sensitivity=True, **kwargs)
     #####
     # Changepoint-based prototype (issue #4), for diagnostics only: the
     # detected plateaus/proto-plateaus and the stage-1 trimming are
@@ -868,7 +874,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     # applied to the selection.
     cp_trim = trim_plateaus(fcut_range, cp_segments, cp_detected_dips,
                             len(z), exclude_collapse=_snr(s) >= snr_threshold,
-                            stability=stability_val)
+                            sensitivity=sensitivity_val)
     cp_surviving = cp_trim['surviving']
     cp_removed = cp_trim['removed']
     cp_snr_removed = cp_trim['snr_removed']
@@ -890,21 +896,21 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             "bypass the automatic selection."
         )
     fcut = fcut_center
-    print(f"{'fcut route:':<20}centre of the surviving plateau")
+    logger.info(f"{'fcut route:':<20}centre of the surviving plateau")
 
     toc = time.perf_counter()
-    print(f"Autocorrelation in {toc-tic:0.4f} seconds")
+    logger.info(f"Autocorrelation in {toc-tic:0.4f} seconds")
     # `select_center` returns a grid point, so the r2 there is already
     # in the swept curve: reading it saves a full baseline fit on every
     # run, and reports exactly the value the diagnostic draws rather
     # than a re-fit that can differ at low frequencies.
     fi_r2_val = float(r2_val[int(np.argmin(np.abs(fcut_range - fcut)))])
-    print(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
+    logger.info(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
 
     plot_data = {
         "fcut_range": fcut_range,
         "r2_val": r2_val,
-        "stability_val": stability_val,
+        "sensitivity_val": sensitivity_val,
         "dip_curve": dip_curve(r2_val),
         "fcut": fcut,
         "fi_r2_val": fi_r2_val,
@@ -932,7 +938,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
                parabola_len: int | None = 3,
                cache_dir: str | None = None,
                workers: int = 1, snr_threshold: float = 25.0
-               ) -> tuple[np.ndarray, dict, int]:
+               ) -> tuple[np.ndarray, dict]:
     """
     Automatic implementation of the Baseline estimation and denoising with
     sparsity (BEADS) algorithm.
@@ -1060,7 +1066,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     if method == "custom_beads":
         method_kwargs.update(regions=peak_regions, sampling=sampling)
 
-    print(f"{'Data points:':<20}{len(s):d}")
+    logger.info(f"{'Data points:':<20}{len(s):d}")
 
     # Cutoff frequency
     if freq_cutoff is None:
@@ -1084,7 +1090,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             cp_removed=plot_data["cp_removed"],
             cp_snr_removed=plot_data["cp_snr_removed"],
             cp_instab_removed=plot_data["cp_instab_removed"],
-            stability=plot_data["stability_val"],
+            sensitivity=plot_data["sensitivity_val"],
             n_used=plot_data["n_used"],
             show_plot=show_plot, print_plot=print_plot,
             path=path, output_dir=output_dir,
@@ -1102,11 +1108,11 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         parabola_len=end_window(s)
         method_kwargs["parabola_len"] = parabola_len
 
-    print(f"{'Cutoff frequency:':<20}{fcut:0.4E}")
-    print(f"{'Asymmetry:':<20}{asymmetry:0.1f}")
-    print(f"{'Fit parabola:':<20}{str(fit_parabola):s}")
-    print(f"{'alpha:':<20}{alpha:0.2f}")
-    print(f"{'parabola_len:':<20}{parabola_len:d}")
+    logger.info(f"{'Cutoff frequency:':<20}{fcut:0.4E}")
+    logger.info(f"{'Asymmetry:':<20}{asymmetry:0.1f}")
+    logger.info(f"{'Fit parabola:':<20}{str(fit_parabola):s}")
+    logger.info(f"{'alpha:':<20}{alpha:0.2f}")
+    logger.info(f"{'parabola_len:':<20}{parabola_len:d}")
 
     # Final baseline correction
     tic = time.perf_counter()                               #@TEMP
@@ -1116,6 +1122,6 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
 
     toc = time.perf_counter()                               #@TEMP
 
-    print(f"Baseline correction in {toc-tic:0.4f} seconds") #@TEMP
+    logger.info(f"Baseline correction in {toc-tic:0.4f} seconds") #@TEMP
     return baseline, params
 

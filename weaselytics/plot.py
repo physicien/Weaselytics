@@ -10,29 +10,29 @@ import numpy as np
 import seaborn as sns
 from matplotlib.ticker import FixedLocator, MaxNLocator, MultipleLocator
 
-#: Colour of the baseline-stability curve. Kept clear of every other
+#: Colour of the baseline-sensitivity curve. Kept clear of every other
 #: element of the r2 figure: blue is r2, red is the selected cutoff and
 #: the trimmed fill, orange the proto-plateaus, purple the flat set.
-_STABILITY_COLOR = "darkslateblue"
+_SENSITIVITY_COLOR = "darkslateblue"
 
-#: Fixed top of the baseline-stability panel. Fixed rather than
+#: Fixed top of the baseline-sensitivity panel. Fixed rather than
 #: data-scaled so that the panel means the same thing on every figure
 #: and the curves can be compared across signals; the instability
 #: spikes run orders of magnitude higher, so the true peak is annotated
 #: whenever it leaves the frame.
-_STABILITY_YMAX = 1.5
+_SENSITIVITY_YMAX = 1.5
 
-#: Spacing of the stability panel's y ticks, in the same units as
-#: `_STABILITY_YMAX`: labelled majors, and unlabelled minors giving the
+#: Spacing of the sensitivity panel's y ticks, in the same units as
+#: `_SENSITIVITY_YMAX`: labelled majors, and unlabelled minors giving the
 #: finer reference scale. Both are absolute steps, so raising the
 #: ceiling without raising them crowds the axis.
-_STABILITY_YTICK_MAJOR = 0.5
-_STABILITY_YTICK_MINOR = 0.1
+_SENSITIVITY_YTICK_MAJOR = 0.5
+_SENSITIVITY_YTICK_MINOR = 0.1
 
-#: TEMPORARY: horizontal reference grid on the stability panel, to read
+#: TEMPORARY: horizontal reference grid on the sensitivity panel, to read
 #: levels off the curve by eye while the stiff-side trim is being
 #: designed. Remove this and its use below once that work is settled.
-_STABILITY_GRID = True
+_SENSITIVITY_GRID = True
 
 
 def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
@@ -128,7 +128,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
              cp_removed: np.ndarray | None = None,
              cp_snr_removed: np.ndarray | None = None,
              cp_instab_removed: np.ndarray | None = None,
-             stability: np.ndarray | None = None,
+             sensitivity: np.ndarray | None = None,
              n_used: int | None = None,
              show_plot: bool = False, print_plot: bool = False,
              path: str = "./file.txt",
@@ -175,11 +175,11 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     cp_instab_removed : array-like, shape (N,), dtype bool, optional
         Mask of the regions removed by the stiff-side instability
         exclusion (``segmentation.instability_boundary``), drawn as a
-        solid fill in the colour of the stability curve, so the cut can
+        solid fill in the colour of the sensitivity curve, so the cut can
         be read directly against the panel that produced it. Default is
         None, which disables the overlay.
-    stability : array-like, shape (N,), optional
-        Baseline-stability curve from ``baseline._stability_curve``: the
+    sensitivity : array-like, shape (N,), optional
+        Baseline-sensitivity curve from ``baseline._sensitivity_curve``: the
         rms change of the fitted baseline between adjacent cutoff
         frequencies, relative to the signal range, per decade. Drawn on
         its own middle panel on a linear y-axis (the quantity is linear,
@@ -190,7 +190,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     n_used : int, optional
         Number of signal points used by the sweep. Its reciprocal is the
         record's fundamental frequency — the slowest baseline the data
-        can constrain — marked on the stability panel. Default is None,
+        can constrain — marked on the sensitivity panel. Default is None,
         which omits the marker.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
@@ -207,7 +207,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     #fig = plt.figure(figsize=[6.4,9.6],num="Autocorrelation plots")
     fig = plt.figure(figsize=[9.4,9.6],num="Autocorrelation plots")
     # Three stacked panels at the unchanged figure size: r2 takes half
-    # the height, the baseline-stability curve and the rolling-std
+    # the height, the baseline-sensitivity curve and the rolling-std
     # panel split the other half evenly.
     gs = fig.add_gridspec(3, hspace=0, height_ratios=[2.0, 1.0, 1.0])
     axs = gs.subplots(sharex=True)
@@ -230,14 +230,14 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
                             hatch="xxx", hatch_linewidth=1.0,
                             label='SNR-trimmed',
                             transform=axs[0].get_xaxis_transform())
-    # The stiff-side instability cut, in the colour of the stability
+    # The stiff-side instability cut, in the colour of the sensitivity
     # curve below: this region is removed because that curve is still
     # flailing there, and drawing them alike lets the two be read
     # together.
     if cp_instab_removed is not None and np.any(cp_instab_removed):
         axs[0].fill_between(x, 0, 1,
                             where=cp_instab_removed,
-                            color=_STABILITY_COLOR, alpha=0.30,
+                            color=_SENSITIVITY_COLOR, alpha=0.30,
                             label='unstable',
                             transform=axs[0].get_xaxis_transform())
     axs[0].semilogx(x, r2, marker='.', ls='',label=r'$r^2$',ms=3)
@@ -259,12 +259,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
                             color="tab:orange", alpha=0.25,
                             label='proto-plateau',
                             transform=axs[0].get_xaxis_transform())
-    # Middle panel: the baseline-stability curve, on a LINEAR y-axis.
+    # Middle panel: the baseline-sensitivity curve, on a LINEAR y-axis.
     # The quantity is linear, and a log axis turns the settled floor
     # into structure that is not there.
-    if stability is not None:
-        axs[1].semilogx(x, stability, ls='-', lw=0.8,
-                        color=_STABILITY_COLOR)
+    if sensitivity is not None:
+        axs[1].semilogx(x, sensitivity, ls='-', lw=0.8,
+                        color=_SENSITIVITY_COLOR)
         # The fundamental, 1/n_used: the slowest baseline the record can
         # constrain. Below it the fit has nothing to fix the baseline
         # against, which is where the instability lives.
@@ -277,31 +277,31 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
         # itself. The instability spikes run orders of magnitude above
         # the frame, so the true peak is annotated below and a clipped
         # spike is never silent.
-        axs[1].set_ylim(bottom=-0.06 * _STABILITY_YMAX,
-                        top=_STABILITY_YMAX)
-        finite = np.asarray(stability)[np.isfinite(stability)]
+        axs[1].set_ylim(bottom=-0.06 * _SENSITIVITY_YMAX,
+                        top=_SENSITIVITY_YMAX)
+        finite = np.asarray(sensitivity)[np.isfinite(sensitivity)]
         if finite.size:
             peak = float(np.max(finite))
-            if peak > _STABILITY_YMAX:
+            if peak > _SENSITIVITY_YMAX:
                 axs[1].annotate(f'peak {peak:.3g}',
                                 xy=(0.995, 0.80),
                                 xycoords='axes fraction',
                                 ha='right', va='top', fontsize=7,
-                                color=_STABILITY_COLOR)
+                                color=_SENSITIVITY_COLOR)
         # Ticks on fixed absolute steps, so a given level always sits at
         # the same height and can be compared between figures. Only the
         # majors are labelled; the minors carry the finer scale.
         # `arange` stops before the ceiling, dropping the tick that would
         # otherwise land on the boundary shared with the panel above.
         axs[1].yaxis.set_major_locator(FixedLocator(
-            np.arange(0.0, _STABILITY_YMAX, _STABILITY_YTICK_MAJOR)))
+            np.arange(0.0, _SENSITIVITY_YMAX, _SENSITIVITY_YTICK_MAJOR)))
         axs[1].yaxis.set_minor_locator(
-            MultipleLocator(_STABILITY_YTICK_MINOR))
+            MultipleLocator(_SENSITIVITY_YTICK_MINOR))
         axs[1].tick_params(axis='y', labelsize=8)
         axs[1].tick_params(axis='y', which='minor', length=2)
-        # TEMPORARY reference grid, see `_STABILITY_GRID`. Drawn under
+        # TEMPORARY reference grid, see `_SENSITIVITY_GRID`. Drawn under
         # the curve so it stays readable.
-        if _STABILITY_GRID:
+        if _SENSITIVITY_GRID:
             axs[1].grid(axis='y', which='major', color='0.55',
                         lw=0.6, alpha=0.9)
             axs[1].grid(axis='y', which='minor', color='0.78',
@@ -330,7 +330,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
 
     # The curve is normalised to its own maximum, so the scale is fixed
     # and comparable between figures. A little headroom below zero keeps
-    # the floor readable, as on the stability panel.
+    # the floor readable, as on the sensitivity panel.
     axs[2].set_ylim(bottom=-0.06, top=1.05)
     axs[2].yaxis.set_major_locator(MaxNLocator(nbins=3, prune='upper'))
     axs[2].tick_params(axis='y', labelsize=8)

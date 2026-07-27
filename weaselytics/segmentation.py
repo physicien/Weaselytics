@@ -213,9 +213,9 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
 
     The residual-noise criterion is what separates the quiet plateaus
     from the regions where the baseline fit is unstable (e.g. the
-    low-frequency instabilities of `p_ini` or the chaotic tail),
-    replacing the rolling-standard-deviation and thresholding machinery
-    of ``find_plateaus``.
+    low-frequency instabilities of `p_ini` or the chaotic tail). It
+    replaced a detector built on a rolling standard deviation and a
+    stack of thresholds, since removed.
 
     Parameters
     ----------
@@ -337,7 +337,7 @@ def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
         set. Default is 0.92.
     window : int, optional
         Window of the rolling standard deviation, passed to
-        ``_rolling_std``. Default is 3, matching ``find_plateaus``.
+        ``_rolling_std``. Default is 3.
     rel_height : float, optional
         Relative height at which the basin width of each valley is
         measured (``scipy.signal.peak_widths``); 0.5 gives the width at
@@ -532,15 +532,15 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     return candidates
 
 
-def stability_dispersion(fcut_range: np.ndarray, stability: np.ndarray,
+def sensitivity_dispersion(fcut_range: np.ndarray, sensitivity: np.ndarray,
                          win_dec: float = 0.2) -> np.ndarray:
     """
-    Local dispersion of the baseline-stability curve.
+    Local dispersion of the baseline-sensitivity curve.
 
-    The interquartile range of `stability` inside a sliding window of
+    The interquartile range of `sensitivity` inside a sliding window of
     `win_dec` decades of cutoff frequency. Where the BEADS fit is
     undetermined the baseline swings between adjacent cutoffs, so the
-    stability values do not merely run high, they *scatter*: dispersion
+    sensitivity values do not merely run high, they *scatter*: dispersion
     separates that from a baseline that moves steadily, which is what
     happens on the flexible side approaching the collapse, where the
     values are high but tightly ordered.
@@ -554,8 +554,8 @@ def stability_dispersion(fcut_range: np.ndarray, stability: np.ndarray,
     ----------
     fcut_range : array-like, shape (N,)
         The (geometrically spaced) cutoff frequencies.
-    stability : array-like, shape (N,)
-        The baseline-stability curve (``baseline._stability_curve``).
+    sensitivity : array-like, shape (N,)
+        The baseline-sensitivity curve (``baseline._sensitivity_curve``).
     win_dec : float, optional
         Width of the window, in decades of cutoff frequency. Default is
         0.2.
@@ -563,19 +563,19 @@ def stability_dispersion(fcut_range: np.ndarray, stability: np.ndarray,
     Returns
     -------
     dispersion : numpy.ndarray, shape (N,)
-        The windowed interquartile range of `stability`.
+        The windowed interquartile range of `sensitivity`.
 
     """
     per_dec = (len(fcut_range) - 1) / np.log10(fcut_range[-1] / fcut_range[0])
     width = max(5, int(round(win_dec * per_dec)) | 1)
     half = width // 2
-    padded = np.pad(np.asarray(stability, dtype=float), half, mode='edge')
+    padded = np.pad(np.asarray(sensitivity, dtype=float), half, mode='edge')
     windows = np.lib.stride_tricks.sliding_window_view(padded, width)
     q75, q25 = np.percentile(windows, [75, 25], axis=-1)
     return q75 - q25
 
 
-def instability_boundary(fcut_range: np.ndarray, stability: np.ndarray,
+def instability_boundary(fcut_range: np.ndarray, sensitivity: np.ndarray,
                          n_used: int, trigger: float = 0.10,
                          settled: float = 0.05,
                          win_dec: float = 0.2) -> float | None:
@@ -595,7 +595,7 @@ def instability_boundary(fcut_range: np.ndarray, stability: np.ndarray,
 
     .. warning::
        `trigger` and `settled` are **not grounded**. They are amplitudes
-       of the stability curve, which is dimensionless (rms baseline
+       of the sensitivity curve, which is dimensionless (rms baseline
        change as a fraction of the signal range, per decade), so they
        read as physical statements about tolerable baseline movement
        rather than as instrument constants — but no reference fixes
@@ -608,8 +608,8 @@ def instability_boundary(fcut_range: np.ndarray, stability: np.ndarray,
     ----------
     fcut_range : array-like, shape (N,)
         The (geometrically spaced) cutoff frequencies.
-    stability : array-like, shape (N,)
-        The baseline-stability curve (``baseline._stability_curve``).
+    sensitivity : array-like, shape (N,)
+        The baseline-sensitivity curve (``baseline._sensitivity_curve``).
     n_used : int
         Number of signal points used for the autocorrelation sweep; its
         reciprocal is the fundamental.
@@ -620,7 +620,7 @@ def instability_boundary(fcut_range: np.ndarray, stability: np.ndarray,
         Dispersion below which the oscillations count as small enough.
         Default is 0.05.
     win_dec : float, optional
-        Window of ``stability_dispersion``, in decades. Default is 0.2.
+        Window of ``sensitivity_dispersion``, in decades. Default is 0.2.
 
     Returns
     -------
@@ -629,7 +629,8 @@ def instability_boundary(fcut_range: np.ndarray, stability: np.ndarray,
         None when the fundamental is not inside a flailing region.
 
     """
-    dispersion = stability_dispersion(fcut_range, stability, win_dec=win_dec)
+    dispersion = sensitivity_dispersion(fcut_range, sensitivity,
+                                        win_dec=win_dec)
     fundamental = 1.0 / n_used
     start = int(np.argmin(np.abs(fcut_range - fundamental)))
     if dispersion[start] <= trigger:
@@ -643,7 +644,7 @@ def instability_boundary(fcut_range: np.ndarray, stability: np.ndarray,
 def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
                 dips: list[dict], n_used: int, exclude_collapse: bool,
                 c1: float, collapse_level: float,
-                stability: np.ndarray | None) -> dict[str, np.ndarray]:
+                sensitivity: np.ndarray | None) -> dict[str, np.ndarray]:
     """
     Apply the stage-1 exclusions to a given detected selection.
 
@@ -686,8 +687,8 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
     # undetermined above the fundamental, which the sub-fundamental clip
     # cannot reach.
     instab_removed = np.zeros(len(fcut_range), dtype=bool)
-    if stability is not None:
-        boundary = instability_boundary(fcut_range, stability, n_used)
+    if sensitivity is not None:
+        boundary = instability_boundary(fcut_range, sensitivity, n_used)
         if boundary is not None:
             surviving = trimmed_123 & (fcut_range > boundary)
             instab_removed = trimmed_123 & ~surviving
@@ -701,7 +702,7 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
                   dips: list[dict], n_used: int,
                   exclude_collapse: bool = False, c1: float = 1.0,
                   collapse_level: float = 0.5,
-                  stability: np.ndarray | None = None
+                  sensitivity: np.ndarray | None = None
                   ) -> dict[str, np.ndarray]:
     """
     Stage-1 trimming of the detected plateau selection.
@@ -718,7 +719,7 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
       the plateaus below ``collapse_level`` of the drop are removed; a
       blank keeps them. Whether a signal has analyte is a property of
       the signal, not the curve, so the caller sets this from the SNR.
-    - the stiff-side instability exclusion, when `stability` is given.
+    - the stiff-side instability exclusion, when `sensitivity` is given.
 
     **The proto-plateaus are a fallback, not a peer of the flat set.**
     ``detect_dips`` exists to catch the relative flattenings the
@@ -757,8 +758,8 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
         Relative level of the total drop below which a plateau is past
         the collapse, in [0, 1]. Only used when ``exclude_collapse``.
         Default is 0.5.
-    stability : array-like, shape (N,), optional
-        The baseline-stability curve. When given, the stiff-side
+    sensitivity : array-like, shape (N,), optional
+        The baseline-sensitivity curve. When given, the stiff-side
         instability exclusion of ``instability_boundary`` is applied on
         top of the others — note its thresholds are not grounded.
         Default is None, which disables that exclusion.
@@ -772,18 +773,18 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
         rule above;
         ``snr_removed`` — the extra cut by the collapse exclusion;
         ``instab_removed`` — the extra cut by the instability
-        exclusion (all False when `stability` is None).
+        exclusion (all False when `sensitivity` is None).
 
     """
     masks = _trim_masks(fcut_range, segments, dips, n_used,
-                        exclude_collapse, c1, collapse_level, stability)
+                        exclude_collapse, c1, collapse_level, sensitivity)
     if not dips:
         return masks
     # The dips are only wanted when the flat channel, put through the
     # same exclusions, has nothing left to offer.
     flat_only = _trim_masks(fcut_range, segments, [], n_used,
                             exclude_collapse, c1, collapse_level,
-                            stability)
+                            sensitivity)
     if not flat_only['surviving'].any():
         return masks
 

@@ -721,19 +721,14 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
       the signal, not the curve, so the caller sets this from the SNR.
     - the stiff-side instability exclusion, when `sensitivity` is given.
 
-    **The proto-plateaus are a fallback, not a peer of the flat set.**
-    ``detect_dips`` exists to catch the relative flattenings the
-    absolute flat test misses, so it earns its place only when that
-    test has yielded nothing: the flat channel is run through the
-    identical chain on its own, and the dips contribute only if it
-    leaves no surviving region. Without this the dip detector also
-    fires on the descent past the collapse, where a momentary easing of
-    the slope is a local minimum of the rolling standard deviation
-    while still being an order of magnitude steeper than any plateau —
-    those shelves then survive as a spurious second region. On the 339
-    reference signals the rule keeps the dips of exactly the 5 signals
-    that have no flat region at all, and drops them everywhere else,
-    without leaving any signal with nothing surviving.
+    The proto-plateaus are a **fallback**: the flat channel is run
+    through the identical chain on its own, and the dips contribute
+    only where it leaves nothing. Unioned unconditionally they also
+    fire on the descent past the collapse, where an easing of the slope
+    is a local minimum of the rolling standard deviation while still an
+    order of magnitude steeper than a plateau. On the 339 reference
+    signals the rule keeps the dips of the 5 signals with no flat
+    region and drops them everywhere else.
 
     This is the single source of the trimming: both the diagnostic
     overlay (``baseline.auto_beads``) and the fcut gallery use it, so
@@ -812,58 +807,29 @@ def select_center(fcut_range: np.ndarray,
     """
     Cutoff frequency at the centre of the surviving plateau.
 
-    Preliminary stage-3 selection: the surviving mask of
-    ``trim_plateaus`` is reduced to a single cutoff by taking the centre
-    of its region. The centre is **geometric** — the midpoint in
-    log(fcut) — because the sweep grid is geometric and every position
-    in this package is expressed in decades; an arithmetic mean of
-    frequencies would be pulled to the high-frequency end of the region
-    and is not the same point.
+    Preliminary stage-3 selection. The centre is **geometric** -- the
+    midpoint in log(fcut) -- because the sweep grid is geometric and
+    every position in this package is expressed in decades. It is taken
+    on the index axis, so the answer is a grid point the sweep actually
+    evaluated and its r2 can be read from the cached curve; the snap
+    costs at most 0.0024 decades.
 
-    The returned cutoff is a **grid point**: the midpoint is taken on
-    the index axis, which on a geometric grid is the same thing up to
-    half a step. That keeps the answer on a frequency the sweep actually
-    evaluated, so its r2 can be read from the cached curve instead of
-    costing another baseline fit, and the value reported is the same one
-    the diagnostic plots rather than a re-fit that may differ slightly.
-    The cost is at most half a grid step — 0.0024 decades on the
-    production grid, against a valley where being 0.3 decades off costs
-    about 1.8x the optimal baseline error.
-
-    When several regions survive, the **last** one is used, per
-    Navarro-Huerta: the optimum lies on the last step of the stepped
-    ``y - b`` curve. On the 339-signal reference set the trimming now
-    leaves exactly one region per signal, so this only matters for
-    robustness.
-
-    Note the departure from the reference: it places the optimum near
-    the centre of that step but recommends **slightly below** the
-    centre in practice, to reduce baseline flexibility. This takes the
-    centre itself, which is the preliminary rule asked for; the offset
-    is deliberately not invented here.
+    Where several regions survive, the last one is used: the optimum
+    lies on the last step of the stepped ``y - b`` curve.
 
     .. warning::
-       **The centre is a placeholder, not a claim.** It is a neutral
-       position in the middle of the geometric range, used while the
-       real rule is missing; nothing here asserts that the optimum lies
-       at the midpoint. Measured against exact ground truth it does
-       not: on the three ``donnie`` signals the optimum sits at 0.71
-       and 0.74 of the surviving region's log-width (the third case
-       excludes it altogether), and earlier synthetic work gave a
-       median of 0.65.
+       **The 0.5 is a placeholder**, held while the real rule is
+       missing. Against exact ground truth the optimum sits at 0.71 and
+       0.74 of the surviving region's log-width on the ``donnie``
+       signals, and at a median 0.65 in earlier synthetic work.
 
-       **Do not turn those numbers into a fixed offset.** Replacing 0.5
-       with 0.7 substitutes one arbitrary ratio for another and would
-       be a constant fitted to the cases that produced it. They are a
-       validation target: a rule derived from the *features* of the
-       signal or the curves can be checked against them, but must not
-       be derived from them.
-
-       One measurement constrains what such a feature can be. Between
-       the selected and the truly optimal cutoff, ``r2`` differs by
-       only about 0.003 while the baseline error differs by 10-13%, so
-       the deciding feature is very unlikely to be the ``r2`` level
-       itself.
+       Those numbers are a validation target, not a rule: replacing 0.5
+       with 0.7 would substitute one arbitrary ratio for another. The
+       replacement has to come from a feature of the signal or the
+       curves. One measurement narrows the search -- between the
+       selected and the optimal cutoff ``r2`` moves by ~0.003 while the
+       baseline error moves 10-13%, so the deciding feature is unlikely
+       to be the r2 level.
 
     Parameters
     ----------

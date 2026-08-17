@@ -349,3 +349,216 @@ class TestPybRandomSignal:
         d = synth.pyb_random_signal(3, n_points=777)
         assert d['meta']['n_points'] == 777
         assert len(d['x']) == 777
+
+
+_DONNIE = (pathlib.Path("/home/esteban/Simulation/DFT/separation_part2")
+           / "donnie")
+
+
+class TestErbBaselines:
+    def test_parabola_ends_at_zero_on_both_ends(self):
+        # kind 0 is described in the source as "simple parabola that
+        # ends at 0 on both ends"; that is what makes it the benign
+        # case for the BEADS periodicity requirement.
+        x = np.linspace(0., 1000., 1000)
+        b = synth.erb_baseline(x, 0)
+        assert b[0] == pytest.approx(0., abs=1e-9)
+        assert b[-1] == pytest.approx(0., abs=1e-9)
+
+    def test_exponential_starts_at_zero(self):
+        x = np.linspace(0., 1000., 1000)
+        assert synth.erb_baseline(x, 1)[0] == pytest.approx(0., abs=1e-12)
+
+    def test_sinusoid_stays_within_its_amplitude(self):
+        x = np.linspace(0., 1000., 1000)
+        b = synth.erb_baseline(x, 3)
+        assert b.min() >= 9. - 1e-9 and b.max() <= 11. + 1e-9
+
+    def test_unknown_kind_raises(self):
+        with pytest.raises(ValueError):
+            synth.erb_baseline(np.linspace(0., 1., 10), 7)
+
+    def test_bare_cumsum_scales_with_sampling_density(self):
+        # The transcribed expression is a Riemann sum missing its dx, so
+        # at fixed span its amplitude grows with the point count. This
+        # is why the population uses exact_integral instead; the test
+        # pins the defect so it cannot be "fixed" silently in the fixed
+        # cases, where it is what the source does.
+        def rng_of(n, exact):
+            x = np.linspace(0., 1000., n)
+            b = synth.erb_baseline(x, 2, exact_integral=exact)
+            return b.max() - b.min()
+
+        assert rng_of(2000, False) > 1.8 * rng_of(1000, False)
+        # ... and does not, once the dx is restored
+        assert rng_of(2000, True) == pytest.approx(rng_of(1000, True),
+                                                   rel=0.02)
+
+
+class TestErbSignal:
+    def test_components_sum_to_the_signal(self):
+        d = synth.erb_signal('one_plateau')
+        np.testing.assert_allclose(
+            d['y'], d['signal'] + d['baseline'] + d['noise'], rtol=0,
+            atol=1e-12)
+
+    def test_default_seed_is_reproducible(self):
+        a = synth.erb_signal('three_plateaus')
+        b = synth.erb_signal('three_plateaus')
+        np.testing.assert_array_equal(a['y'], b['y'])
+
+    def test_explicit_seed_changes_only_the_noise(self):
+        a = synth.erb_signal('one_plateau')
+        b = synth.erb_signal('one_plateau', seed=12)
+        np.testing.assert_array_equal(a['signal'], b['signal'])
+        np.testing.assert_array_equal(a['baseline'], b['baseline'])
+        assert not np.array_equal(a['noise'], b['noise'])
+
+    def test_peaks_do_not_move_with_the_abscissa(self):
+        # The three cases differ ONLY in where the fixed peak centres
+        # fall inside the record; that is the whole mechanism of the
+        # plateau-count knob.
+        windows = {c: synth.erb_signal(c)['meta']['peak_window']
+                   for c in synth.ERB_CASES}
+        assert windows['one_plateau'][0] == pytest.approx(0.10, abs=1e-9)
+        assert windows['two_plateaus'][1] == pytest.approx(0.22, abs=1e-9)
+        assert windows['three_plateaus'][0] > 0.8
+
+    def test_unknown_case_raises(self):
+        with pytest.raises(ValueError):
+            synth.erb_signal('four_plateaus')
+
+    @pytest.mark.skipif(not _DONNIE.is_dir(),
+                        reason="donnie/ reference files not present")
+    @pytest.mark.parametrize("stem,case", [
+        ("donnie1", "one_plateau"),
+        ("donnie2", "two_plateaus"),
+        ("donnie3", "three_plateaus"),
+    ])
+    def test_reproduces_the_exported_reference_signal(self, stem, case):
+        # The strongest check available: the three exported signals in
+        # donnie/ were written by running the source script, so an exact
+        # match proves the transcription rather than merely testing it
+        # against itself.
+        ref = np.loadtxt(_DONNIE / f"{stem}.txt")[:, 1]
+        got = synth.erb_signal(case, baseline_type=2)['y']
+        assert np.abs(got - ref).max() < 1e-12
+
+
+class TestErbRandomSignal:
+    def test_pure_function_of_the_seed(self):
+        a = synth.erb_random_signal(5)
+        b = synth.erb_random_signal(5)
+        np.testing.assert_array_equal(a['y'], b['y'])
+        assert not np.array_equal(a['y'], synth.erb_random_signal(6)['y'])
+
+    def test_components_sum_to_the_signal(self):
+        d = synth.erb_random_signal(11)
+        np.testing.assert_allclose(
+            d['y'], d['signal'] + d['baseline'] + d['noise'], rtol=0,
+            atol=1e-12)
+
+    def test_peaks_land_inside_the_recorded_window(self):
+        for seed in range(40):
+            d = synth.erb_random_signal(seed)
+            lo, hi = d['meta']['peak_window']
+            span = d['x'][-1] - d['x'][0]
+            frac = [(p['center'] - d['x'][0]) / span for p in d['meta']['peaks']]
+            assert min(frac) >= lo - 1e-9, (seed, min(frac), lo)
+            assert max(frac) <= hi + 1e-9, (seed, max(frac), hi)
+
+    def test_window_never_runs_off_the_record(self):
+        for seed in range(200):
+            hi = synth.erb_random_signal(seed)['meta']['peak_window'][1]
+            assert hi <= 0.98 + 1e-9, (seed, hi)
+
+    def test_all_four_baselines_occur(self):
+        kinds = {synth.erb_random_signal(s)['meta']['baseline_type']
+                 for s in range(80)}
+        assert kinds == {0, 1, 2, 3}, kinds
+
+    def test_ranges_are_taken_from_the_source_not_widened(self):
+        # Every drawn range must be spanned by values Erb's script
+        # contains. Heights and sigmas come from his eight peaks, the
+        # disabled one included; the window from his three cases.
+        heights = [p[0] for p in synth.ERB_PEAKS] + [synth.ERB_PEAK_DISABLED[0]]
+        assert synth.ERB_PEAK_HEIGHT == (min(heights), max(heights))
+        sigmas = [p[2] for p in synth.ERB_PEAKS] + [synth.ERB_PEAK_DISABLED[2]]
+        assert synth.ERB_PEAK_SIGMA_FRAC[0] == pytest.approx(min(sigmas) / 1000.)
+        assert synth.ERB_PEAK_SIGMA_FRAC[1] == pytest.approx(max(sigmas) / 1000.)
+
+    def test_n_points_and_baseline_overrides(self):
+        d = synth.erb_random_signal(3, n_points=512, baseline_type=1)
+        assert d['meta']['n_points'] == 512 and len(d['x']) == 512
+        assert d['meta']['baseline_type'] == 1
+
+
+class TestErbNativeSignal:
+    def test_components_sum_to_the_signal_before_quantisation(self):
+        rng = np.random.default_rng(0)
+        d = synth.erb_native_signal(1800, 'multi_narrow', 2, 0.019, rng,
+                                    quantise_output=False)
+        np.testing.assert_allclose(
+            d['y'], d['signal'] + d['baseline'] + d['noise'], rtol=0,
+            atol=1e-12)
+
+    def test_quantised_output_lands_on_the_detector_lattice(self):
+        rng = np.random.default_rng(0)
+        d = synth.erb_native_signal(900, 'multi_mixed', 1, 0.019, rng)
+        ratio = d['y'] / synth.ADC_STEP_MV
+        np.testing.assert_allclose(ratio, np.round(ratio), atol=1e-9)
+
+    def test_reproducible_for_a_given_seed(self):
+        a = synth.erb_native_signal(900, 'isocratic', 0, 0.019,
+                                    np.random.default_rng(3))
+        b = synth.erb_native_signal(900, 'isocratic', 0, 0.019,
+                                    np.random.default_rng(3))
+        np.testing.assert_array_equal(a['y'], b['y'])
+
+    def test_peak_component_matches_the_native_family_exactly(self):
+        # The whole point of the hybrid is that the peaks are native's,
+        # not a second implementation of them. Same seed, same draws.
+        n, case = 1800, 'multi_mixed'
+        t1, sig1, pk1, t01 = synth.native_peak_component(
+            n, case, np.random.default_rng(11))
+        d = synth.erb_native_signal(n, case, 2, 0.019,
+                                    np.random.default_rng(11))
+        np.testing.assert_array_equal(d['signal'], sig1)
+        np.testing.assert_array_equal(d['x'], t1)
+        assert d['meta']['dead_time'] == t01
+        assert len(d['peaks']) == len(pk1)
+
+    def test_baseline_is_erbs_and_excludes_the_artefact(self):
+        rng = np.random.default_rng(5)
+        n = 1800
+        d = synth.erb_native_signal(n, 'blank', 3, 0.019, rng)
+        u = np.linspace(0., 1000., n)
+        np.testing.assert_array_equal(
+            d['baseline'], synth.erb_baseline(u, 3, exact_integral=True))
+        # the injection artefact is in the signal, never in the truth
+        art = [p for p in d['peaks'] if p.get('artifact')]
+        assert art, "the injection artefact must be present"
+        assert d['signal'].min() < 0, "its negative lobe must survive"
+
+    def test_baseline_shape_does_not_depend_on_record_length(self):
+        # erb_baseline is evaluated on a normalised abscissa, so the
+        # four types stay comparable across the record lengths.
+        rngs = [np.random.default_rng(1) for _ in range(2)]
+        a = synth.erb_native_signal(900, 'blank', 2, 0.019, rngs[0])
+        b = synth.erb_native_signal(4000, 'blank', 2, 0.019, rngs[1])
+        assert (a['meta']['baseline_range']
+                == pytest.approx(b['meta']['baseline_range'], rel=0.02))
+
+    def test_all_four_baselines_and_every_peak_case_run(self):
+        for case in synth.PEAK_CASES:
+            for bt in range(4):
+                d = synth.erb_native_signal(900, case, bt, 0.019,
+                                            np.random.default_rng(0))
+                assert np.all(np.isfinite(d['y']))
+                assert d['meta']['n_analytes'] == synth.PEAK_CASES[case][0]
+
+    def test_sampling_is_the_measured_rate(self):
+        d = synth.erb_native_signal(1200, 'blank', 0, 0.019,
+                                    np.random.default_rng(0))
+        dt = np.median(np.diff(d['x']))
+        assert dt == pytest.approx(1. / synth.PTS_PER_MIN, rel=1e-12)

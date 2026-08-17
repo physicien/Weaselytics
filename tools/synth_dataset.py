@@ -729,6 +729,268 @@ def pyb_signal(case: str, seed: int | None = None) -> dict:
                                                for g in groups)}}
 
 
+###############################################################################
+# The `erb` family: the pybaselines author's own BEADS test signals.
+#
+# Source: `donnie/test_donnie.py`, a script written by Donald Erb, the
+# pybaselines author, to exercise cutoff-frequency selection on this
+# project's problem. It is correspondence, not a publication, so under
+# the project's evidence rule it earns a test rather than a citation --
+# but as a *generator* it defines the truth rather than processing it,
+# and its provenance is recorded here.
+#
+# It is transcribed, not imported, for the same reason as the `pyb`
+# family (§9.1) and one more: the script carries `np.log` for the
+# transform, which was a MISTAKE, since corrected upstream. Production
+# uses log10, matching Navarro-Huerta Eqs. (8)/(11). Do not carry that
+# line across. Only `make_data` is transcribed here.
+###############################################################################
+
+# The seven Gaussian peaks of Erb's `make_data`, as (height, centre,
+# sigma) in the units of `x`. His script carries an eighth, commented
+# out: `gaussian(x, 15, 400, 18)`. It is kept, also disabled, because
+# its parameters are the only evidence for the upper end of the height
+# and width ranges the population draws from.
+ERB_PEAKS = ((9., 100., 12.), (6., 180., 5.), (8., 350., 11.),
+             (6., 550., 6.), (13., 700., 8.), (9., 800., 9.),
+             (9., 880., 7.))
+ERB_PEAK_DISABLED = (15., 400., 18.)
+
+ERB_NOISE_STD = 0.05
+ERB_SEED = 0
+
+# The three x-ranges his script offers, with the plateau count each is
+# annotated with in his own comments. MEASURED 2026-08-16 through the
+# production path: one_plateau and three_plateaus reproduce (1 and 3
+# detected flat regions); two_plateaus does NOT (1 detected). See
+# tools/synthetic_data.md §10.2 for why.
+#
+#   name: (x_start, x_end, n_points, claimed_plateaus)
+ERB_CASES = {
+    'one_plateau': (0., 1000., 1000, 1),
+    'two_plateaus': (0., 4000., 1000, 2),
+    'three_plateaus': (-4000., 1000., 1000, 3),
+}
+
+# What the x-range knob actually varies is WHERE THE PEAKS SIT inside
+# the record, not the abscissa: the peak centres are fixed numbers
+# (100-880) while the span moves, so the peaks occupy 10-88% of the
+# record in the first case, 2.5-22% in the second and 82-98% in the
+# third. The population therefore varies that window directly, and the
+# ranges below are exactly the values his three cases take -- nothing
+# is widened.
+ERB_PEAK_WINDOW_START = (0.025, 0.82)
+ERB_PEAK_WINDOW_WIDTH = (0.16, 0.78)
+# Height and sigma spans of his eight peaks, the disabled one included.
+# Sigma is expressed as a fraction of the abscissa span, on which his
+# 5-18 over a span of 1000 becomes 0.005-0.018.
+ERB_PEAK_HEIGHT = (6., 15.)
+ERB_PEAK_SIGMA_FRAC = (0.005, 0.018)
+ERB_N_PEAKS = (7, 8)
+
+
+
+def erb_baseline(x: np.ndarray, kind: int,
+                 exact_integral: bool = False) -> np.ndarray:
+    """
+    Evaluate one of Erb's four test baselines.
+
+    Transcribed from `make_data` in ``donnie/test_donnie.py``:
+
+    =====  ==================================================
+    kind   baseline
+    =====  ==================================================
+    0      parabola ending at zero on both ends
+    1      exponentially decaying
+    2      "very complicated": a logistic approximated by
+           integrating a Gaussian, plus a Gaussian bump
+    3      sinusoidal
+    =====  ==================================================
+
+    Kind 2 is the one his three plateau-count cases use, and the one
+    behind the ``runs/DONNIE_2026-07-27`` signals.
+
+    Parameters
+    ----------
+    x : array-like, shape (N,)
+        Abscissa.
+    kind : int
+        One of 0, 1, 2, 3.
+    exact_integral : bool, optional
+        Only affects `kind` 2. False (default) reproduces his
+        expression exactly, a bare ``cumsum`` of the Gaussian. True
+        multiplies by the sample spacing, making it the actual integral.
+
+        The distinction is not cosmetic. A bare ``cumsum`` is a Riemann
+        sum missing its ``dx``, so the baseline's amplitude scales with
+        the sampling density: at fixed span, doubling the point count
+        doubles the drift. That is harmless for his three fixed cases,
+        which all use 1000 points, and wrong for a population that
+        varies the record length. Set True there.
+
+    Returns
+    -------
+    baseline : numpy.ndarray, shape (N,)
+        The baseline, in the same arbitrary units as the peaks.
+
+    """
+    x = np.asarray(x, dtype=float)
+    if kind == 0:
+        return 2e-5 * (x - 500.) ** 2 - 5.
+    if kind == 1:
+        return 10. - 10. * np.exp(-x / 600.)
+    if kind == 2:
+        step = _g(x, 0.05, 400., 100.)
+        if exact_integral:
+            dx = (x[-1] - x[0]) / (len(x) - 1) if len(x) > 1 else 1.
+            step = step * dx
+        return -np.cumsum(step) + _g(x, 3., 800., 100.) - 5.
+    if kind == 3:
+        return 10. + 1. * np.sin(x / 50.)
+    raise ValueError(f"unknown erb baseline kind {kind!r}")
+
+
+def erb_signal(case: str, baseline_type: int = 2,
+               seed: int | None = None) -> dict:
+    """
+    Assemble one of Erb's three fixed plateau-count cases.
+
+    Reproduces ``make_data`` exactly: the seven Gaussian peaks at their
+    published centres, one of the four baselines, and white noise at
+    ``ERB_NOISE_STD`` from seed 0. The peaks do not move with the
+    abscissa, which is what makes the three cases differ.
+
+    .. warning::
+       The plateau counts in `ERB_CASES` are **his annotations, not
+       measurements**. Checked through the production path on
+       2026-08-16, ``one_plateau`` and ``three_plateaus`` reproduce
+       while ``two_plateaus`` yields one detected region, not two --
+       there the peaks fall in the first quarter of the record, so
+       ``baseline._relevant_regions`` truncates the sweep to 235 of
+       1000 points and the fundamental moves with it. Treat the counts
+       as labels to be verified, never as ground truth.
+
+    Parameters
+    ----------
+    case : str
+        A key of `ERB_CASES`.
+    baseline_type : int, optional
+        Which of the four baselines, see `erb_baseline`. Default 2, the
+        one his plateau-count comments were written against.
+    seed : int, optional
+        Noise seed. Default None uses his published seed, so the signal
+        reproduces his script exactly; pass an integer for a replicate
+        with the same signal and baseline but fresh noise.
+
+    Returns
+    -------
+    components : dict
+        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise`` and
+        ``meta``.
+
+    """
+    if case not in ERB_CASES:
+        raise ValueError(f"unknown erb case {case!r}")
+    x0, x1, n, claimed = ERB_CASES[case]
+    x = np.linspace(x0, x1, n)
+    signal = np.zeros(n)
+    for height, centre, sigma in ERB_PEAKS:
+        signal = signal + _g(x, height, centre, sigma)
+    baseline = erb_baseline(x, baseline_type)
+    rng_seed = ERB_SEED if seed is None else seed
+    noise = np.random.default_rng(rng_seed).normal(0., ERB_NOISE_STD, n)
+    span = x[-1] - x[0]
+    lo = (ERB_PEAKS[0][1] - x[0]) / span
+    hi = (ERB_PEAKS[-1][1] - x[0]) / span
+    return {'x': x, 'y': signal + baseline + noise, 'signal': signal,
+            'baseline': baseline, 'noise': noise,
+            'meta': {'family': 'erb', 'case': case,
+                     'source': 'donnie/test_donnie.py, make_data',
+                     'baseline_type': baseline_type, 'seed': rng_seed,
+                     'n_points': n, 'x_range': [float(x0), float(x1)],
+                     'claimed_plateaus': claimed,
+                     'peak_window': [float(lo), float(hi)],
+                     'noise_std': ERB_NOISE_STD,
+                     'peaks': [{'height': h, 'center': c, 'sigma': s}
+                               for h, c, s in ERB_PEAKS]}}
+
+
+def erb_random_signal(seed: int, n_points: int | None = None,
+                      baseline_type: int | None = None,
+) -> dict:
+    """
+    Generate one randomised ``erb`` signal with exact ground truth.
+
+    Turns Erb's three fixed cases into a population. The variable his
+    x-range knob actually moves is the **peak window** -- what fraction
+    of the record the peaks occupy -- so that is what is drawn here,
+    from the span his own three cases cover. The abscissa is held at a
+    fixed 0-1000 instead, which removes the confound: in his cases the
+    window and the record length move together, so a constant that
+    depended on either could not be told apart.
+
+    Every range is taken from values his script contains; none is
+    widened, except the record length, which comes from `PYB_N_POINTS`
+    and is justified there -- length sets the fundamental, ``1/n_used``,
+    which is what `instability_boundary` keys on.
+
+    Parameters
+    ----------
+    seed : int
+        Seed for all draws, including the noise. The signal is a pure
+        function of it.
+    n_points : int, optional
+        Record length. Default None draws from `PYB_N_POINTS`.
+    baseline_type : int, optional
+        Which of the four baselines. Default None draws uniformly.
+    Returns
+    -------
+    components : dict
+        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise`` and
+        ``meta``. ``meta`` records every drawn parameter.
+
+    """
+    rng = np.random.default_rng(seed)
+    n = int(n_points if n_points is not None
+            else rng.integers(PYB_N_POINTS[0], PYB_N_POINTS[1] + 1))
+    x = np.linspace(0., 1000., n)
+    span = x[-1] - x[0]
+
+    start = float(rng.uniform(*ERB_PEAK_WINDOW_START))
+    width = float(rng.uniform(*ERB_PEAK_WINDOW_WIDTH))
+    # Keep the window inside the record; his widest case ends at 0.98.
+    width = min(width, 0.98 - start)
+    n_peaks = int(rng.integers(ERB_N_PEAKS[0], ERB_N_PEAKS[1] + 1))
+
+    centres = x[0] + (start + np.sort(rng.uniform(0., 1., n_peaks))
+                      * width) * span
+    heights = rng.uniform(*ERB_PEAK_HEIGHT, n_peaks)
+    sigmas = rng.uniform(*ERB_PEAK_SIGMA_FRAC, n_peaks) * span
+
+    signal = np.zeros(n)
+    peaks = []
+    for height, centre, sigma in zip(heights, centres, sigmas):
+        signal = signal + _g(x, height, centre, sigma)
+        peaks.append({'height': float(height), 'center': float(centre),
+                      'sigma': float(sigma)})
+
+    kind = (int(rng.integers(0, 4)) if baseline_type is None
+            else int(baseline_type))
+    # exact_integral so kind 2's amplitude does not scale with the
+    # record length; see `erb_baseline`.
+    baseline = erb_baseline(x, kind, exact_integral=True)
+    noise = rng.normal(0., ERB_NOISE_STD, n)
+    return {'x': x, 'y': signal + baseline + noise, 'signal': signal,
+            'baseline': baseline, 'noise': noise,
+            'meta': {'family': 'erb_random', 'seed': seed, 'n_points': n,
+                     'baseline_type': kind, 'n_peaks': n_peaks,
+                     'peak_window': [start, start + width],
+                     'noise_std': ERB_NOISE_STD,
+                     'baseline_range': float(baseline.max()
+                                             - baseline.min()),
+                     'peaks': peaks}}
+
+
 def pearson7_peak(t: np.ndarray, tc: float, sigma: float, kurtosis: float,
                   asymmetry: float, height: float) -> np.ndarray:
     r"""
@@ -1002,30 +1264,44 @@ def lit_baseline(t: np.ndarray, kind: str,
     return b
 
 
-def make_signal(n: int, peak_case: str, baseline_case: str,
-                noise_sigma: float, rng: np.random.Generator
-                ) -> tuple[np.ndarray, dict]:
+def native_peak_component(n: int, peak_case: str,
+                          rng: np.random.Generator
+                          ) -> tuple[np.ndarray, np.ndarray, list[dict],
+                                     float]:
     """
-    Assemble one ``native`` synthetic chromatogram (LPYE instrument).
+    Build the LPYE peak component: analytes, artefact and time axis.
+
+    Everything a `native` chromatogram contains except its baseline and
+    its noise. Factored out of `make_signal` verbatim -- the draws
+    happen in the same order, so `make_signal` is unchanged -- so that
+    the peak model Emmanuel reviewed on 2026-07-22 can be placed on a
+    different baseline without being written a second time.
+
+    The component is calibrated to the LPYE instrument: 120 points per
+    minute, an absolute dead time near 4.5 min carrying the bipolar
+    injection artefact, exponentially-modified Gaussian analytes
+    eluting after it, and widths growing with retention time.
 
     Parameters
     ----------
     n : int
         Number of data points.
     peak_case : str
-        Key of ``PEAK_CASES``.
-    baseline_case : str
-        Key of ``BASELINE_CASES``.
-    noise_sigma : float
-        Standard deviation of the white noise.
+        Key of `PEAK_CASES`.
     rng : numpy.random.Generator
         Source of randomness.
 
     Returns
     -------
-    components : dict
-        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise`` and
-        ``peaks`` (the per-peak parameters).
+    t : numpy.ndarray, shape (N,)
+        Time axis, minutes.
+    signal : numpy.ndarray, shape (N,)
+        Analytes plus the injection artefact.
+    peaks : list of dict
+        Per-peak parameters; entries with ``artifact=True`` are the
+        injection lobes and the blank ghosts, not analytes.
+    t0 : float
+        The dead time used, minutes.
 
     """
     dt = 1. / PTS_PER_MIN               # minutes per sample
@@ -1110,11 +1386,180 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
                       'height': height, 'fwhm_points': fwhm / dt,
                       'artifact': False})
 
+    return t, signal, peaks, t0
+
+
+def make_signal(n: int, peak_case: str, baseline_case: str,
+                noise_sigma: float, rng: np.random.Generator
+                ) -> tuple[np.ndarray, dict]:
+    """
+    Assemble one ``native`` synthetic chromatogram (LPYE instrument).
+
+    Parameters
+    ----------
+    n : int
+        Number of data points.
+    peak_case : str
+        Key of ``PEAK_CASES``.
+    baseline_case : str
+        Key of ``BASELINE_CASES``.
+    noise_sigma : float
+        Standard deviation of the white noise.
+    rng : numpy.random.Generator
+        Source of randomness.
+
+    Returns
+    -------
+    components : dict
+        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise`` and
+        ``peaks`` (the per-peak parameters).
+
+    """
+    t, signal, peaks, t0 = native_peak_component(n, peak_case, rng)
     baseline = make_baseline(t, baseline_case, rng, t0=t0,
-                             is_blank=(n_peaks == 0))
+                             is_blank=(PEAK_CASES[peak_case][0] == 0))
     noise = rng.normal(0., noise_sigma, n)
     return {'x': t, 'y': signal + baseline + noise, 'signal': signal,
             'baseline': baseline, 'noise': noise, 'peaks': peaks}
+
+
+# Record length for the `erb_native` family. MEASURED: the quantile
+# function of the 339 real LPYE records, every 5% from the minimum to
+# the maximum. Lengths are drawn from it by inverse-CDF sampling, so the
+# generated distribution reproduces the real one by construction rather
+# than approximating it with a ladder of fixed values.
+#
+# Why a distribution and not levels: record length sets the fundamental
+# frequency 1/n_used, which is exactly what `instability_boundary` keys
+# on, so length must vary -- but a balanced ladder misrepresents how
+# often each length actually occurs. The real set is strongly skewed:
+# the median record is 1176 points while the longest is 39129, and only
+# 4.7% exceed 10000. A six-level geometric ladder puts 33% of the
+# benchmark above 10000, over-weighting the most expensive signals by
+# sevenfold and implying the instrument produces long runs routinely.
+ERB_NATIVE_N_QUANTILES = (473, 732, 780, 819, 846, 853, 868, 893, 924,
+                          994, 1176, 1259, 1400, 1546, 1707, 2062, 2857,
+                          3495, 5399, 9251, 39129)
+
+
+def draw_record_length(rng: np.random.Generator) -> int:
+    """
+    Draw a record length from the real LPYE length distribution.
+
+    Inverse-CDF sampling on `ERB_NATIVE_N_QUANTILES`: a uniform draw is
+    mapped through the measured quantile function, so the generated
+    lengths follow the real distribution, span its full range, and take
+    arbitrary values rather than a handful of fixed ones.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Source of randomness.
+
+    Returns
+    -------
+    n : int
+        A record length in points, between the real minimum and maximum.
+
+    """
+    grid = np.linspace(0., 1., len(ERB_NATIVE_N_QUANTILES))
+    u = float(rng.uniform(0., 1.))
+    return int(round(float(np.interp(u, grid,
+                                     ERB_NATIVE_N_QUANTILES))))
+
+
+def erb_native_signal(n: int, peak_case: str, baseline_type: int,
+                      noise_sigma: float, rng: np.random.Generator,
+                      quantise_output: bool = True) -> dict:
+    """
+    Assemble a chromatogram: LPYE peak component on an Erb baseline.
+
+    The hybrid of the two families that each hold one half of what the
+    benchmark needs.
+
+    From `native`, by way of `native_peak_component`: the peak model
+    calibrated to the LPYE instrument and reviewed on 2026-07-22 --
+    120 points per minute, the bipolar injection artefact at an
+    absolute dead time near 4.5 min, exponentially-modified Gaussian
+    analytes eluting after it, widths growing with retention time, and
+    detector noise at the measured level.
+
+    From `erb`, by way of `erb_baseline`: a baseline that is an exact
+    analytic function rather than a sum of drawn components, written by
+    the pybaselines author to exercise cutoff selection. That is what
+    `native`'s own baseline cannot offer -- and Erb's three fixed
+    x-ranges additionally dial in how many plateaus the r2 curve shows,
+    which is the property issue #4 needs and which nothing else in the
+    benchmark provides.
+
+    **Scales.** The baseline is evaluated on a normalised 0-1000
+    abscissa spanning the record, because `erb_baseline`'s coefficients
+    are written for that range; its output is then read as mV. That is
+    legitimate rather than a fudge: Erb's baselines span roughly 2-12 in
+    his units, and the drift measured on the real records spans
+    0.08-12.5 mV, so the two scales coincide to within the spread of the
+    real data. It is recorded here rather than assumed silently.
+
+    Parameters
+    ----------
+    n : int
+        Number of data points.
+    peak_case : str
+        Key of `PEAK_CASES`.
+    baseline_type : int
+        Which of Erb's four baselines, see `erb_baseline`.
+    noise_sigma : float
+        Standard deviation of the white noise, mV. See `NOISE_CASES`.
+    rng : numpy.random.Generator
+        Source of randomness.
+    quantise_output : bool, optional
+        Round the assembled signal onto the detector lattice. Default
+        True. This is not cosmetic: `baseline._snr` divides by a MAD of
+        consecutive differences, which on quantised data is pinned to
+        the lattice and on continuous data is a true noise estimate, so
+        an unquantised benchmark exercises a different quantity under
+        the same name. See tools/synthetic_data.md §7.
+
+    Returns
+    -------
+    components : dict
+        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise``,
+        ``peaks`` and ``meta``.
+
+        ``baseline`` alone is the truth a baseline estimator is scored
+        against. The injection artefact is inside ``signal``, not inside
+        ``baseline``: it is a sharp bipolar excursion that a low-pass
+        baseline model is not meant to reproduce, and scoring on it
+        would let one feature dominate the error. Entries of ``peaks``
+        with ``artifact=True`` mark it.
+
+    """
+    t, signal, peaks, t0 = native_peak_component(n, peak_case, rng)
+    # Erb's coefficients are written for an abscissa of order 0-1000, so
+    # the baseline is evaluated there and mapped onto the record. Its
+    # shape is therefore independent of the record's duration in
+    # minutes, which is what makes the four types comparable across
+    # lengths. exact_integral keeps type 2's amplitude from scaling with
+    # the point count.
+    u = np.linspace(0., 1000., n)
+    baseline = erb_baseline(u, baseline_type, exact_integral=True)
+    noise = rng.normal(0., noise_sigma, n)
+    y = signal + baseline + noise
+    if quantise_output:
+        y = quantise(y)
+    return {'x': t, 'y': y, 'signal': signal, 'baseline': baseline,
+            'noise': noise, 'peaks': peaks,
+            'meta': {'family': 'erb_native', 'n_points': n,
+                     'peak_case': peak_case,
+                     'baseline_type': baseline_type,
+                     'noise_sigma': noise_sigma, 'dead_time': t0,
+                     'quantised': quantise_output,
+                     'points_per_minute': PTS_PER_MIN,
+                     'minutes': float(t[-1] - t[0]),
+                     'baseline_range': float(baseline.max()
+                                             - baseline.min()),
+                     'n_analytes': sum(not p.get('artifact', False)
+                                       for p in peaks)}}
 
 
 LIT_PEAK_CASES = {
@@ -1270,11 +1715,16 @@ def main() -> None:
     parser.add_argument('output', help='output directory')
     parser.add_argument('--seed', type=int, default=0,
                         help='base random seed (default: 0)')
-    parser.add_argument('--family', choices=('native', 'lit', 'both'),
+    parser.add_argument('--family',
+                        choices=('native', 'lit', 'erb_native', 'both',
+                                 'all'),
                         default='both',
                         help="'native' = calibrated to the LPYE data; "
                              "'lit' = generic Ning 2014 benchmark "
-                             "conditions; 'both' (default)")
+                             "conditions; 'erb_native' = the LPYE peak "
+                             "component on Erb's four analytic "
+                             "baselines; 'both' (default) = native+lit; "
+                             "'all' = every family")
     parser.add_argument('--replicates', type=int, default=1,
                         help='replicates per case (default: 1)')
     parser.add_argument('--no-plot', action='store_true',
@@ -1295,18 +1745,26 @@ def main() -> None:
     # noise_value_or_snr, n) jobs, so the two families share the writing,
     # plotting and manifest code below.
     jobs = []
-    if args.family in ('native', 'both'):
+    if args.family in ('native', 'both', 'all'):
         for pc in PEAK_CASES:
             for bc in BASELINE_CASES:
                 for nk, ns in NOISE_CASES.items():
                     for n in N_CASES:
                         jobs.append(('native', pc, bc, nk, ns, n))
-    if args.family in ('lit', 'both'):
+    if args.family in ('lit', 'both', 'all'):
         for pc in LIT_PEAK_CASES:
             for bc in LIT_BASELINE_CASES:
                 for nk, snr in LIT_SNR_DB.items():
                     for n in LIT_N_CASES:
                         jobs.append(('lit', pc, bc, nk, snr, n))
+    if args.family in ('erb_native', 'all'):
+        for pc in PEAK_CASES:
+            for bt in range(4):
+                for nk, ns in NOISE_CASES.items():
+                    # Length is drawn per signal, not crossed: see
+                    # `draw_record_length`.
+                    jobs.append(('erb_native', pc, f'erb{bt}', nk,
+                                 ns, None))
 
     manifest = []
     for k, (family, pc, bc, nk, nv, n) in enumerate(jobs):
@@ -1315,6 +1773,9 @@ def main() -> None:
                                         + 104729 * rep)
             if family == 'native':
                 parts = make_signal(n, pc, bc, nv, rng)
+            elif family == 'erb_native':
+                n = draw_record_length(rng)
+                parts = erb_native_signal(n, pc, int(bc[-1]), nv, rng)
             else:
                 parts = lit_signal(n, pc, bc, nv, rng)
             stem = f'SYN__{family}__{pc}__{bc}__{nk}__{n}__{rep}'

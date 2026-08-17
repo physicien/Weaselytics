@@ -171,8 +171,8 @@ def peak_stats(data_file: str, tol: float = 6.) -> dict:
     """
     x, s = ParsedData(data_file).data
     z = gaussian_filter1d(s, 3)
-    peaks, widths = peaks_params(z, height_n=0.50, width=3,
-                                 rel_prom_p=0.01, adapt=True)
+    peaks, widths = peaks_params(z, width=3, rel_prom_p=0.01, adapt=True,
+                                 drop_enclosing=True)
     if len(peaks) == 0:
         return {'n_points': len(s), 'dt': float(np.median(np.diff(x)))}
     width_per_x = widths / x[peaks]

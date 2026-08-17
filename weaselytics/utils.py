@@ -164,10 +164,12 @@ def smooth_SG(x: np.ndarray, window_length: int,
     return smooth_data
 
 def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
-                 rel_prom_n: float = 0.8, height_n: float = 0.1,
+                 rel_prom_n: float = 0.8,
                  rel_height_p: float = 0.5, rel_height_n: float = 0.5,
                  width: int | None = None,
-                 adapt: bool = False) -> tuple[np.ndarray, np.ndarray]:
+                 adapt: bool = False,
+                 drop_enclosing: bool = False
+                 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Find the center and width for every peak of the chromatogram (including
     the negative ones).
@@ -182,11 +184,6 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
     rel_prom_n : float, optional
         Required prominence of negative peaks relative to the deepest negative
         peak. Default is 0.5.
-    height_n : float, optional
-        Required height of negative peaks. Either a number, ``None``, an array
-        matching x or a 2-element sequence of the former. The first element is
-        always interpreted as the minimal and the second, if supplied, as the
-        maximal required height. Default is 0.1.
     rel_height_p : float, optional
         Selects the relative height at which the width of a positive peak is
         determined, expressed as a fraction of its prominence. A value of 1.0
@@ -207,7 +204,9 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
     adapt : bool, optional
         If True, lets the function change the value of `rel_prom_p` according
         the the maximum prominence of the data.
-
+    drop_enclosing : bool, optional
+        If True, discard any feature whose width encloses a taller peak.
+        See `_drop_enclosing`. Default False.
     Returns
     -------
     peaks : numpy.ndarray
@@ -233,8 +232,7 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
     prom_n = rel_prom_n * max_prom_n
 
     peaks_p, _ = find_peaks(s, prominence=prom_p, width=width)
-    peaks_n, _ = find_peaks(-s, prominence=prom_n, height=height_n,
-                             width=width)
+    peaks_n, _ = find_peaks(-s, prominence=prom_n, width=width)
     widths_p = peak_widths(s, peaks_p, rel_height=rel_height_p)[0]
     widths_n = peak_widths(-s, peaks_n, rel_height=rel_height_n)[0]
 
@@ -244,7 +242,49 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
 
     peaks = unsorted_peaks[index_array]
     widths = unsorted_widths[index_array]
+    if drop_enclosing and len(peaks) > 1:
+        amps = np.abs(s[peaks] - np.median(s))
+        peaks, widths = _drop_enclosing(peaks, widths, amps)
     return peaks, widths
+
+
+def _drop_enclosing(peaks: np.ndarray, widths: np.ndarray,
+                    amps: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Discard features that enclose a taller peak.
+
+    A chromatographic peak can carry a smaller shoulder inside its own
+    half-width, but never a taller peak. Structure that does -- a drift
+    feature with peaks on it, or a gap between two peaks -- is not a
+    peak, and the peaks it encloses are what should define the region.
+
+    Compared on amplitude above the signal median rather than on
+    prominence: a valley inherits the prominence of the peaks bounding
+    it, so a shallow gap between two tall peaks outranks them.
+
+    Parameters
+    ----------
+    peaks : array-like, shape (M,)
+        Peak indices, sorted.
+    widths : array-like, shape (M,)
+        Their widths in samples.
+    amps : array-like, shape (M,)
+        Their amplitudes above the signal median, in the same order.
+
+    Returns
+    -------
+    peaks, widths : numpy.ndarray
+        The surviving peaks and widths.
+
+    """
+    lo = peaks - widths / 2.
+    hi = peaks + widths / 2.
+    inside = ((peaks[None, :] > lo[:, None])
+              & (peaks[None, :] < hi[:, None]))
+    np.fill_diagonal(inside, False)
+    taller = amps[None, :] > amps[:, None]
+    keep = ~(inside & taller).any(axis=1)
+    return peaks[keep], widths[keep]
 
 
 def merge_intervals(intervals: list[list[int]]) -> np.ndarray:

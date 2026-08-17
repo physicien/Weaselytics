@@ -56,7 +56,9 @@ class TestPeaksParams:
         y = y + 0.01 * rng.normal(size=len(x))
         peaks, widths = peaks_params(y)
         assert len(peaks) >= 1
-        assert np.isclose(x[peaks[0]], 5.0, atol=0.5)
+        # `fit_peak` selects the largest excursion, not the first index.
+        main = peaks[np.absolute(y[peaks]).argmax()]
+        assert np.isclose(x[main], 5.0, atol=0.5)
 
     def test_positive_peaks_only(self):
         rng = np.random.default_rng(42)

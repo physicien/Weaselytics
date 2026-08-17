@@ -16,10 +16,14 @@ objective optimum, and ``log fcut*`` is regressed on
 
 Reference results (seed defaults, 60 signals): exponent -0.735 on the
 true width (R2 0.857), -0.810 on the measured width, with the two
-widths correlated at 0.998 — no dilution on clean synthetic peaks. The
-exponent differs from the -0.88 of the full benchmark and the -0.50 of
-the real dataset, i.e. it is a property of the signal population and
-not a transferable constant.
+widths correlated at 0.998, so no dilution on clean synthetic peaks.
+The exponent differs from the -0.88 of the full benchmark and the
+-0.50 of the real dataset, i.e. it is a property of the signal
+population and not a transferable constant.
+
+The measured-width figures predate the removal of the coarse detrend
+and of the absolute negative-depth gate from ``_relevant_regions`` and
+have not been re-run; the true-width exponent is unaffected.
 
 Usage
 -----
@@ -30,7 +34,7 @@ import argparse
 
 import numpy as np
 import pandas as pd
-from scipy.ndimage import gaussian_filter1d, median_filter
+from scipy.ndimage import gaussian_filter1d
 from synth_dataset import _FWHM_PER_SIGMA, emg_peak, make_baseline
 from synth_diag import error_curve
 
@@ -47,7 +51,7 @@ def measured_width(x: np.ndarray, s: np.ndarray) -> float:
     Median relevant peak width with the production recipe.
 
     Mirrors ``weaselytics.baseline._relevant_regions``: weak smoothing,
-    coarse detrend, ``peaks_params`` and the relevance filter.
+    ``peaks_params`` and the relevance filter.
 
     Parameters
     ----------
@@ -63,9 +67,8 @@ def measured_width(x: np.ndarray, s: np.ndarray) -> float:
 
     """
     z = gaussian_filter1d(s, 3)
-    z = z - median_filter(z, size=(max(31, len(z) // 4) | 1))
-    peaks, widths = peaks_params(z, height_n=0.50, width=3,
-                                 rel_prom_p=0.01, adapt=True)
+    peaks, widths = peaks_params(z, width=3, rel_prom_p=0.01, adapt=True,
+                                 drop_enclosing=True)
     if len(peaks) == 0:
         return np.nan
     width_per_x = widths / np.where(x[peaks] > 0, x[peaks], np.inf)

@@ -11,7 +11,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 from pybaselines import Baseline
-from scipy.ndimage import gaussian_filter1d, median_filter
+from scipy.ndimage import gaussian_filter1d
 
 from weaselytics.plot import r2_plots
 from weaselytics.segmentation import (
@@ -52,7 +52,7 @@ def _relevant_regions(
 ) -> tuple[np.ndarray | None, np.ndarray, int]:
     """
     Divide the signal into regions maximizing the contribution of the signal in
-    the calculation of the autocorrelation plot. in order to find the optimal
+    the calculation of the autocorrelation plot in order to find the optimal
     cutoff frequency for the BEADS algorithm.
 
     Parameters
@@ -77,27 +77,23 @@ def _relevant_regions(
         Index of the last data point in `s` (signal cutoff) relevant to the
         calculation of the autocorrelation.
 
+    Notes
+    -----
+    Negative peaks are gated on prominence, measured from the local
+    level, so the detection does not depend on where the baseline sits.
+    Fails on a trace carrying no genuine negative peak: the bar is then
+    the noise floor, and the deepest noise dip is admitted.
+
     """
     # NOTE: A weak smoothing helps to avoid peak detection in noisy region of
     #       the signal by:
     #           1) removing most of the spurious features in the raw signal
     #           2) sligntly enlarging features relevant for peaks detection
     z = gaussian_filter1d(s,3)
-    # Coarse detrend before measuring peak widths: half-prominence
-    # widths are otherwise contaminated by slow baseline structure (a
-    # narrow peak riding a broad hump measures the hump's width, not
-    # its own, and gets rejected by the relevance filter below). The
-    # rolling-median window only needs to separate the two scales: on
-    # the reference dataset the widest relevant peak spans N/17.7 at
-    # worst (median N/57) while baseline features span the record, so
-    # N/4 clears every peak by a factor of 4 while following the
-    # baseline. Measured over the 339 reference signals; note that
-    # the detrend also shifts the peak regions or `scut` on 161 of
-    # them, so artefacts derived from earlier runs are stale.
-    window = max(31, len(z) // 4) | 1
-    z = z - median_filter(z, size=window)
-    peaks, widths = peaks_params(z, height_n=0.50, width=3, rel_prom_p=0.01,
-                                   adapt=True)
+    # A feature carrying taller peaks is structure, not a peak: the
+    # peaks on it are what define the region.
+    peaks, widths = peaks_params(z, width=3, rel_prom_p=0.01,
+                                   adapt=True, drop_enclosing=True)
 
     # TODO: Find a way to make this part of the code more robust.
     width_per_x = widths/x[peaks]

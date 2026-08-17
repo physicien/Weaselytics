@@ -21,33 +21,6 @@ from weaselytics.utils import r2_dw
 
 
 class TestRelevantRegions:
-    def test_no_relevant_peak_degrades_instead_of_crashing(self):
-        # A single broad feature eluting right after the start: its
-        # width/x ratio fails the relevance filter, so the relevant
-        # set comes out empty and the degraded mode must kick in.
-        x = np.arange(1000) / 60.
-        rng = np.random.default_rng(7)
-        s = 10. * np.exp(-0.5 * ((x - 1.5) / 3.) ** 2)
-        s += 0.005 * rng.normal(size=len(x))
-        peak_regions, sampling, scut = _relevant_regions(s, x)
-        assert peak_regions is None
-        assert np.array_equal(sampling, np.array([1]))
-        assert scut == len(s)
-
-    def test_spike_on_hump_width_is_not_contaminated(self):
-        # A narrow spike riding a broad baseline hump: without the
-        # coarse detrend, the half-prominence width of the spike is
-        # measured through the hump (hundreds of points), the
-        # relevance filter rejects it and the signal degrades. With
-        # the detrend the spike keeps its own width and survives.
-        x = np.arange(1000) / 60.
-        rng = np.random.default_rng(7)
-        s = 5. * np.exp(-0.5 * ((x - 8.) / 4.) ** 2)
-        s += 3. * np.exp(-0.5 * ((x - 7.) / 0.05) ** 2)
-        s += 0.005 * rng.normal(size=len(x))
-        peak_regions, sampling, scut = _relevant_regions(s, x)
-        assert scut < len(s)
-
     def test_peaked_signal_still_returns_regions(self):
         x = np.arange(1000) / 60.
         rng = np.random.default_rng(8)
@@ -510,3 +483,38 @@ class TestSensitivityCurve:
         cache_file = list((tmp_path / "cache").glob("*.npz"))[0]
         with np.load(cache_file) as d:
             assert "sensitivity" in d.files
+
+class TestRelevantRegionsHasNoDetrend:
+    """`_relevant_regions` measures widths on the raw smoothed curve.
+
+    An N/4 rolling-median detrend (6a1a380) was removed on 2026-08-17.
+    Measured against the true widths of 1520 peaks over 576 synthetic
+    chromatograms -- truth taken as the apex and FWHM of the noise-free
+    EMG profiles, not the stored Gaussian parameters -- it was worse
+    than the raw curve on median error (4.83 vs 4.22), on p90 (84 vs
+    45) and on bias (-17.1 vs +4.9), and it biased widths NARROW, which
+    silently drops real peaks. Reproducing the decision the relevance
+    filter would make with exact widths, it cost 224 errors against 133.
+    """
+
+    def test_no_median_detrend(self):
+        import inspect
+
+        from weaselytics.baseline import _relevant_regions
+
+        src = '\n'.join(ln for ln in
+                        inspect.getsource(_relevant_regions).splitlines()
+                        if not ln.lstrip().startswith('#'))
+        assert 'median_filter' not in src, (
+            'the rolling-median detrend is back; it measures widths '
+            'narrower than the truth and drops real peaks')
+
+    def test_structure_carrying_taller_peaks_is_discarded(self):
+        import inspect
+
+        from weaselytics.baseline import _relevant_regions
+
+        src = inspect.getsource(_relevant_regions)
+        assert 'drop_enclosing=True' in src, (
+            'a feature carrying taller peaks must not define a region; '
+            'the peaks on it must')

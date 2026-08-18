@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 _PATH = (pathlib.Path(__file__).resolve().parents[2]
-         / "tools" / "synth_dataset.py")
+         / "tools" / "synthetic" / "synth_dataset.py")
 _spec = importlib.util.spec_from_file_location("synth_dataset", _PATH)
 synth = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(synth)

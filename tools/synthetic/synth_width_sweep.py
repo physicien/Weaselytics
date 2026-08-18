@@ -2,7 +2,7 @@
 """
 Measure how the optimal ``fcut`` scales with the peak width.
 
-A controlled counterpart to ``tools/synth_diag.py``: everything is held
+A controlled counterpart to ``synth_diag.py``: everything is held
 fixed (baseline shape, noise level, retention times, peak heights,
 record length) and *only* the peak width varies, over a decade. For
 each signal the true error curve against the known baseline gives an
@@ -27,7 +27,7 @@ have not been re-run; the true-width exponent is unaffected.
 
 Usage
 -----
-python tools/synth_width_sweep.py -o width_sweep.csv
+python tools/synthetic/synth_width_sweep.py -o width_sweep.csv
 """
 
 import argparse

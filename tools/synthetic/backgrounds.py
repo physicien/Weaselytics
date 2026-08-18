@@ -41,11 +41,11 @@ source uses, together with the peak-to-peak amplitude needed to rescale
 them. Only LPYE is in mV. Assembly puts a borrowed shape onto the
 synthetic instrument's mV scale by drawing a target peak-to-peak from
 the measured LPYE range; see `synth_dataset` and
-tools/synthetic_data.md §3.
+tools/synthetic/synthetic_data.md §3.
 
 Usage
 -----
-python tools/backgrounds.py POOL_DIR [--data DIR] [--external DIR]
+python tools/synthetic/backgrounds.py POOL_DIR [--data DIR] [--external DIR]
 
 References
 ----------
@@ -72,12 +72,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import synth_dataset as synth  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))))
+    os.path.dirname(os.path.abspath(__file__)))))
 
 from weaselytics.parsers import ParsedData  # noqa: E402
 
 # Default locations, as siblings of the repository. Both are read-only.
-_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_HERE = os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_DATA = os.path.join(os.path.dirname(_HERE), 'data')
 DEFAULT_EXTERNAL = os.path.join(os.path.dirname(_HERE),
                                 'backgrounds_external')
@@ -97,7 +98,7 @@ DAD_WAVELENGTH_NM = 254.0
 
 # The external files, and what each one IS -- which is what decides
 # whether it is trimmed. Transcribed from backgrounds_external/README.txt
-# and tools/synthetic_data.md §3.2, so the exclusions stay readable
+# and tools/synthetic/synthetic_data.md §3.2, so the exclusions stay readable
 # rather than being re-derived by a threshold.
 #
 #   (name, relative path, reader, kind, note)

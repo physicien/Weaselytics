@@ -29,7 +29,7 @@ against the real chromatograms before it is trusted for scoring.
 
 Usage
 -----
-python tools/synth_dataset.py OUTPUT_DIR [--family both] [--seed 0]
+python tools/synthetic/synth_dataset.py OUTPUT_DIR [--family both] [--seed 0]
 """
 
 import argparse
@@ -85,7 +85,7 @@ _FWHM_PER_SIGMA = 2.3548
 # a datasheet: in all 339 reference signals every consecutive difference
 # is an exact integer multiple of it to within 1e-9, a ~900-point record
 # holds only 45-60 distinct values, and ~25% of consecutive samples are
-# identical. See tools/synthetic_data.md §7.
+# identical. See tools/synthetic/synthetic_data.md §7.
 ADC_STEP_MV = 0.008996
 
 # Normal-consistency factor of the median absolute deviation, used by
@@ -126,7 +126,7 @@ def noise_sigma_mad(y: np.ndarray, on_derivative: bool = True) -> float:
     -----
     On quantised data this does not measure analogue noise: it returns a
     small integer multiple of the quantisation step, so it is an upper
-    bound. See tools/synthetic_data.md §6.
+    bound. See tools/synthetic/synthetic_data.md §6.
 
     References
     ----------
@@ -207,7 +207,7 @@ def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
     consecutive differences, which on quantised data is pinned to the
     lattice and on continuous data is a true noise estimate, so an
     unquantised benchmark measures a different quantity under the same
-    name. See tools/synthetic_data.md §7.
+    name. See tools/synthetic/synthetic_data.md §7.
 
     Parameters
     ----------
@@ -307,7 +307,7 @@ def gauss_peak(t: np.ndarray, tc: float, sigma: float,
 
 # Parameter ranges of the modified Pearson VII. Each range is kept under
 # its own provenance rather than blended, so any number taken from here
-# can be attributed. See tools/synthetic_data.md §4.2.
+# can be attributed. See tools/synthetic/synthetic_data.md §4.2.
 #
 # PUBLISHED: fitted by Niezen et al. (2022), Table 2, to gradient-RPLC of
 # small uncharged molecules. The paper states the parameters "may change
@@ -341,7 +341,7 @@ PEARSON7_ASYMMETRY = (min(PEARSON7_ASYMMETRY_NIEZEN[0],
 
 # --------------------------------------------------------------------
 # The `pyb` family: idealised signals transcribed from the pybaselines
-# documentation. See tools/synthetic_data.md §10.
+# documentation. See tools/synthetic/synthetic_data.md §10.
 #
 # TRANSCRIBED, NOT IMPORTED. `pybaselines.utils.make_data` states that
 # its output "may change without notice ... outside users are advised
@@ -524,7 +524,7 @@ PYB_N_POINTS = (300, 4000)
 #: Baseline component vocabulary. Each entry is a builder taking
 #: ``(x, rng)`` and returning ``(values, description)``. Coefficient
 #: ranges are the spans observed in the documentation; the sources for
-#: each are named in tools/synthetic_data.md §9.4.
+#: each are named in tools/synthetic/synthetic_data.md §9.4.
 def _bc_linear(x, rng):
     a = rng.uniform(1., 30.)             # offsets 1, 3, 5, 10, 15, 30
     b = rng.uniform(-0.005, 0.01)        # slopes -0.005 .. +0.01
@@ -601,7 +601,7 @@ def pyb_random_signal(seed: int, n_points: int | None = None,
     composed analytic baseline with white noise -- but with every
     parameter drawn from the ranges observed across the pybaselines
     documentation, so the family becomes a population rather than eight
-    points. See tools/synthetic_data.md §9.4.
+    points. See tools/synthetic/synthetic_data.md §9.4.
 
     The baseline is the sum of one or two components, as the
     documentation itself does (``10 - 0.005x + gaussian(x, 5, 850,
@@ -763,7 +763,7 @@ ERB_SEED = 0
 # annotated with in his own comments. MEASURED 2026-08-16 through the
 # production path: one_plateau and three_plateaus reproduce (1 and 3
 # detected flat regions); two_plateaus does NOT (1 detected). See
-# tools/synthetic_data.md §10.2 for why.
+# tools/synthetic/synthetic_data.md §10.2 for why.
 #
 #   name: (x_start, x_end, n_points, claimed_plateaus)
 ERB_CASES = {
@@ -1614,7 +1614,7 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
         consecutive differences, which on quantised data is pinned to
         the lattice and on continuous data is a true noise estimate, so
         an unquantised benchmark exercises a different quantity under
-        the same name. See tools/synthetic_data.md §7.
+        the same name. See tools/synthetic/synthetic_data.md §7.
 
     Returns
     -------

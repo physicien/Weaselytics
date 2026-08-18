@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 """
-Aggregate and plot the synthetic diagnostics of ``tools/synth_diag.py``.
+Aggregate and plot the synthetic diagnostics of ``synth_diag.py``.
 
 Reads ``diag_summary.csv`` and the per-signal ``diag/*__diag.npz`` of a
 dataset directory and answers the test battery: harness validity, the
@@ -15,7 +15,7 @@ as a correlation.
 
 Usage
 -----
-python tools/synth_report.py DATASET_DIR [-o OUT_DIR]
+python tools/synthetic/synth_report.py DATASET_DIR [-o OUT_DIR]
 """
 
 import argparse

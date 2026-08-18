@@ -2,7 +2,7 @@
 """
 Diagnose the fcut machinery against synthetic ground truth.
 
-For every signal of a dataset produced by ``tools/synth_dataset.py``:
+For every signal of a dataset produced by ``tools/synthetic/synth_dataset.py``:
 
 * run the **production** selection through ``baseline._fcutoff``, which
   returns the selected cutoff together with every intermediate mask, so
@@ -21,7 +21,7 @@ Writes one ``diag/<stem>__diag.npz`` per signal and a summary CSV.
 
 Usage
 -----
-python tools/synth_diag.py DATASET_DIR [--workers 8] [--stride 4]
+python tools/synthetic/synth_diag.py DATASET_DIR [--workers 8] [--stride 4]
                            [--limit N] [--pattern GLOB]
 """
 

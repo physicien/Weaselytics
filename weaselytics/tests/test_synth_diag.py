@@ -12,7 +12,7 @@ import pathlib
 import numpy as np
 import pytest
 
-_TOOLS = pathlib.Path(__file__).resolve().parents[2] / "tools"
+_TOOLS = pathlib.Path(__file__).resolve().parents[2] / "tools" / "synthetic"
 
 
 def _load(name):

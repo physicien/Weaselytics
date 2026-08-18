@@ -10,7 +10,7 @@ code: *a choice that changes a reported value needs a citation or an explicit
 statement that it is unresolved*. Where a value is adopted rather than
 grounded, it says so.
 
-Generator: [`tools/synth_dataset.py`](./synth_dataset.py).
+Generator: [`tools/synthetic/synth_dataset.py`](./synth_dataset.py).
 Tests: [`weaselytics/tests/test_synth_dataset.py`](../weaselytics/tests/test_synth_dataset.py).
 
 ---

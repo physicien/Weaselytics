@@ -1265,7 +1265,8 @@ def lit_baseline(t: np.ndarray, kind: str,
 
 
 def native_peak_component(n: int, peak_case: str,
-                          rng: np.random.Generator
+                          rng: np.random.Generator,
+                          noise_sigma: float | None = None
                           ) -> tuple[np.ndarray, np.ndarray, list[dict],
                                      float]:
     """
@@ -1290,6 +1291,11 @@ def native_peak_component(n: int, peak_case: str,
         Key of `PEAK_CASES`.
     rng : numpy.random.Generator
         Source of randomness.
+    noise_sigma : float, optional
+        Standard deviation of the noise the signal will carry. When
+        given, the analyte set is redrawn until its trailing edge has
+        decayed below it at the last sample, so no record ends part-way
+        down a peak. Default None, which applies no such constraint.
 
     Returns
     -------
@@ -1330,11 +1336,24 @@ def native_peak_component(n: int, peak_case: str,
                                           neg_abs=(0.3, 1.4))
     signal += contrib
     peaks += entries
+    # Nothing elutes before the dead time. It is the transit time of an
+    # unretained species, so it is the lower bound on every retention
+    # time in the run, ghosts and carryover included: a feature earlier
+    # than it would have to have travelled the column faster than the
+    # mobile phase. The window is bounded above by the run end. A record
+    # must be long enough to hold it (all shipped native lengths are),
+    # but guard the degenerate case so a short record never crashes the
+    # uniform draw.
+    elute_lo = t0 + 0.02 * t[-1]
+    elute_hi = 0.9 * t[-1]
+    if elute_hi <= elute_lo:
+        elute_lo, elute_hi = 0.9 * t[-1], 0.98 * t[-1]
+
     # For blanks, a few small ghost/carryover peaks along the run, so a
     # blank still carries the faint detectable features real blanks show.
     if n_peaks == 0:
         for _ in range(rng.integers(1, 4)):
-            tc = rng.uniform(0.2, 0.85) * t[-1]
+            tc = rng.uniform(elute_lo, elute_hi)
             fwhm_a = rng.uniform(8., 16.)
             height = rng.uniform(0.15, 0.8)
             sigma = fwhm_a * dt / _FWHM_PER_SIGMA
@@ -1344,20 +1363,80 @@ def native_peak_component(n: int, peak_case: str,
                           'height': height, 'fwhm_points': fwhm_a,
                           'artifact': True})
 
-    # Analytes elute after the dead time; the window is bounded below by
-    # t0 and above by the run end. A record must be long enough to hold
-    # it (all shipped native lengths are), but guard the degenerate case
-    # so a short record never crashes the uniform draw.
-    elute_lo = t0 + 0.02 * t[-1]
-    elute_hi = 0.9 * t[-1]
-    if elute_hi <= elute_lo:
-        elute_lo, elute_hi = 0.9 * t[-1], 0.98 * t[-1]
+    # An analyte has eluted when its trailing edge is back in the noise.
+    # A record that stops before that is not a short run, it is an
+    # impossible one: the trace ends part-way down a peak, which is the
+    # endpoint mismatch BEADS' periodicity requirement forbids and which
+    # no parabola correction repairs. Redraw the analyte set until it
+    # has decayed at the last sample, pulling the elution window in when
+    # redrawing alone does not get there, so the loop always terminates.
+    for _ in range(_ELUTION_ATTEMPTS):
+        contrib, entries = _draw_analytes(t, t0, dt, n_peaks, fwhm_pts,
+                                          elute_lo, elute_hi, rng)
+        if noise_sigma is None or contrib[-1] <= noise_sigma:
+            break
+        elute_hi = elute_lo + _ELUTION_SHRINK * (elute_hi - elute_lo)
+    signal += contrib
+    peaks += entries
+
+    return t, signal, peaks, t0
+
+
+def _draw_analytes(t: np.ndarray, t0: float, dt: float, n_peaks: int,
+                   fwhm_pts: tuple[float, float] | None,
+                   elute_lo: float, elute_hi: float,
+                   rng: np.random.Generator
+                   ) -> tuple[np.ndarray, list[dict]]:
+    """
+    Draw one analyte set: centres, widths, tails and heights.
+
+    Split out of `native_peak_component` so the set can be redrawn as a
+    whole when it does not fit inside the record. The draws happen in
+    the order they did when this was inline.
+
+    Parameters
+    ----------
+    t : array-like, shape (N,)
+        Time axis, minutes.
+    t0 : float
+        Dead time, minutes.
+    dt : float
+        Sampling step, minutes.
+    n_peaks : int
+        Number of analytes; 0 returns an empty component.
+    fwhm_pts : tuple or None
+        Base width range in points, or None for the isocratic plate
+        model.
+    elute_lo, elute_hi : float
+        Bounds of the elution window, minutes.
+    rng : numpy.random.Generator
+        Source of randomness.
+
+    Returns
+    -------
+    contrib : numpy.ndarray, shape (N,)
+        The summed analyte component.
+    entries : list of dict
+        Per-peak parameters, all with ``artifact=False``.
+
+    """
+    contrib = np.zeros(len(t))
+    entries: list[dict] = []
+    if n_peaks == 0:
+        return contrib, entries
     centers = np.sort(rng.uniform(elute_lo, elute_hi, n_peaks))
     if fwhm_pts is None and n_peaks >= 2:
         # isocratic case: guarantee the hard sharp-first/broad-last
-        # contrast by pinning an early and a late eluter
-        centers[0] = t0 * rng.uniform(1.05, 1.20)
-        centers[-1] = rng.uniform(0.85, 0.92) * t[-1]
+        # contrast by pinning an early and a late eluter. Both are
+        # clipped into the elution window: a fraction of the record
+        # length can fall on either side of it once the window is
+        # pushed late by the dead time or pulled in by the redraw, and
+        # the sort below would then make such a peak the first one,
+        # ahead of the dead time.
+        centers[0] = np.clip(t0 * rng.uniform(1.05, 1.20),
+                             elute_lo, elute_hi)
+        centers[-1] = np.clip(rng.uniform(0.85, 0.92) * t[-1],
+                              elute_lo, elute_hi)
         centers = np.sort(centers)
     # Constant plate number of the isocratic case: sigma = tc/sqrt(Np),
     # so the first peaks are sharp and the late ones broad, with a
@@ -1381,12 +1460,11 @@ def native_peak_component(n: int, peak_case: str,
         fwhm = sigma * _FWHM_PER_SIGMA
         tau = rng.uniform(0.3, 1.2) * sigma
         height = np.exp(rng.uniform(np.log(1.), np.log(30.)))
-        signal += emg_peak(t, tc, sigma, tau, height)
-        peaks.append({'tc': tc, 'sigma': sigma, 'tau': tau,
-                      'height': height, 'fwhm_points': fwhm / dt,
-                      'artifact': False})
-
-    return t, signal, peaks, t0
+        contrib += emg_peak(t, tc, sigma, tau, height)
+        entries.append({'tc': tc, 'sigma': sigma, 'tau': tau,
+                        'height': height, 'fwhm_points': fwhm / dt,
+                        'artifact': False})
+    return contrib, entries
 
 
 def make_signal(n: int, peak_case: str, baseline_case: str,
@@ -1440,6 +1518,12 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
 ERB_NATIVE_N_QUANTILES = (473, 732, 780, 819, 846, 853, 868, 893, 924,
                           994, 1176, 1259, 1400, 1546, 1707, 2062, 2857,
                           3495, 5399, 9251, 39129)
+
+# Redraws allowed before the elution window is pulled in, and the factor
+# it shrinks by. Both are loop controls rather than model parameters:
+# they change how long the rejection takes, not what it accepts.
+_ELUTION_ATTEMPTS = 12
+_ELUTION_SHRINK = 0.85
 
 
 def draw_record_length(rng: np.random.Generator) -> int:
@@ -1534,7 +1618,8 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
         with ``artifact=True`` mark it.
 
     """
-    t, signal, peaks, t0 = native_peak_component(n, peak_case, rng)
+    t, signal, peaks, t0 = native_peak_component(n, peak_case, rng,
+                                                 noise_sigma)
     # Erb's coefficients are written for an abscissa of order 0-1000, so
     # the baseline is evaluated there and mapped onto the record. Its
     # shape is therefore independent of the record's duration in

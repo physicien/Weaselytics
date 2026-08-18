@@ -562,3 +562,45 @@ class TestErbNativeSignal:
                                     np.random.default_rng(0))
         dt = np.median(np.diff(d['x']))
         assert dt == pytest.approx(1. / synth.PTS_PER_MIN, rel=1e-12)
+
+    def test_nothing_elutes_before_the_dead_time(self):
+        # The dead time is the transit time of an unretained species, so
+        # it bounds every retention time in the run below, ghosts and
+        # carryover included.
+        for k, case in enumerate(synth.PEAK_CASES):
+            for bt in range(3):
+                rng = np.random.default_rng(100 * k + bt)
+                n = int(rng.integers(450, 1400))
+                d = synth.erb_native_signal(n, case, bt, 0.05, rng)
+                t0 = d['meta']['dead_time']
+                assert all(p['tc'] >= t0 for p in d['peaks'][2:]), (
+                    f'{case}/erb{bt} n={n}: a peak elutes before the '
+                    f'dead time')
+
+    def test_the_record_does_not_end_part_way_down_a_peak(self):
+        # A peak has eluted when its trailing edge is back in the noise.
+        # Only records long enough to hold a peak after the dead time
+        # can satisfy this; shorter ones cannot, whatever is drawn.
+        noise = 0.05
+        for k, case in enumerate(synth.PEAK_CASES):
+            for bt in range(3):
+                rng = np.random.default_rng(7000 + 100 * k + bt)
+                d = synth.erb_native_signal(1000, case, bt, noise, rng)
+                signal = d['signal']
+                top = float(np.max(signal))
+                if top <= 0:
+                    continue
+                assert signal[-1] / top < 0.05, (
+                    f'{case}/erb{bt}: {signal[-1] / top:.3f} of the '
+                    f'tallest peak still standing at the last sample')
+
+    def test_the_elution_constraint_is_opt_in(self):
+        # `native_peak_component` without a noise level must reproduce
+        # the component exactly as it did before the constraint, so the
+        # `native` family is unaffected.
+        for case in ('blank', 'multi_wide'):
+            a = synth.native_peak_component(900, case,
+                                            np.random.default_rng(3))
+            b = synth.native_peak_component(900, case,
+                                            np.random.default_rng(3), None)
+            assert np.array_equal(a[1], b[1])

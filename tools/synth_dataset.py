@@ -1519,6 +1519,18 @@ ERB_NATIVE_N_QUANTILES = (473, 732, 780, 819, 846, 853, 868, 893, 924,
                           994, 1176, 1259, 1400, 1546, 1707, 2062, 2857,
                           3495, 5399, 9251, 39129)
 
+# Erb's baseline 3 is a pure sinusoid, ``10 + sin(x/50)``, 2 units
+# peak to peak. Excluded from the benchmark: an HPLC baseline does not
+# oscillate through several full cycles within one run, so scoring
+# against it measures the method on drift it will never meet.
+#
+# It also does not provide a usable target. On the wide and mixed peak
+# cases, the cutoff minimising the RMSE against it recovers the
+# baseline *worse than a horizontal line* (median ratio 1.19 on
+# ``multi_wide``, 1.15 on ``multi_mixed``), so the "true optimum" there
+# is the least bad of a grid of bad fits, not an optimum.
+EXCLUDED_ERB_BASELINES = ('erb3',)
+
 # Redraws allowed before the elution window is pulled in, and the factor
 # it shrinks by. Both are loop controls rather than model parameters:
 # they change how long the rejection takes, not what it accepts.
@@ -1853,6 +1865,11 @@ def main() -> None:
 
     manifest = []
     for k, (family, pc, bc, nk, nv, n) in enumerate(jobs):
+        # Skipped inside the loop rather than dropped from `jobs`, so the
+        # index that seeds every other signal is unchanged and the rest
+        # of the set stays reproducible.
+        if family == 'erb_native' and bc in EXCLUDED_ERB_BASELINES:
+            continue
         for rep in range(args.replicates):
             rng = np.random.default_rng(args.seed + 7919 * (k + 1)
                                         + 104729 * rep)

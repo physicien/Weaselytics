@@ -671,30 +671,51 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
     trimmed_12 = flat_12 | (cp_dips & sub_fund)
     removed = union & ~trimmed_12
 
-    if exclude_collapse:
-        flat_123 = trim_candidates(fcut_range, segments, n_used, c1=c1,
-                                   bridge=False, exclude_collapse=True,
-                                   collapse_level=collapse_level)
-        dips_123 = dips_to_mask(
-            fcut_range, [d for d in dips if d['level'] >= collapse_level])
-        trimmed_123 = flat_123 | (dips_123 & sub_fund)
-    else:
-        trimmed_123 = trimmed_12
-    snr_removed = trimmed_12 & ~trimmed_123
+    # Stiff-side instability boundary. Independent of the collapse
+    # exclusion, so it is computed once and reused by both branches
+    # below.
+    boundary = (None if sensitivity is None
+                else instability_boundary(fcut_range, sensitivity, n_used))
 
-    # Stiff-side instability exclusion. Applied last, on whatever has
-    # survived: it removes the frequencies at which the fit is still
-    # undetermined above the fundamental, which the sub-fundamental clip
-    # cannot reach.
-    instab_removed = np.zeros(len(fcut_range), dtype=bool)
-    if sensitivity is not None:
-        boundary = instability_boundary(fcut_range, sensitivity, n_used)
+    def _with_collapse(active: bool) -> tuple[np.ndarray, np.ndarray,
+                                              np.ndarray]:
+        """Surviving set and its two removal masks, collapse on or off."""
+        if active:
+            flat_123 = trim_candidates(fcut_range, segments, n_used, c1=c1,
+                                       bridge=False, exclude_collapse=True,
+                                       collapse_level=collapse_level)
+            dips_123 = dips_to_mask(
+                fcut_range,
+                [d for d in dips if d['level'] >= collapse_level])
+            kept = flat_123 | (dips_123 & sub_fund)
+        else:
+            kept = trimmed_12
+        snr_rm = trimmed_12 & ~kept
+        # The instability exclusion is applied last, on whatever has
+        # survived: it removes the frequencies at which the fit is still
+        # undetermined above the fundamental, which the sub-fundamental
+        # clip cannot reach.
+        instab_rm = np.zeros(len(fcut_range), dtype=bool)
         if boundary is not None:
-            surviving = trimmed_123 & (fcut_range > boundary)
-            instab_removed = trimmed_123 & ~surviving
-            trimmed_123 = surviving
+            surv = kept & (fcut_range > boundary)
+            instab_rm = kept & ~surv
+            kept = surv
+        return kept, snr_rm, instab_rm
 
-    return {'surviving': trimmed_123, 'removed': removed,
+    surviving, snr_removed, instab_removed = _with_collapse(exclude_collapse)
+    # The collapse exclusion narrows the choice among surviving regions;
+    # it is not a veto on selecting at all. When the sub-fundamental
+    # clip, the frozen tail and the instability boundary have already
+    # removed everything outside it, applying it as well leaves nothing
+    # and the signal yields no cutoff, which is a worse answer than the
+    # one it was refining. Fall back to the set without it in that case.
+    if exclude_collapse and not surviving.any():
+        alt, alt_snr, alt_instab = _with_collapse(False)
+        if alt.any():
+            surviving, snr_removed, instab_removed = (alt, alt_snr,
+                                                      alt_instab)
+
+    return {'surviving': surviving, 'removed': removed,
             'snr_removed': snr_removed, 'instab_removed': instab_removed}
 
 

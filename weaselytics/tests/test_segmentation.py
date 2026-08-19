@@ -552,3 +552,81 @@ class TestDipCurve:
         r2 = np.ones(500)
         assert not dip_curve(r2).any()
         assert detect_dips(fcut_range, r2) == []
+
+
+class TestCollapseFallback:
+    """The collapse exclusion narrows the choice; it is not a veto.
+
+    When the sub-fundamental clip, the frozen tail and the instability
+    boundary have already removed everything outside the collapse,
+    applying the collapse as well leaves nothing and the signal yields
+    no cutoff at all. `trim_plateaus` then falls back to the set
+    without it.
+    """
+
+    def _curve(self):
+        rng = np.random.default_rng(12)
+        parts = [
+            np.full(300, 1.0),
+            np.linspace(1.0, 0.8, 30),
+            np.linspace(0.8, 0.65, 150),
+            np.linspace(0.65, 0.3, 40),
+            np.full(180, 0.3),
+        ]
+        y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
+        y = np.concatenate([y, np.full(300, 0.3)])
+        fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
+        segments = classify_segments(
+            segment_features(fcut_range, y, pelt_linear(y)))
+        dips = detect_dips(fcut_range, y)
+        return fcut_range, y, segments, dips
+
+    def test_collapse_kept_when_it_leaves_something(self):
+        # The guard must not fire on a curve where the exclusion does
+        # its job: the low tail goes, the shelf stays.
+        fcut_range, y, segments, dips = self._curve()
+        off = trim_plateaus(fcut_range, segments, dips, 1000,
+                            exclude_collapse=False)
+        on = trim_plateaus(fcut_range, segments, dips, 1000,
+                           exclude_collapse=True)
+        assert on['surviving'].any()
+        assert on['surviving'].sum() < off['surviving'].sum()
+        assert on['snr_removed'].any()
+
+    def test_falls_back_when_the_collapse_empties_everything(self,
+                                                             monkeypatch):
+        # Forced through the branch: with the exclusion on, nothing is
+        # left. The result must be the set the exclusion would have
+        # narrowed, not an empty one.
+        import weaselytics.segmentation as seg
+        fcut_range, y, segments, dips = self._curve()
+        real = seg.trim_candidates
+
+        def fake(fr, segs, n_used, **kw):
+            if kw.get('exclude_collapse'):
+                return np.zeros(len(fr), dtype=bool)
+            return real(fr, segs, n_used, **kw)
+
+        no_collapse = trim_plateaus(fcut_range, segments, dips, 1000,
+                                    exclude_collapse=False)['surviving']
+        monkeypatch.setattr(seg, 'trim_candidates', fake)
+        masks = trim_plateaus(fcut_range, segments, dips, 1000,
+                              exclude_collapse=True)
+        assert masks['surviving'].any(), 'the fallback did not fire'
+        assert np.array_equal(masks['surviving'], no_collapse)
+
+    def test_no_fallback_leaves_an_empty_result_untouched(self,
+                                                          monkeypatch):
+        # If BOTH branches are empty there is nothing to fall back to,
+        # and the caller must still see an empty set rather than a
+        # crash. The proto-plateau channel is fed by `dips_to_mask`
+        # rather than by `trim_candidates`, so it has to be empty too
+        # for this case to be reachable at all.
+        import weaselytics.segmentation as seg
+        fcut_range, y, segments, _ = self._curve()
+        monkeypatch.setattr(
+            seg, 'trim_candidates',
+            lambda fr, segs, n_used, **kw: np.zeros(len(fr), dtype=bool))
+        masks = trim_plateaus(fcut_range, segments, [], 1000,
+                              exclude_collapse=True)
+        assert not masks['surviving'].any()

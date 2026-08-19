@@ -865,9 +865,9 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     cp_dips = dips_to_mask(fcut_range, cp_detected_dips)
     # Stage-1 trimming (single source: segmentation.trim_plateaus). The
     # sub-fundamental clip (#1) and frozen tail (#2) give `cp_removed`
-    # (drawn red). The SNR-gated collapse exclusion (#3) is computed as a
-    # PREVIEW overlay only (`cp_snr_removed`, dark red); it is not yet
-    # applied to the selection.
+    # (drawn red). The SNR-gated collapse exclusion (#3) gives
+    # `cp_snr_removed` (dark red) and IS applied to the selection,
+    # unless applying it would leave nothing surviving.
     cp_trim = trim_plateaus(fcut_range, cp_segments, cp_detected_dips,
                             len(z), exclude_collapse=_snr(s) >= snr_threshold,
                             sensitivity=sensitivity_val)

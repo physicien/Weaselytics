@@ -76,7 +76,10 @@ from weaselytics.segmentation import (
     select_center,
     trim_plateaus,
     )
-from weaselytics.utils import end_window
+
+# Endpoint window BEADS anchors its parabola on, as production sets it.
+# See `error_curve` for why this is 3 and not `end_window(s)`.
+_PARABOLA_LEN = 3
 
 SUMMARY_FIELDS = [
     'stem', 'peak_case', 'baseline_case', 'noise_case', 'n_points',
@@ -103,8 +106,11 @@ def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     Compute the true baseline-recovery error along the fcut grid.
 
     Mirrors the final-correction configuration of ``auto_beads``
-    (custom_beads, per-region sampling, ``alpha=1``,
-    ``parabola_len=end_window(s)``, asymmetry 1).
+    (custom_beads, per-region sampling, ``alpha=1``, ``parabola_len=3``,
+    asymmetry 1). `auto_beads` only substitutes ``end_window(s)`` when a
+    caller passes ``parabola_len=None``, which no caller does; that
+    branch predates pybaselines exposing `parabola_len` on BEADS and is
+    a fallback, not the production setting.
 
     The error is the RMSE against the known baseline on the **original**
     scale, which is Niezen et al. (2022) Eq. (15). Note the production
@@ -140,7 +146,7 @@ def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     fitter = Baseline(x_data=x)
     kwargs = {'regions': peak_regions, 'sampling': sampling,
               'asymmetry': 1.0, 'fit_parabola': True, 'alpha': 1.0,
-              'parabola_len': end_window(s)}
+              'parabola_len': _PARABOLA_LEN}
     err = np.full(len(fcuts), np.nan)
     for k, fc in enumerate(fcuts):
         try:
@@ -191,7 +197,7 @@ def _err_key(s: np.ndarray, x: np.ndarray, b_true: np.ndarray,
                         ).encode())
         if arr is not None:
             sha.update(np.ascontiguousarray(arr).tobytes())
-    sha.update(str(end_window(s)).encode())
+    sha.update(str(_PARABOLA_LEN).encode())
     return sha.hexdigest()[:12]
 
 
@@ -284,7 +290,7 @@ def _err_stats(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
             bl, _ = _custom_beads(
                 Baseline(x_data=x), s, freq_cutoff=float(fcut),
                 regions=peak_regions, sampling=sampling, asymmetry=1.0,
-                fit_parabola=True, alpha=1.0, parabola_len=end_window(s))
+                fit_parabola=True, alpha=1.0, parabola_len=_PARABOLA_LEN)
     except Exception:
         return blank
     d = bl - b_true

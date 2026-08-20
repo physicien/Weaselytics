@@ -71,7 +71,6 @@ from weaselytics.segmentation import (  # noqa: E402
     select_center,
     trim_plateaus,
 )
-from weaselytics.utils import end_window  # noqa: E402
 
 SNR_THRESHOLD = 25.0
 # Stride of the error-curve grid, matching `synth_diag` so a recomputed
@@ -137,7 +136,7 @@ def _curve(stem, path, diag_dir, cache_dir, x, s, b_true, regions,
 
 
 def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
-                  stem, out_dir, stats, sigma):
+                  stem, out_dir, stats, sigma, sig_true=None):
     """Signal with the known, selected and best-achievable baselines."""
     fig, ax = plt.subplots(2, 1, figsize=(11, 6.5), sharex=True)
     ax[0].plot(x, s, lw=.7, color='0.35', label='signal')
@@ -166,19 +165,35 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
         return f'rms {rms:.1f}, max {mx:.1f} sigma'
 
     def _stats(bl):
-        """Departure of a fitted curve from the truth, in noise units."""
-        if bl is None or not np.isfinite(sigma) or sigma <= 0:
-            return float('nan'), float('nan')
+        """Every reported departure of a fitted curve from the truth."""
+        nan = float('nan')
+        out = {'rms': nan, 'max': nan, 'rmse': nan, 'snr': nan,
+               'area': nan}
+        if bl is None:
+            return out
         d = bl - b_true
-        return (float(np.sqrt(np.mean(d ** 2))) / sigma,
-                float(np.abs(d).max()) / sigma)
+        out['rmse'] = float(np.sqrt(np.mean(d ** 2)))
+        peak = float(np.abs(d).max())
+        if np.isfinite(sigma) and sigma > 0:
+            out['rms'] = out['rmse'] / sigma
+            out['max'] = peak / sigma
+        e_diff, e_true = float(np.sum(d ** 2)), float(np.sum(b_true ** 2))
+        if e_diff > 0 and e_true > 0:
+            out['snr'] = 10. * np.log10(e_true / e_diff)
+        if sig_true is not None:
+            a_true = float(np.trapezoid(sig_true, x))
+            a_fit = float(np.trapezoid(s - bl, x))
+            if abs(a_true) > 1e-9 * (abs(a_fit) + 1.):
+                out['area'] = 100. * (a_fit - a_true) / a_true
+        return out
 
     # A signal that selects nothing has no row in the summary, but its
     # optimum does not depend on the selection: fill green from the
     # curve already fitted here rather than leaving it blank.
     if not np.isfinite(stats['t_rms']):
         stats = dict(stats)
-        stats['t_rms'], stats['t_max'] = _stats(bl_best)
+        for k, v in _stats(bl_best).items():
+            stats['t_' + k] = v
 
     def _line(tag, pre, drawn):
         if drawn is None:
@@ -273,17 +288,18 @@ def one(job):
         finally:
             plt.savefig = real_savefig
 
-        plen = end_window(s)
+        # Production's final correction, see synth_diag.error_curve
+        plen = 3
         # Both curves are fitted with the SAME configuration used for
         # the numbers in the title, so the plot cannot disagree with
         # its own labels.
+        truth = np.load(os.path.join(dataset, 'truth',
+                                     f'{stem}__truth.npz'))
         _chromatogram(x, s, b_true,
                       _beads_at(x, s, selected, regions, sampling, plen),
                       _beads_at(x, s, fc_best, regions, sampling, plen),
                       selected, fc_best, scut, stem, dataset, stats,
-                      float(np.std(np.load(os.path.join(
-                          dataset, 'truth',
-                          f'{stem}__truth.npz'))['noise'])))
+                      float(np.std(truth['noise'])), truth['signal'])
         return stem, (fcut is None), ''
     except Exception as exc:
         return stem, None, repr(exc)

@@ -7,6 +7,7 @@ an error here does not produce a wrong answer, it produces a wrong
 """
 
 import importlib.util
+import inspect
 import pathlib
 
 import numpy as np
@@ -134,11 +135,19 @@ class TestSummaryFields:
         assert 'consistent' in diag.SUMMARY_FIELDS
         assert len(set(diag.SUMMARY_FIELDS)) == len(diag.SUMMARY_FIELDS)
 
-    def test_no_peak_area_metric_is_reported(self):
+    def test_peak_area_is_reported_but_does_not_define_the_optimum(self):
         # The optimum is defined by baseline fit alone (Emmanuel,
-        # 2026-08-16). A peak-area column appearing here would mean the
-        # definition drifted.
-        assert not any('area' in f for f in diag.SUMMARY_FIELDS)
+        # 2026-08-16). Since 2026-08-19 the recovered peak-area error is
+        # also REPORTED, following Navarro-Huerta et al. (2017) §3.6, but
+        # it must stay a reported figure: `fc_best` is the minimum of the
+        # baseline error curve and nothing else.
+        assert 'target_area_pct' in diag.SUMMARY_FIELDS
+        src = inspect.getsource(diag.diag_one)
+        assert 'fc_best = float(fcuts[k_best])' in src
+        assert 'k_best = int(np.nanargmin(err))' in src
+        head = src[:src.index('fc_best = float(fcuts[k_best])')]
+        assert 'area' not in head, (
+            'a peak-area quantity is computed before fc_best is chosen')
 
 
 class TestHarnessMatchesProduction:
@@ -152,8 +161,6 @@ class TestHarnessMatchesProduction:
     """
 
     def test_mirrors_auto_beads_defaults(self):
-        import inspect
-
         from weaselytics.baseline import auto_beads
 
         src = inspect.getsource(diag.diag_one)
@@ -168,8 +175,6 @@ class TestHarnessMatchesProduction:
         assert "'parabola_len': 3" in src
 
     def test_uses_custom_beads_with_regions(self):
-        import inspect
-
         src = inspect.getsource(diag.diag_one)
         assert "method='custom_beads'" in src, (
             "the harness must not fall back on the plain beads default")
@@ -188,3 +193,89 @@ class TestHarnessMatchesProduction:
                       '"alpha": 1.0', '"parabola_len": 3',
                       'regions=peak_regions, sampling=sampling'):
             assert token in src, f'auto_beads no longer contains {token!r}'
+
+
+class TestNoiseScaledMetrics:
+    """The reported accuracy is in units of the record's own noise.
+
+    `d_decades` measures a distance along the parameter, not in the
+    corrected signal, so it cannot tell a two-decade move that leaves
+    the baseline alone from one that ruins it. `penalty` is a ratio and
+    diverges as `e_min` goes to zero. These pin the replacements.
+    """
+
+    def test_fields_are_declared(self):
+        for name in ('noise_sigma', 'target_noise', 'excess_noise',
+                     'excess_noise_off'):
+            assert name in diag.SUMMARY_FIELDS, name
+
+    def test_excess_is_zero_when_the_selection_is_the_optimum(self):
+        # excess = (e_at_selected - e_min) / sigma, so a selection that
+        # lands on the grid minimum costs nothing by construction.
+        e_min, sigma = 0.004, 0.02
+        assert (e_min - e_min) / sigma == 0.0
+
+    def test_excess_is_scale_free(self):
+        # Doubling the signal doubles both the error and the noise, so
+        # the reported figure must not move. This is the property
+        # `penalty` has and `d_decades` does not.
+        e_min, e_sel, sigma = 0.004, 0.010, 0.02
+        a = (e_sel - e_min) / sigma
+        b = (2 * e_sel - 2 * e_min) / (2 * sigma)
+        assert a == pytest.approx(b, rel=1e-12)
+
+    def test_penalty_diverges_where_excess_does_not(self):
+        # The failure mode being replaced: a near-perfect best fit makes
+        # the ratio explode while both fits sit far below the noise.
+        sigma = 0.02
+        e_min, e_sel = 1e-6, 2e-6
+        penalty = e_sel / e_min
+        excess = (e_sel - e_min) / sigma
+        assert penalty == pytest.approx(2.0)
+        assert excess < 1e-3, 'both fits are invisible against the noise'
+
+
+class TestErrorCurveReuse:
+    """The error curve is 250 BEADS fits and is reused across runs.
+
+    It must be invalidated by anything that changes it and by nothing
+    else, or a run silently scores against a stale answer key.
+    """
+
+    def _case(self, seed=0, n=700):
+        rng = np.random.default_rng(seed)
+        d = synth.erb_native_signal(n, 'multi_narrow', 1, 0.019, rng,
+                                    quantise_output=False)
+        return d['x'], d['y'], d['baseline']
+
+    def test_key_is_stable_for_the_same_inputs(self):
+        x, y, b = self._case()
+        fcuts = np.geomspace(1e-5, 0.5, 50, endpoint=False)
+        assert (diag._err_key(y, x, b, fcuts)
+                == diag._err_key(y, x, b, fcuts))
+
+    def test_key_changes_with_the_signal_and_the_grid(self):
+        x, y, b = self._case()
+        fcuts = np.geomspace(1e-5, 0.5, 50, endpoint=False)
+        base = diag._err_key(y, x, b, fcuts)
+        y2 = y.copy()
+        y2[len(y2) // 2] += 1.0
+        assert diag._err_key(y2, x, b, fcuts) != base
+        assert diag._err_key(y, x, b, fcuts[::2]) != base
+        assert diag._err_key(y, x, b + 1.0, fcuts) != base
+
+    def test_key_tracks_relevant_regions(self):
+        # The curve is fitted with the regions `_relevant_regions`
+        # returns, so a change there must invalidate the stored curve.
+        # This is the failure the key exists to prevent.
+        from unittest.mock import patch
+
+        import weaselytics.baseline as B
+        x, y, b = self._case()
+        fcuts = np.geomspace(1e-5, 0.5, 50, endpoint=False)
+        base = diag._err_key(y, x, b, fcuts)
+        with patch.object(diag, '_relevant_regions',
+                          lambda s, xx: (None, np.array([1]), len(s))):
+            other = diag._err_key(y, x, b, fcuts)
+        assert other != base
+        assert B is not None

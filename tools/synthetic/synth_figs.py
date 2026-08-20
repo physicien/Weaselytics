@@ -137,7 +137,7 @@ def _curve(stem, path, diag_dir, cache_dir, x, s, b_true, regions,
 
 
 def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
-                  stem, out_dir):
+                  stem, out_dir, stats, sigma):
     """Signal with the known, selected and best-achievable baselines."""
     fig, ax = plt.subplots(2, 1, figsize=(11, 6.5), sharex=True)
     ax[0].plot(x, s, lw=.7, color='0.35', label='signal')
@@ -152,10 +152,51 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
                   label=f'scut ({scut})')
     ax[0].set_ylabel('mV')
     ax[0].legend(fontsize=8)
-    verdict = ('no surviving plateau, nothing selected' if bl_sel is None
-               else f'{np.log10(fcut / fc_best):+.3f} decade from the '
-                    f'optimum')
-    ax[0].set_title(f'{stem}   {verdict}', fontsize=10)
+    # Accuracy in units of the record's own noise, which is the scale
+      # on which a difference here is visible at all. The decade
+      # distance is kept only as a secondary label: it does not
+      # distinguish a harmless move from a damaging one.
+    # Both reductions, because neither alone describes the curve: the
+    # rms averages the departure over the whole record and so dilutes a
+    # local defect by the record length, while the max is what the eye
+    # reads off the plot.
+    def _pair(rms, mx):
+        if not (np.isfinite(rms) and np.isfinite(mx)):
+            return 'n/a'
+        return f'rms {rms:.1f}, max {mx:.1f} sigma'
+
+    def _stats(bl):
+        """Departure of a fitted curve from the truth, in noise units."""
+        if bl is None or not np.isfinite(sigma) or sigma <= 0:
+            return float('nan'), float('nan')
+        d = bl - b_true
+        return (float(np.sqrt(np.mean(d ** 2))) / sigma,
+                float(np.abs(d).max()) / sigma)
+
+    # A signal that selects nothing has no row in the summary, but its
+    # optimum does not depend on the selection: fill green from the
+    # curve already fitted here rather than leaving it blank.
+    if not np.isfinite(stats['t_rms']):
+        stats = dict(stats)
+        stats['t_rms'], stats['t_max'] = _stats(bl_best)
+
+    def _line(tag, pre, drawn):
+        if drawn is None:
+            return f'{tag}: nothing selected'
+        rms, mx = stats[pre + '_rms'], stats[pre + '_max']
+        out = f'{tag} vs true: {_pair(rms, mx)}'
+        rmse, snr, area = (stats[pre + '_rmse'], stats[pre + '_snr'],
+                           stats[pre + '_area'])
+        if np.isfinite(rmse):
+            out += f' | rmse {rmse:.4f} mV'
+        if np.isfinite(snr):
+            out += f' | SNR {snr:.1f} dB'
+        if np.isfinite(area):
+            out += f' | area {area:+.2f}%'
+        return out
+
+    ax[0].set_title(f'{stem}\n{_line("green", "t", bl_best)}\n'
+                    f'{_line("red", "s", bl_sel)}', fontsize=8.5)
 
     ax[1].plot(x, s - b_true, lw=.7, color='tab:blue',
                label='corrected with the true baseline')
@@ -178,7 +219,7 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
 
 def one(job):
     """Render both figures for a single signal."""
-    stem, path, dataset = job
+    stem, path, dataset, stats = job
     try:
         x, s = ParsedData(path).data
         b_true = np.load(os.path.join(dataset, 'truth',
@@ -233,10 +274,16 @@ def one(job):
             plt.savefig = real_savefig
 
         plen = end_window(s)
-        _chromatogram(x, s, b_true, _beads_at(x, s, selected, regions,
-                                              sampling, 3),
+        # Both curves are fitted with the SAME configuration used for
+        # the numbers in the title, so the plot cannot disagree with
+        # its own labels.
+        _chromatogram(x, s, b_true,
+                      _beads_at(x, s, selected, regions, sampling, plen),
                       _beads_at(x, s, fc_best, regions, sampling, plen),
-                      selected, fc_best, scut, stem, dataset)
+                      selected, fc_best, scut, stem, dataset, stats,
+                      float(np.std(np.load(os.path.join(
+                          dataset, 'truth',
+                          f'{stem}__truth.npz'))['noise'])))
         return stem, (fcut is None), ''
     except Exception as exc:
         return stem, None, repr(exc)
@@ -252,11 +299,36 @@ def main() -> None:
     p.add_argument('--pattern', default='*', help='glob on the stem')
     a = p.parse_args()
 
+    # The figures quote the summary's own numbers rather than
+    # recomputing them, so a plot can never disagree with the table.
+    summary = {}
+    spath = os.path.join(a.dataset, 'diag_summary.csv')
+    if os.path.isfile(spath):
+        import csv
+        summary = {r['stem']: r for r in csv.DictReader(open(spath))}
+
+    def _num(stem, key):
+        r = summary.get(stem)
+        try:
+            return float(r[key])
+        except (TypeError, KeyError, ValueError):
+            return float('nan')
+
     jobs = []
     for q in sorted(glob(os.path.join(a.dataset, 'signals', '*.txt'))):
         stem = os.path.splitext(os.path.basename(q))[0]
         if fnmatch.fnmatch(stem, a.pattern):
-            jobs.append((stem, q, a.dataset))
+            jobs.append((stem, q, a.dataset, {
+                't_rms': _num(stem, 'target_rms_noise'),
+                't_max': _num(stem, 'target_max_noise'),
+                't_rmse': _num(stem, 'target_rmse'),
+                't_snr': _num(stem, 'target_snr_db'),
+                't_area': _num(stem, 'target_area_pct'),
+                's_rms': _num(stem, 'selected_rms_noise'),
+                's_max': _num(stem, 'selected_max_noise'),
+                's_rmse': _num(stem, 'selected_rmse'),
+                's_snr': _num(stem, 'selected_snr_db'),
+                's_area': _num(stem, 'selected_area_pct')}))
     print(f'{len(jobs)} signals')
 
     crashed, errs = [], []

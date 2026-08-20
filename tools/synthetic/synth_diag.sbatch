@@ -2,12 +2,12 @@
 
 #SBATCH --job-name=SYNTH_DIAG
 #SBATCH --account=rrg-cotemich-ac
-#SBATCH --ntasks=1                    # one python process
-#SBATCH --cpus-per-task=16            # workers for the signal pool
-#SBATCH --mem-per-cpu=500M            # measured peak RSS 287M, largest signal
-##SBATCH --nodes=1                     # nb of whole nodes
-##SBATCH --ntasks-per-node=16          # cpus, if whole node
-##SBATCH --mem=8G                      # memory, mem=0 for all of the node
+##SBATCH --ntasks=1                    # cpus, if across several nodes
+##SBATCH --cpus-per-task=16            # workers, if across several nodes
+##SBATCH --mem-per-cpu=500M            # memory, if across several nodes
+#SBATCH --nodes=1                     # nb of whole nodes
+#SBATCH --ntasks-per-node=16          # cpus, if whole node
+#SBATCH --mem=8G                      # memory, mem=0 for all of the node
 #SBATCH --time=00-03:00		      # time (DD-HH:MM)
 #SBATCH --output=%x_%j.log 	      # output .log file
 
@@ -17,10 +17,11 @@
 # Follows tools/slurm_script: work in $SLURM_TMPDIR, run the branch
 # checked out in the launch directory, move the results and the log back
 # at the end. Differences with that script:
-#   - one process with $SLURM_CPUS_PER_TASK workers over signals, rather
-#     than workers inside a single sweep, so the resource form is
-#     --ntasks=1 --cpus-per-task=N and not the whole-node one: 16 of the
-#     192 cores of a Rorqual node is not a whole node;
+#   - one process with a worker pool over signals, rather than workers
+#     inside a single sweep. The task count does not confine the pool:
+#     Slurm's cgroup grants the job every allocated cpu on the node, and
+#     `--mem` pools the memory across them, which suits a pool whose
+#     per-signal footprint varies fivefold;
 #   - the dataset is copied to node-local disk, because the run writes
 #     one npz per signal and the shared filesystem is poor at that;
 #   - the r2 cache and the stored error curves travel with it, so a
@@ -67,7 +68,7 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 python $LAUNCHDIR/tools/synthetic/synth_diag.py "$WORKDIR/dataset" \
-    --workers ${SLURM_CPUS_PER_TASK:-1}
+    --workers ${SLURM_NTASKS_PER_NODE:-${SLURM_CPUS_PER_TASK:-1}}
 
 #Move the files to the local working directory
 mv $LAUNCHDIR/$BASENAME"_"$SLURM_JOB_ID.log $WORKDIR

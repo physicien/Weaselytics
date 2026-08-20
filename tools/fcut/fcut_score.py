@@ -2,7 +2,7 @@
 """
 Score fcut selection rules against the labeled gallery ranges.
 
-Reads the table built by ``tools/fcut_dataset.py`` and evaluates
+Reads the table built by ``tools/fcut/fcut_dataset.py`` and evaluates
 candidate selection rules with the hit-rate metric: a rule scores a hit
 on a signal when its predicted ``fcut`` falls inside one of the
 hand-labeled acceptable ranges. Reports, for each rule family:
@@ -17,7 +17,7 @@ peak/signal covariates and scores it with the same protocol.
 
 Usage
 -----
-python tools/fcut_score.py fcut_dataset.csv [--target union|second]
+python tools/fcut/fcut_score.py fcut_dataset.csv [--target union|second]
 """
 
 import argparse
@@ -406,7 +406,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog='fcut_score',
         description='score fcut selection rules on the labeled sample')
-    parser.add_argument('dataset', help='CSV from tools/fcut_dataset.py')
+    parser.add_argument('dataset', help='CSV from tools/fcut/fcut_dataset.py')
     parser.add_argument('--target', choices=['union', 'second'],
                         default='union',
                         help='labeled ranges used for scoring double-'

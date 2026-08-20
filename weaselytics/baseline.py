@@ -774,7 +774,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     ###EXPERIMENTAL###
     Since this function is still under development and very unreliable, it is
     best to explain the general idea behind it rather than the details of the
-    current implementation. This is done in fcut.md
+    current implementation. This is done in tools/fcut/fcut.md
     ##################
 
     Parameters

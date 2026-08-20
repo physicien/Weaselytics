@@ -90,7 +90,7 @@ Contributed by Emmanuel Bourret
 
 ## TO DO
 
-- **Re-read `segmentation.md` §4c and decide whether to delete it.** It records the
+- **Re-read `tools/fcut/segmentation.md` §4c and decide whether to delete it.** It records the
   removed `refine_candidates` bracket. That route was ill advised: its constants
   were fitted to a hand-labeled gallery that sampled only inside the very regions
   the bracket narrows and drew them on the figures the labeller saw, so the labels

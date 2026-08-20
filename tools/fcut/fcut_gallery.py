@@ -32,7 +32,7 @@ The output mirrors the layout of the ``data`` directory::
 
 Usage
 -----
-python tools/fcut_gallery.py CACHE_DIR DATA_DIR -od OUTPUT_DIR [-r 1.15]
+python tools/fcut/fcut_gallery.py CACHE_DIR DATA_DIR -od OUTPUT_DIR [-r 1.15]
                              [-w 8] [--pattern GLOB]
 """
 

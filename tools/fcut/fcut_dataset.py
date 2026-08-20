@@ -5,7 +5,7 @@ Assemble the fcut-selection analysis table for issue #4.
 Joins, one row per signal:
 
 * the hand-labeled acceptable ``fcut`` ranges from a gallery directory
-  (``index_<signal>.csv`` files written by ``tools/fcut_gallery.py``,
+  (``index_<signal>.csv`` files written by ``tools/fcut/fcut_gallery.py``,
   with ``start`` / ``end`` marks in the ``label`` column);
 * the candidate-region spans sampled by the gallery;
 * ``Used points`` (and the legacy ``Cutoff frequency``, kept for
@@ -17,7 +17,7 @@ Joins, one row per signal:
 
 Usage
 -----
-python tools/fcut_dataset.py GALLERY_DIR RUN_LOG DATA_DIR -o out.csv
+python tools/fcut/fcut_dataset.py GALLERY_DIR RUN_LOG DATA_DIR -o out.csv
     [--stats stats_v7.txt]
 """
 

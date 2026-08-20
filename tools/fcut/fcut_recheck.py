@@ -12,7 +12,7 @@ writing, so pointing this at a reference cache destroys it.
 
 Usage
 -----
-python tools/fcut_recheck.py OLD_RUN_DIR DATA_DIR WORK_DIR [--workers 8]
+python tools/fcut/fcut_recheck.py OLD_RUN_DIR DATA_DIR WORK_DIR [--workers 8]
 """
 
 import argparse

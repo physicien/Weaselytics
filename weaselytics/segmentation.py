@@ -425,7 +425,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
                     n_used: int, c1: float = 1.0,
                     noise_floor: float = 4e-7,
                     cliff_min: float = 1.0,
-                    bridge: bool = True,
+                    bridge: bool = False,
                     exclude_collapse: bool = False,
                     collapse_level: float = 0.5) -> np.ndarray:
     """

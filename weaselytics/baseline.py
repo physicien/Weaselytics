@@ -978,8 +978,22 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         endpoints to be close to 0; on data that already is, the
         correction is a no-op.
     alpha : float, optional
-        #@EB will change in pybaselines. If None (default), will automatically
-        adjust the value (always to 1 for now).
+        Proportionality constant of the sparsity penalties. ``lam_0``,
+        ``lam_1`` and ``lam_2`` are left to pybaselines, which follows
+        Ning et al. [1]_ §5.1 in taking ``lam_d = alpha / ||D^d z||_1``,
+        so `alpha` scales all three at once and a larger value gives a
+        sparser peak component. Default is None, which selects 1.0.
+        Only 1.0 is currently produced, so the value is fixed in
+        practice.
+
+        Ning et al. §5.1 set this constant "according to the noise
+        variance" and tuned it by hand; 1.0 is a starting value, not an
+        optimum. It is left alone because the cutoff frequency is the
+        parameter to settle first: Navarro-Huerta et al. [2]_ §3.2 find
+        it "has a major influence in the returned baseline" while "the
+        other working parameters exhibit milder variations". Raising
+        `alpha` is mostly useful at low signal-to-noise ratio, where it
+        suppresses noise.
     parabola_len : int, optional
         Size of the window used, at each ends of the data, to prevent issues
         in fitting a parabola before the baseline correction[2] when the first

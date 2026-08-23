@@ -89,8 +89,15 @@ class TestFcutoffSelection:
         assert idx.size
         splits = np.where(np.diff(idx) > 1)[0] + 1
         region = np.split(idx, splits)[-1]
-        expected = np.sqrt(grid[region[0]] * grid[region[-1]])
-        assert fcut == pytest.approx(expected)
+        # The centre is taken on the index axis and therefore lands on a
+        # grid point the sweep evaluated, so it equals the geometric mean
+        # of the region's ends only when their sum is even. Comparing the
+        # index avoids asserting a parity accident.
+        centre = int(round(0.5 * (region[0] + region[-1])))
+        assert fcut == pytest.approx(grid[centre])
+        step = grid[1] / grid[0]
+        assert fcut / np.sqrt(grid[region[0]] * grid[region[-1]]) == (
+            pytest.approx(1.0, rel=step - 1.0))
 
     def test_no_surviving_plateau_raises_a_described_error(self):
         # A pure descent: nothing is flat, so stage 2 leaves nothing and

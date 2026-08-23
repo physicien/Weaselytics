@@ -192,7 +192,7 @@ def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
     ``C1 / n_used`` a cutoff describes an oscillation slower than half
     a cycle over the record, which the data cannot constrain, so those
     cutoffs are not worth a human decision. Every other exclusion of
-    `trim_candidates` (flatness, frozen tail, cliff bridging) is
+    `trim_candidates` (flatness, cliff bridging) is
     calibrated and is dropped here.
 
     """
@@ -559,8 +559,8 @@ def main() -> None:
     parser.add_argument("--survive", action="store_true",
                         help="restrict the sampling to the regions "
                              "surviving the stage-1 trimming (sub-"
-                             "fundamental clip, frozen tail, the "
-                             "SNR-gated collapse exclusion and the "
+                             "fundamental clip, the SNR-gated "
+                             "collapse exclusion and the "
                              "stiff-side instability exclusion), via "
                              "segmentation.trim_plateaus, and draw them "
                              "on 00_r2.png")

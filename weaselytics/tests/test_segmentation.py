@@ -133,17 +133,28 @@ class TestClassifySegmentsHysteresis:
 
 class TestTrimCandidates:
     def _curve(self):
-        """p_ini, cliff, shelf, cliff, live tail, then a frozen tail."""
+        """p_ini, cliff, shelf, cliff, low live tail, collapse, rebound.
+
+        The tail is followed by a collapse floor and a rising tail
+        because that is what the instrument produces: on all 339
+        production chromatograms r2 climbs back after its minimum, by a
+        median 29% of the total drop and by more than 1% on 97% of them.
+        A fixture that stops at a frozen tail has no floor to speak of,
+        and the lowest-mean segment among several identical ones is then
+        arbitrary.
+        """
         rng = np.random.default_rng(12)
         parts = [
             np.full(300, 1.0),
             np.linspace(1.0, 0.8, 30),
             np.linspace(0.8, 0.65, 150),
             np.linspace(0.65, 0.3, 40),
-            np.full(180, 0.3),
+            np.full(180, 0.3),                 # low live tail
+            np.linspace(0.3, 0.02, 120),       # descent to the floor
+            np.full(60, 0.02),                 # the collapse floor
+            np.linspace(0.02, 0.55, 120),      # the rebound
         ]
         y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
-        y = np.concatenate([y, np.full(300, 0.3)])  # noise-free frozen tail
         fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
         segments = classify_segments(
             segment_features(fcut_range, y, pelt_linear(y)))
@@ -270,18 +281,24 @@ class TestDetectDips:
 
 class TestTrimPlateaus:
     def _curve(self):
-        """p_ini, cliff, shelf, cliff, low live tail, frozen tail — with
-        a proto-plateau shelf that detect_dips picks up."""
+        """p_ini, cliff, shelf, cliff, low live tail, collapse, rebound,
+        with a proto-plateau shelf that detect_dips picks up.
+
+        Ends on a rebound rather than a frozen tail; see
+        ``TestTrimCandidates._curve``.
+        """
         rng = np.random.default_rng(12)
         parts = [
             np.full(300, 1.0),
             np.linspace(1.0, 0.8, 30),
             np.linspace(0.8, 0.65, 150),
             np.linspace(0.65, 0.3, 40),
-            np.full(180, 0.3),
+            np.full(180, 0.3),                 # low live tail
+            np.linspace(0.3, 0.02, 120),       # descent to the floor
+            np.full(60, 0.02),                 # the collapse floor
+            np.linspace(0.02, 0.55, 120),      # the rebound
         ]
         y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
-        y = np.concatenate([y, np.full(300, 0.3)])   # frozen tail
         fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
         segments = classify_segments(
             segment_features(fcut_range, y, pelt_linear(y)))
@@ -565,16 +582,19 @@ class TestCollapseFallback:
     """
 
     def _curve(self):
+        """Ends on a rebound; see ``TestTrimCandidates._curve``."""
         rng = np.random.default_rng(12)
         parts = [
             np.full(300, 1.0),
             np.linspace(1.0, 0.8, 30),
             np.linspace(0.8, 0.65, 150),
             np.linspace(0.65, 0.3, 40),
-            np.full(180, 0.3),
+            np.full(180, 0.3),                 # low live tail
+            np.linspace(0.3, 0.02, 120),       # descent to the floor
+            np.full(60, 0.02),                 # the collapse floor
+            np.linspace(0.02, 0.55, 120),      # the rebound
         ]
         y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
-        y = np.concatenate([y, np.full(300, 0.3)])
         fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
         segments = classify_segments(
             segment_features(fcut_range, y, pelt_linear(y)))

@@ -421,9 +421,58 @@ def dips_to_mask(fcut_range: np.ndarray, dips: list[dict]) -> np.ndarray:
     return mask
 
 
+def collapse_floor(segments: list[dict]) -> int:
+    """
+    Index at which the collapse floor begins.
+
+    The floor is the segment of lowest mean r2, the bottom of the
+    collapse. Everything at a higher cutoff is past it, on the rebound
+    where r2 climbs back towards Nyquist while the baseline is fitting
+    the noise; a cutoff there is inadmissible whatever the signal, which
+    is why the clip built on this index carries no options.
+
+    The segment mean locates the floor rather than the raw minimum of
+    r2, because the segments are all this function is given. The two
+    agree on the production chromatograms: the raw minimum falls inside
+    the lowest-mean segment on every curve checked.
+
+    Parameters
+    ----------
+    segments : list of dict
+        The segments returned by ``segment_features``.
+
+    Returns
+    -------
+    index : int
+        Start index of the lowest-mean segment, or a large value when
+        `segments` is empty, so that slicing with it clips nothing.
+
+    Warnings
+    --------
+    Only meaningful on a curve that collapses inside the swept range.
+    Two degenerate cases return a sentinel that clips nothing rather
+    than a floor: an empty segment list, and a lowest-mean segment that
+    is the first one. The latter covers the curve the segmentation sees
+    as a single piece, whose only segment starts at index 0; clipping
+    from there would remove every candidate on the curve.
+
+    On a curve that is flat throughout, the lowest mean is picked among
+    near-identical values and the index is arbitrary. Such a curve has
+    no plateau structure to select from in the first place, but the
+    arbitrariness is real and this function cannot detect it.
+
+    """
+    if not segments:
+        return np.iinfo(np.intp).max
+    means = [seg['mean'] for seg in segments]
+    k = int(np.argmin(means))
+    if k == 0:
+        return np.iinfo(np.intp).max
+    return segments[k]['start']
+
+
 def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
                     n_used: int, c1: float = 1.0,
-                    noise_floor: float = 4e-7,
                     cliff_min: float = 1.0,
                     bridge: bool = False,
                     exclude_collapse: bool = False,
@@ -442,11 +491,13 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       contains duplicates of the solution at the fundamental. This is
       why the initial plateau of the autocorrelation plot always ends
       at ``~1/n_used``.
-    - **frozen exclusion**: flat segments whose relative residual noise
-      is at most `noise_floor` are removed. In the saturated far tail
-      the baseline no longer responds to the cutoff frequency at all
-      and the residual noise collapses by orders of magnitude below
-      that of any genuine plateau.
+    - **rebound clip**: grid points at or above the collapse floor, the
+      segment of lowest mean r2, are removed. Past the floor the
+      baseline has absorbed the analyte-correlated content and r2
+      climbing back towards Nyquist reports on the noise it is now
+      fitting, not on the quality of the fit. No property of the signal
+      makes a cutoff there admissible, so unlike the collapse exclusion
+      below this clip is unconditional.
     - **bridging** (optional): a non-flat segment sandwiched between
       candidate regions is absorbed when it is not a cliff
       (``rel_slope < cliff_min``), so drifting connectors do not split
@@ -454,20 +505,19 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       steps still separate regions.
     - **collapse exclusion** (optional): when ``exclude_collapse`` is
       set, flat segments lying below ``collapse_level`` of the way up
-      the total r2 drop are removed. Past the collapse the baseline has
-      begun absorbing the analyte-correlated content, so for a signal
-      that *has* analyte a cutoff there destroys peak area and the
-      optimum cannot lie in it (Navarro-Huerta et al. 2017). Whether a
-      signal has analyte is a property of the signal, not the curve, so
-      the caller decides ``exclude_collapse`` from the signal-to-noise
-      ratio (a split at SNR ~25 separates the two at 95-100% on the
-      labeled and synthetic data); a blank leaves it off, and its low
-      shelves survive as legitimate candidates.
+      the total r2 drop are removed. Approaching the collapse the
+      baseline has begun absorbing the analyte-correlated content, so
+      for a signal that carries analyte a cutoff there destroys peak
+      area and the optimum cannot lie in it (Navarro-Huerta et al.
+      2017). This reaches the descent *before* the floor, which the
+      rebound clip does not; the two are complementary and neither
+      subsumes the other. Whether a signal carries analyte is a property
+      of the signal, not of the curve, so the caller decides
+      ``exclude_collapse`` from the signal-to-noise ratio. A weak signal
+      leaves it off, and its low shelves survive as legitimate
+      candidates.
 
-    On the 339-signal reference dataset, the trimmed mask contains the
-    accepted cutoff frequency of every signal while covering half of
-    the grid area of the untrimmed flat set, in 2-3 contiguous regions
-    per signal.
+    Bridging is off by default. See ``bridge`` below.
 
     Parameters
     ----------
@@ -529,6 +579,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
         if keep:
             candidates[seg['start']:seg['end']] = True
     candidates[fcut_range < c1 / n_used] = False
+    candidates[collapse_floor(segments):] = False
     return candidates
 
 
@@ -828,29 +879,31 @@ def select_center(fcut_range: np.ndarray,
     """
     Cutoff frequency at the centre of the surviving plateau.
 
-    Preliminary stage-3 selection. The centre is **geometric** -- the
-    midpoint in log(fcut) -- because the sweep grid is geometric and
-    every position in this package is expressed in decades. It is taken
-    on the index axis, so the answer is a grid point the sweep actually
-    evaluated and its r2 can be read from the cached curve; the snap
-    costs at most 0.0024 decades.
+    Preliminary stage-3 selection. The centre is geometric, the midpoint
+    in log(fcut), matching the geometric sweep grid and the decades every
+    position in this package is expressed in. It is taken on the index
+    axis, so the answer is a grid point the sweep evaluated and its r2
+    can be read from the cached curve; the snap costs at most 0.0024
+    decades.
 
-    Where several regions survive, the last one is used: the optimum
-    lies on the last step of the stepped ``y - b`` curve.
+    Where several regions survive, the last one is used, following
+    Navarro-Huerta et al. (2017) §3.4: the optimum lies on the last step
+    of the stepped ``y - b`` curve.
 
-    .. warning::
-       **The 0.5 is a placeholder**, held while the real rule is
-       missing. Against exact ground truth the optimum sits at 0.71 and
-       0.74 of the surviving region's log-width on the ``donnie``
-       signals, and at a median 0.65 in earlier synthetic work.
+    Warnings
+    --------
+    **The 0.5 is a placeholder**, held while the real rule is missing.
+    Navarro-Huerta et al. (2017) §3.4 recommend a point between the
+    beginning and the centre of the region, and against baselines that
+    are known exactly the optimum sits well inside the region rather
+    than at its midpoint.
 
-       Those numbers are a validation target, not a rule: replacing 0.5
-       with 0.7 would substitute one arbitrary ratio for another. The
-       replacement has to come from a feature of the signal or the
-       curves. One measurement narrows the search -- between the
-       selected and the optimal cutoff ``r2`` moves by ~0.003 while the
-       baseline error moves 10-13%, so the deciding feature is unlikely
-       to be the r2 level.
+    Where it sits is a validation target, not a rule: substituting one
+    fixed fraction for another leaves it just as arbitrary. The
+    replacement has to come from a feature of the signal or of the
+    curves. The r2 level is an unlikely candidate, since it barely moves
+    between the selected and the optimal cutoff while the baseline error
+    moves substantially.
 
     Parameters
     ----------

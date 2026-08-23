@@ -130,3 +130,9 @@ synth)
 esac
 
 echo "done: $(ls "$CACHEDIR" | wc -l) curves in the cache"
+
+# The log belongs with the run it describes, not loose in the checkout.
+# Slurm still holds the file open, so it is copied now and the original
+# is left for Slurm to finish writing and for the user to remove.
+LOG=$SLURM_SUBMIT_DIR/${SLURM_JOB_NAME}_${SLURM_JOB_ID}.log
+[ -f "$LOG" ] && cp "$LOG" "$OUTROOT/" && echo "log copied to $OUTROOT/"

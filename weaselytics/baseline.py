@@ -1,6 +1,15 @@
 # coding: utf-8
 """
-Functions to perform the baseline correction.
+Baseline correction, and the automatic choice of the BEADS cutoff.
+
+Wraps the BEADS algorithm of Ning et al. (2014), on the whole record
+(``_beads``) or through the customized-baseline wrapper of Liland et al.
+(2011) with per-region stiffness (``_custom_beads``). ``auto_beads`` is
+the entry point; when no cutoff is given it sweeps the autocorrelation
+of the baseline-corrected signal and hands the curve to
+``weaselytics.segmentation`` to pick one.
+
+The selection method is documented in ``tools/fcut/segmentation.md``.
 """
 import hashlib
 import logging
@@ -51,9 +60,20 @@ def _relevant_regions(
     s: np.ndarray, x: np.ndarray, tol: float = 6.
 ) -> tuple[np.ndarray | None, np.ndarray, int]:
     """
-    Divide the signal into regions maximizing the contribution of the signal in
-    the calculation of the autocorrelation plot in order to find the optimal
-    cutoff frequency for the BEADS algorithm.
+    Locate the peaks and the useful extent of the signal.
+
+    Finds the peaks in a lightly smoothed copy, discards those too wide
+    relative to their position to be analyte rather than baseline
+    structure, brackets every survivor but the narrowest with a window
+    reaching 0.85 of that peak's FWHM on each side of its apex, and
+    merges brackets that overlap. The 0.85 follows from the peak shape:
+    a region has to cover the peak it brackets, for a Gaussian about 95%
+    of the area lies within ``+-2 sigma``, so the region spans
+    ``4 sigma``; since ``FWHM = 2.355 sigma`` that is 1.70 FWHM in total,
+    and half of it, 0.85 FWHM, is what each side gets. The regions and
+    their decimation factors control the per-region stiffness of
+    ``_custom_beads``; `scut` truncates the record past the last peak so
+    the autocorrelation is not diluted by an empty tail.
 
     Parameters
     ----------
@@ -62,8 +82,9 @@ def _relevant_regions(
     x : array-like, shape (N,)
         The x-values of the signal.
     tol : float, optional
-        Threshold on the ratio of a peak’s width as a function of its location
-        in `x`.
+        Largest peak width, per unit of `x`, still counted as analyte. A
+        wider feature is treated as baseline structure and ignored.
+        Default is 6.
 
     Returns
     -------
@@ -72,7 +93,10 @@ def _relevant_regions(
         each region containing a relevant peak. Each region is defined as
         ``data[start:stop]``. `None` means no relevant peaks found.
     sampling : array-like of shape (M,)
-        The sampling step size for each region defined in `peak_regions`.
+        Decimation factor for each region: one point in `sampling` is
+        kept when the baseline is fitted, which stiffens the fit there.
+        ``[1]`` when there are no regions, which keeps every point and
+        makes ``_custom_beads`` equivalent to ``_beads``.
     scut : int
         Index of the last data point in `s` (signal cutoff) relevant to the
         calculation of the autocorrelation.
@@ -104,8 +128,8 @@ def _relevant_regions(
     rel_widths = widths[((width_per_x < tol) | exception)]
     # No relevant peak at all (featureless signal, or every detected
     # peak rejected by the relevance filter): fall back to the
-    # documented degraded mode — no peak regions, uniform sampling and
-    # no truncation — instead of crashing on the empty array below.
+    # documented degraded mode (no peak regions, uniform sampling and
+    # no truncation) instead of crashing on the empty array below.
     if len(rel_peaks) == 0:
         return None, np.array([1]), len(s)
     ratio_w = rel_widths/np.min(rel_widths)
@@ -157,14 +181,13 @@ def _snr(s: np.ndarray) -> float:
     """
     Robust signal-to-noise ratio of a chromatogram.
 
-    Defined as the tallest excursion above the median divided by the
-    noise, with the noise estimated from the median absolute deviation
-    of the consecutive differences (so it is not inflated by the peaks
-    themselves). This scalar carries the analyte-vs-baseline information
-    the autocorrelation curve does not: a split near 25 separates the
-    signals whose optimum sits at the shoulder from those whose optimum
-    lies past the collapse, at 95% on the synthetic benchmark and 100%
-    on the labeled real data.
+    The tallest excursion above the median divided by the noise, with
+    the noise estimated from the median absolute deviation of the
+    consecutive differences, so peaks do not inflate it.
+
+    ``auto_beads`` uses it for one decision: whether the optimum may lie
+    past the collapse of the r2 curve, which is allowed on a weak signal
+    and not on one carrying substantial analyte.
 
     Parameters
     ----------
@@ -174,9 +197,22 @@ def _snr(s: np.ndarray) -> float:
     Returns
     -------
     snr : float
-        The signal-to-noise ratio; ``inf`` if the noise estimate is
-        zero, which happens only when the consecutive differences are
-        constant (a flat or perfectly linear trace).
+        The signal-to-noise ratio; ``inf`` when the noise estimate is
+        zero, which happens when over half the consecutive differences
+        are identical.
+
+    Notes
+    -----
+    Fails as a ratio on quantisation-limited data. When the detector
+    digitises in fixed steps, every consecutive difference is a multiple
+    of that step, the denominator collapses onto a handful of values,
+    and the statistic reduces to the tallest excursion in the units of
+    the signal. It is then an absolute amplitude wearing a dimensionless
+    name, and a threshold on it is instrument-specific.
+
+    Whether the threshold separates anything has to be checked on the
+    data at hand: a population whose values all sit far above it makes
+    the gate a constant. See the README TO DO.
 
     """
     diffs = np.diff(s)
@@ -187,8 +223,14 @@ def _snr(s: np.ndarray) -> float:
 
 def _log_transform(s: np.ndarray, epsilon: float = 1) -> np.ndarray:
     """
-    Log transformation used in the calculation of the autocorrelation for the
-    BEADS algorithm. For further information, see [1].
+    Log transformation applied before the BEADS fit.
+
+    ``log10(s - min(s) + epsilon)``, Navarro-Huerta et al. [1] Eq. (8),
+    inverted by their Eq. (11), ``10**b + min(s) - epsilon``, which is
+    what fixes the base at ten. Their §3.3.2 introduces it to compress
+    the dynamic range: a chromatogram with peaks of very different
+    height makes BEADS return a baseline that ripples under the tall
+    ones, and the transform removes those ripples.
 
     Parameters
     ----------
@@ -205,17 +247,20 @@ def _log_transform(s: np.ndarray, epsilon: float = 1) -> np.ndarray:
 
     Notes
     -----
-    The default value of ``epsilon = 1`` was originally suggested by
-    Navarro-Huerta et al. [1] for two reasons:
-        1) It was judged appropriate regarding the magnitude of the signals
-        reaching maxima around 500-10000.
-        2) If ``yi = min(y)``, then ``log(yi - min(y) + 1) = log 1 = 0``.
+    Navarro-Huerta et al. [1] §3.3.2 give two reasons for
+    ``epsilon = 1``: it suits signals whose maxima reach 500 to 10,000,
+    which is the range they worked in; and it sends the minimum of the
+    record to zero, since ``log10(1) = 0``.
 
-    However, it seems uncertain whether choosing ``epsilon = 1`` is optimal
-    for a signal whose maximum value is below 500. My impression is that the
-    500-10000 guideline reported by Navarro-Huerta et al. [1] was most likely
-    derived purely from the particular signals they had at their disposal,
-    rather than being grounded in a substantive theoretical argument.
+    The first reason is a property of their data and does not transfer.
+    The second is arithmetic and holds at any scale. Since the offset
+    sets how aggressive the compression is, a record whose maximum is
+    well below 500 is compressed harder than theirs were, and no
+    measurement here establishes what the offset should be in that case.
+
+    The base is ten, following Eq. (8). Under the auto-scaled ``lam_d``
+    the penalty terms are scale-invariant while the data-fidelity term
+    is not, so the base sets the balance between them.
 
     References
     ----------
@@ -277,43 +322,20 @@ def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
     -----
     ``custom_bc`` returns only a baseline, so ``params["signal"]`` is
     rebuilt here as ``s - bl - noise``, with the noise interpolated from
-    the reduced grid. ``custom_bc`` reduces points **only inside**
-    ``regions`` and keeps everything else at full resolution, so that
-    noise estimate is exact outside the regions and a straight line
-    through bin averages inside them. ``params["signal"]`` is therefore
-    the sparse component everywhere *plus* whatever point-to-point noise
-    was never estimated on the region interiors -- it is not a uniformly
-    denoised residual, and it is not ``s - bl``.
+    the reduced grid. Since points are dropped only inside `regions`,
+    that noise estimate is exact outside them and a straight line
+    through bin averages within them. ``params["signal"]`` is therefore
+    a denoised trace whose region interiors keep their point-to-point
+    noise, and it equals neither a uniformly denoised residual nor
+    ``s - bl``.
 
-    How far it departs from ``s - bl`` is **not** governed by the
-    binning, because the two conditions that would make binning matter
-    are anti-correlated. Where binning is heaviest the analyte is large,
-    so the residual noise is a negligible fraction of it; and where the
-    departure is large -- a weak analyte -- ``_relevant_regions``
-    returns few or no regions, so ``sampling`` is 1 and no binning
-    happens at all. Measured on the raw signals at
-    ``freq_cutoff=1.13e-2``, ``max|params["signal"] - (s - bl)|`` as a
-    fraction of the signal range:
+    On raw signals the gap between the two is the BEADS noise, largest
+    where there are no regions and so no binning at all. Choosing
+    between them is a choice about whether to show the noise floor.
 
-    ==================================  ==========  ========
-    signal                              sampling    departure
-    ==================================  ==========  ========
-    2-Dichlorobenzene BLANK 1           [1]         15.0%
-    2-Chlorotoluene BLANK 1             [2]          6.3%
-    Toluene 60-100 #3                   [2,2,5,6,10] 0.79%
-    2-Xylene 60-100 #1                  [2,2,...]    0.87%
-    ==================================  ==========  ========
-
-    On the two blanks the difference is simply the noise: the first has
-    no regions at all, and ``params["signal"] - (s - bl)`` equals the
-    BEADS noise exactly. So on raw signals this key is a *denoised*
-    trace, and the choice between it and ``s - bl`` is a choice about
-    showing the noise floor, not about contamination.
-
-    This is separate from the reason `_r2` correlates ``y - baseline``:
-    there the statistic is a sum of squared point-to-point differences
-    on the log-transformed, truncated signal, where a small contaminated
-    patch does dominate whenever the sparse component is small.
+    The two paths give the identical baseline whenever `sampling` is all
+    ones, which holds when every peak is within about 1.18 times the
+    width of the narrowest. See ``_relevant_regions``.
 
     """
     if regions is None:
@@ -349,9 +371,12 @@ def _r2(
     p: float, param: str = "freq_cutoff", **kwargs
 ) -> float:
     """
-    Calculate the autocorrelation, based on the Durbin-Watson statistics, of
-    the baseline corrected signal for a given value of a given parameter used
-    for the substraction of the baseline.
+    Autocorrelation of the baseline-corrected signal at one parameter.
+
+    Fits a baseline with `algo` at ``param = p`` and returns
+    ``r2 = ((2 - DW)/2)**2``, with `DW` the Durbin-Watson statistic of
+    ``y - b``. Sweeping `p` over a grid gives the curve the cutoff is
+    selected from.
 
     Parameters
     ----------
@@ -377,22 +402,24 @@ def _r2(
 
     Notes
     -----
-    The statistic is computed on the **baseline-corrected signal**
-    ``y - b``, i.e. the sparse chromatogram *plus* the noise, and not on
-    the denoised ``params["signal"]``. This is the quantity monitored by
-    Navarro-Huerta et al. [1] (Eq. 12), and the noise has to stay in:
-    ``r2`` is a whiteness test, so the plateau structure exists only
-    because a good cutoff leaves the correlated peaks in the corrected
-    signal while an excessive one leaves white noise behind. Removing
-    the noise removes the floor the drop is measured against.
+    The statistic runs on ``y - b``, the sparse chromatogram plus the
+    noise, which is the quantity Navarro-Huerta et al. [1] monitor in
+    their Eq. (12). The noise has to stay in. ``r2`` is a whiteness
+    test, and the plateau structure exists because a good cutoff leaves
+    the correlated peaks in the corrected signal while an excessive one
+    leaves white noise behind, so the noise is the floor the drop is
+    measured against.
 
-    Keeping the baseline as the only algorithm output used here also
-    makes the quantity identical on the ``beads`` and ``custom_beads``
-    paths, so their curves are comparable. They were not before:
-    ``_custom_beads`` rebuilds ``params["signal"]`` as
-    ``y - b - noise`` with a noise term interpolated from the reduced
-    grid, which is exact outside the peak regions but absent inside
-    them, leaving raw point-to-point noise on the region interiors.
+    Taking the baseline as the only output used here also makes the
+    quantity identical on the ``beads`` and ``custom_beads`` paths, so
+    their curves can be compared.
+
+    The statistic is a sum of squared differences between neighbouring
+    points, so it is dominated by any small patch of un-subtracted noise
+    once the sparse component is small. That is why the denoised
+    ``params["signal"]`` is unusable here: on the ``custom_beads`` path
+    its noise term is interpolated from the reduced grid, leaving raw
+    point-to-point noise on the region interiors.
 
     References
     ----------
@@ -401,8 +428,8 @@ def _r2(
         Chromatography A, 2017, 1507, 1-10, §3.3.2 and §3.4.
 
     """
-    r2, _ = _r2_and_baseline(algo, baseline_fitter, y, p, param=param,
-                             **kwargs)
+    r2, _, _ = _r2_and_baseline(algo, baseline_fitter, y, p, param=param,
+                                **kwargs)
     return r2
 
 
@@ -417,12 +444,36 @@ def _r2_and_baseline(
     The baseline is computed anyway to form ``y - baseline``; returning
     it lets the sweep measure how much it moves between adjacent cutoff
     frequencies (see `_sensitivity_curve`) at no extra fit.
+
+    Parameters
+    ----------
+    algo : Callable
+        ``_beads`` or ``_custom_beads``.
+    baseline_fitter : `Baseline` object
+        Carries the x-values and the pybaselines algorithms.
+    y : array-like, shape (N,)
+        The y-values of the signal, already log-transformed and
+        truncated.
+    p : float
+        Value of `param` at which to fit.
+    param : str, optional
+        Name of the swept parameter. Default is "freq_cutoff".
+    **kwargs
+        Passed through to `algo`.
+
+    Returns
+    -------
+    r2 : float
+        Autocorrelation of ``y - baseline``.
     dw : float
         The Durbin-Watson statistic of ``y - baseline``. Returned
         because ``r2`` is a square and loses the sign of the
         correlation: ``r = 1 - dw/2``, and ``dw > 2`` marks a residual
         that alternates sign point to point, which is the baseline
         tracking the noise rather than the fit improving.
+    baseline : numpy.ndarray, shape (N,)
+        The fitted baseline.
+
     """
     kwargs[param] = p
     baseline, _ = algo(baseline_fitter, y, **kwargs)
@@ -437,12 +488,29 @@ def _sensitivity_curve(steps: np.ndarray, param_range: np.ndarray,
     Baseline-sensitivity curve from the step-to-step baseline changes.
 
     ``steps[i]`` is the rms change of the baseline from ``param_range``
-    ``[i-1]`` to ``[i]`` (``steps[0] = 0``). It is turned into a
-    scale-free sensitivity by dividing by the signal range and by the
-    log-frequency spacing, giving the rms baseline change *per decade of
-    cutoff frequency, relative to the signal*. This is large and erratic
-    where the baseline fit is unstable (low frequencies, Navarro-Huerta
-    et al. 2017 §3.1(iv)) and settles where it becomes reliable.
+    ``[i-1]`` to ``[i]`` (``steps[0] = 0``). Dividing by the signal
+    range and by the log-frequency spacing makes it scale-free: the rms
+    baseline change per decade of cutoff frequency, relative to the
+    signal. It runs large and erratic where the fit is unstable, which
+    Navarro-Huerta et al. (2017) §3.1(iv) report at low frequencies, and
+    settles where the fit becomes reliable.
+
+    Parameters
+    ----------
+    steps : array-like, shape (M,)
+        Rms baseline change between adjacent grid points, ``steps[0]``
+        being 0.
+    param_range : array-like, shape (M,)
+        The swept parameter values, geometrically spaced.
+    signal_range : float
+        Peak-to-peak range of the signal, used to make `steps`
+        dimensionless.
+
+    Returns
+    -------
+    sensitivity : numpy.ndarray, shape (M,)
+        Rms baseline change per decade, relative to the signal range.
+
     """
     S = np.zeros_like(steps, dtype=float)
     denom = max(float(signal_range), 1e-12)
@@ -700,11 +768,9 @@ def _r2_array_cached(
     iterating on the plateau detection over a whole dataset in seconds
     instead of recomputing every BEADS sweep. The cache file name
     combines the stem of `path` with a hash of every input that
-    determines the curve, so a stale cache can never be returned for
-    modified inputs. At most one cached curve is kept per data file:
-    writing a new curve deletes the older entries of the same stem, so
-    the cache directory stays bounded to one ``.npz`` (roughly 16 kB)
-    per signal and cannot build up stale files.
+    determines the curve, so modified inputs miss. Writing a new curve
+    deletes the older entries of the same stem, which bounds the
+    directory to one ``.npz`` of roughly 16 kB per signal.
 
     Parameters
     ----------
@@ -799,18 +865,18 @@ def _r2_array_cached(
 
 def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             num: int = 1000,
-            method: str = "beads", param: str = "freq_cutoff",
+            method: str = "custom_beads", param: str = "freq_cutoff",
             cache_dir: str | None = None, path: str = "./file.txt",
             workers: int = 1, snr_threshold: float = 10.0, **kwargs
             ) -> tuple[float, dict]:
     """
     Find the optimal cutoff frequency.
 
-    ###EXPERIMENTAL###
-    Since this function is still under development and very unreliable, it is
-    best to explain the general idea behind it rather than the details of the
-    current implementation. This is done in tools/fcut/fcut.md
-    ##################
+    Sweeps the autocorrelation of the baseline-corrected signal over a
+    geometric grid of cutoff frequencies, detects the plateaus of that
+    curve, removes the ones that cannot hold the answer, and returns a
+    point on what survives. The method, its parameters and what remains
+    open are documented in ``tools/fcut/segmentation.md``.
 
     Parameters
     ----------
@@ -824,8 +890,9 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     num : int, optional
         Number of x-values spanning the frequency range to evaluate r2.
         Default is 1000.
-    method : str
+    method : str, optional
         The method name passed to ``_beads`` or ``_custom_beads``.
+        Default is "custom_beads".
     param : str, optional
         Label of the parameter to correlate with the value of r2. Default is
         "freq_cutoff".
@@ -900,8 +967,8 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     cp_detected_dips = detect_dips(fcut_range, r2_val)
     cp_dips = dips_to_mask(fcut_range, cp_detected_dips)
     # Stage-1 trimming (single source: segmentation.trim_plateaus). The
-    # sub-fundamental clip (#1) and frozen tail (#2) give `cp_removed`
-    # (drawn red). The SNR-gated collapse exclusion (#3) gives
+    # sub-fundamental clip (#1) gives `cp_removed` (drawn red). The
+    # SNR-gated collapse exclusion (#2) gives
     # `cp_snr_removed` (dark red) and IS applied to the selection,
     # unless applying it would leave nothing surviving.
     cp_trim = trim_plateaus(fcut_range, cp_segments, cp_detected_dips,
@@ -965,15 +1032,17 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
                freq_cutoff: float | None = None, show_plot: bool = False,
                print_plot: bool = False, path: str = "./file.txt",
                output_dir: str = "results",
-               method: str = "beads", asymmetry: float = 1.0,
+               method: str = "custom_beads", asymmetry: float = 1.0,
                fit_parabola: bool = True, alpha: float | None = None,
                parabola_len: int | None = 3,
                cache_dir: str | None = None,
                workers: int = 1, snr_threshold: float = 10.0
                ) -> tuple[np.ndarray, dict]:
     """
-    Automatic implementation of the Baseline estimation and denoising with
-    sparsity (BEADS) algorithm.
+    Baseline-correct a chromatogram with BEADS.
+
+    Automatic implementation of Baseline Estimation And Denoising with
+    Sparsity [1], choosing the cutoff frequency when none is given.
 
     Decomposes the input data into baseline and pure, noise-free signal by
     modeling the baseline as a low pass filter and by considering the signal
@@ -991,6 +1060,20 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         If True, the plot will be exported as an image. Default is False.
     path : str, optional
         Path of the data file.
+    output_dir : str, optional
+        Directory the plots are written to. Default is "results".
+    method : str, optional
+        Which fitting path to use, "beads" or "custom_beads". Default is
+        "custom_beads", which decimates the points under each detected
+        peak in proportion to that peak's width before fitting, making
+        the baseline stiffer under the broad late peaks. "beads" fits
+        the whole record at one stiffness. Peak detection is needed for
+        the regions, so it runs even when `freq_cutoff` is given.
+
+        The two paths return the identical baseline whenever every peak
+        is within about 1.18 times the width of the narrowest, since the
+        decimation factor is then 1 and no point is dropped. They differ
+        once the widths spread.
     freq_cutoff : float, optional
         The cutoff frequency of the high pass filter, normalized such that
         0 < `freq_cutoff` < 0.5. Default is None, which will calculate its
@@ -1004,15 +1087,15 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         function is symmetric, and a value less than 1 will weigh positive
         values more.
 
-        Kept at 1 because these signals carry a genuine *negative* peak
-        at the dead time, which an asymmetric cost absorbs into the
-        baseline. BEADS and pybaselines default to 6.0, for
-        positive-only peaks.
+        Default is 1, a symmetric cost, because a chromatogram carries
+        a genuine negative peak at the dead time that an asymmetric cost
+        would absorb into the baseline. BEADS and pybaselines default to
+        6.0, which assumes positive-only peaks.
     fit_parabola : bool, optional
         If True (default), fit a parabola to the data and subtract it
-        before the BEADS fit, as suggested in [2]. BEADS requires the
-        endpoints to be close to 0; on data that already is, the
-        correction is a no-op.
+        before the BEADS fit, as suggested in [2] §3.3.1. BEADS requires
+        the endpoints to be close to 0, and the correction is a no-op on
+        data that already satisfies that.
     alpha : float, optional
         Proportionality constant of the sparsity penalties. ``lam_0``,
         ``lam_1`` and ``lam_2`` are left to pybaselines, which follows

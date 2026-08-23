@@ -168,12 +168,6 @@ class TestTrimCandidates:
         # ... but the region above the clip is not blanket-removed
         assert candidates.any()
 
-    def test_frozen_tail_is_trimmed(self):
-        fcut_range, y, segments = self._curve()
-        candidates = trim_candidates(fcut_range, segments, 1000)
-        # the last, noise-free stretch must not be a candidate
-        assert not candidates[-100:].any()
-
     # The shelf of `_curve` sits at fcut ~8e-4, so with `n_used=1000`
     # the sub-fundamental clip (1/n_used = 1e-3 at the default c1=1.0)
     # would swallow it. These two tests are about the collapse

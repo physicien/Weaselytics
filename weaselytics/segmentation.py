@@ -2,13 +2,15 @@
 """
 Changepoint-based plateau detection for autocorrelation plots.
 
-Prototype for the strategy discussed in issue #4: instead of classifying
-points of the autocorrelation curve one by one with absolute thresholds
-on rolling statistics, the curve is segmented with a penalized
-piecewise-linear model (optimal partitioning). Each segment is then
-classified with scale-free criteria (slope and residual noise relative
-to the geometry of the curve itself), and the optimal cutoff frequency
-is selected from the surviving plateau candidates.
+The autocorrelation curve is cut into contiguous segments by a penalized
+piecewise-linear model (optimal partitioning), each segment is classified
+by criteria expressed relative to the geometry of the curve itself, the
+segments that cannot hold the answer are removed, and the cutoff
+frequency is read off what survives. This is the production path of
+``baseline.auto_beads``.
+
+The method, its parameters and the questions still open are documented in
+``tools/fcut/segmentation.md``.
 """
 from collections.abc import Callable
 
@@ -26,9 +28,9 @@ def _linear_costs(y: np.ndarray) -> Callable[[int, np.ndarray], np.ndarray]:
     The cost of the segment ``y[i:j]`` is ``m * log(SSE / m)``, where
     ``SSE`` is the sum of squared residuals of the least-squares line
     fitted on the segment and ``m = j - i``. This is the Gaussian
-    log-likelihood cost with a mean varying linearly and a variance
-    fitted separately on each segment, so both slope changes and noise
-    changes are detected.
+    log-likelihood cost with a linearly varying mean and a variance
+    fitted separately on each segment, so a boundary is found at a change
+    of slope and at a change of noise level alike.
 
     Parameters
     ----------
@@ -105,6 +107,25 @@ def pelt_linear(y: np.ndarray, penalty: float | None = None,
     ------
     ValueError
         Raised if the data is shorter than ``2 * min_size``.
+
+    Notes
+    -----
+    The minimum is exact over all partitions, not greedy. The pruning of
+    Killick et al. (2012) would bring the cost down to expected O(N), and
+    ``ruptures`` (Truong et al. 2020) offers equivalent implementations;
+    the pure-NumPy version here avoids the dependency and is fast enough
+    at the sizes involved.
+
+    References
+    ----------
+    .. [1] Jackson, B.; Scargle, J.D.; et al. An algorithm for optimal
+           partitioning of data on an interval. IEEE Signal Processing
+           Letters, 2005, 12(2), 105-108, §II (the recursion implemented
+           here).
+    .. [2] Yao, Y.-C. Estimating the number of change-points via
+           Schwarz' criterion. Statistics & Probability Letters, 1988,
+           6(3), 181-189 (the per-changepoint penalty), following
+           Schwarz, G. The Annals of Statistics, 1978, 6(2), 461-464.
 
     """
     n = len(y)
@@ -196,26 +217,19 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
     """
     Mark each segment as flat (plateau candidate) or not.
 
-    A segment is flat when its relative residual noise is small and its
-    relative slope satisfies a two-tier (tight/loose) criterion, the
-    dimensionless analogue of the tight and loose derivative tolerances
-    of ``_fcutoff``:
+    A segment is flat when its relative residual noise is below
+    `rel_noise_max` and its relative slope passes a two-tier criterion:
 
-    - tight: ``rel_slope < rel_slope_max`` — strictly flat on the scale
-      of the whole curve;
-    - loose: ``rel_slope < rel_slope_loose`` *and* the segment is
-      bracketed by at least one cliff (``rel_slope > cliff_min``) on
-      each side. This accepts the drifting shelves of staircase-shaped
-      curves (blanks, multi-step programs), whose slope is substantial
-      on the global scale but small compared to the cliffs surrounding
-      them. On these morphologies the total drop is split over several
-      steps, so a purely global slope criterion rejects every shelf.
+    - tight: ``rel_slope < rel_slope_max``, flat on the scale of the
+      whole curve;
+    - loose: ``rel_slope < rel_slope_loose`` *and* the segment has at
+      least one cliff (``rel_slope > cliff_min``) on each side. This
+      accepts the drifting shelves of staircase curves, where the total
+      drop is split over several steps so every shelf is steep on the
+      global scale.
 
-    The residual-noise criterion is what separates the quiet plateaus
-    from the regions where the baseline fit is unstable (e.g. the
-    low-frequency instabilities of `p_ini` or the chaotic tail). It
-    replaced a detector built on a rolling standard deviation and a
-    stack of thresholds, since removed.
+    The residual-noise criterion separates quiet plateaus from the
+    regions where the baseline fit is unstable.
 
     Parameters
     ----------
@@ -240,6 +254,18 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
     segments : list of dict
         The input list with the added ``flat`` key.
 
+    Notes
+    -----
+    Both criteria are ratios against the total drop of the curve, so
+    they carry no units and do not depend on the grid density or the
+    record length. They fail on a curve with no drop: `segment_features`
+    clamps the divisor, the ratios become large, and no segment is
+    marked flat.
+
+    The loose tier changes the answer rarely, and on the staircase
+    morphologies it was introduced for it may not fire at all, so it
+    should not be assumed to be doing the work its rationale claims.
+
     """
     slopes = [seg['rel_slope'] for seg in segments]
     for k, seg in enumerate(segments):
@@ -255,14 +281,12 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
 def dip_curve(r2: np.ndarray, window: int = 3,
               sigma: float = 8.0) -> np.ndarray:
     """
-    The curve the proto-plateau detector actually reads.
+    Curve read by the proto-plateau detector.
 
-    The rolling standard deviation of `r2`, Gaussian-smoothed and
-    scaled to its own maximum. ``detect_dips`` finds proto-plateaus as
-    local MINIMA of this curve, so this — not the raw rolling standard
-    deviation, which is only an unsmoothed precursor — is what the
-    detection sees. Exposed so the diagnostic can draw the same array
-    the detector uses, rather than a lookalike that can drift from it.
+    The rolling standard deviation of `r2`, Gaussian-smoothed and scaled
+    to its own maximum. ``detect_dips`` marks proto-plateaus at its local
+    minima. Public so the diagnostic overlay can draw the same array the
+    detector reads.
 
     Parameters
     ----------
@@ -299,10 +323,9 @@ def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
     *relative* flattening that never becomes flat on the scale of the
     whole curve) therefore appears as a local **minimum** of the rolling
     standard deviation, sitting in the valley between two of its humps.
-    This is the relative counterpart of the absolute slope criterion of
-    ``classify_segments``: it finds the shelves whose slope is a local
-    minimum even when it is above the absolute flat threshold, which the
-    segment classifier misses.
+    Where ``classify_segments`` asks whether a segment is flat on the
+    scale of the whole curve, this asks whether it is flatter than its
+    neighbours, so it catches shelves the segment classifier rejects.
 
     The rolling standard deviation is smoothed and normalised by its own
     maximum (the largest cliff), so the prominence of a valley is a
@@ -354,15 +377,14 @@ def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
 
     Notes
     -----
-    The rolling-standard-deviation-dip criterion is a detection
-    heuristic, not a result of Navarro-Huerta et al. (2017); it is the
-    relative analogue of the absolute flat test. Its parameters are
-    dimensionless (prominence relative to the largest cliff, level as a
-    fraction of the drop, `sigma` in grid points) and were set by visual
-    validation on the 339-signal reference gallery, not fitted to a
-    selected cutoff. They are diagnostic tuning while the returned dips
-    only feed the plateau overlay; they become load-bearing, and require
-    grounding, if the dips are ever used to select the cutoff frequency.
+    The parameters are dimensionless: prominence relative to the largest
+    cliff, level as a fraction of the drop, `sigma` in grid points. They
+    were set by visual validation rather than derived, and no source
+    fixes them.
+
+    They are load-bearing, not merely diagnostic: ``trim_plateaus``
+    admits these dips wherever the flat channel survives nothing, and on
+    those signals the parameters below decide the cutoff.
 
     """
     n = len(r2)
@@ -481,8 +503,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     Trim the flat segments into a mask of candidate plateau regions.
 
     Reduces the flat set to the regions where the optimal cutoff
-    frequency can actually lie, using only a-priori exclusions (no
-    selection convention):
+    frequency can lie, using only a-priori exclusions:
 
     - **sub-fundamental clip**: grid points below ``c1 / n_used`` are
       removed. The slowest oscillation representable on a record of
@@ -531,19 +552,16 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     c1 : float, optional
         Safety factor of the sub-fundamental clip: grid points below
         ``c1 / n_used`` are excluded. Default is 1.0, the fundamental
-        itself: below it the data cannot determine the baseline at all,
-        and on the 51 hand-labeled reference signals no labeled optimum
-        has its stiff edge below 0.9x the fundamental (median 8.4x), so
-        clipping at the fundamental removes no usable cutoff.
-    noise_floor : float, optional
-        Relative residual noise at or below which a flat segment is
-        considered frozen. Default is 4e-7.
+        itself: below it the data cannot determine the baseline at all.
     cliff_min : float, optional
         Minimum relative slope of a segment acting as a real separation
         between candidate regions. Default is 1.0.
     bridge : bool, optional
-        If True (default), absorb non-cliff segments lying between
-        candidate regions.
+        If True, absorb non-cliff segments lying between candidate
+        regions. Default is False, which is what the production path
+        uses: on a gentle descent, bridging merges a plateau and a lower
+        shelf into one region and the sampling then lands on the descent
+        between them.
     exclude_collapse : bool, optional
         If True, remove flat segments past the collapse (see the summary
         above). The caller sets this from the signal-to-noise ratio.
@@ -561,8 +579,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
         plateau region.
 
     """
-    cand = [seg['flat'] and seg['rel_noise'] > noise_floor
-            for seg in segments]
+    cand = [seg['flat'] for seg in segments]
     if exclude_collapse and segments:
         means = [seg['mean'] for seg in segments]
         r2_max, r2_min = max(means), min(means)
@@ -589,17 +606,15 @@ def sensitivity_dispersion(fcut_range: np.ndarray, sensitivity: np.ndarray,
     Local dispersion of the baseline-sensitivity curve.
 
     The interquartile range of `sensitivity` inside a sliding window of
-    `win_dec` decades of cutoff frequency. Where the BEADS fit is
-    undetermined the baseline swings between adjacent cutoffs, so the
-    sensitivity values do not merely run high, they *scatter*: dispersion
-    separates that from a baseline that moves steadily, which is what
-    happens on the flexible side approaching the collapse, where the
-    values are high but tightly ordered.
+    `win_dec` decades of cutoff frequency.
 
-    The interquartile range rather than a standard deviation, and a
-    window rather than a smoothing kernel, because the excursions are
-    the signal here and must set the level they belong to instead of
-    being averaged away.
+    Where the fit is undetermined the baseline swings between adjacent
+    cutoffs, so the sensitivity values scatter. Dispersion distinguishes
+    that from a baseline moving steadily, which is what happens on the
+    flexible side approaching the collapse: there the values are high but
+    tightly ordered. A quantile range keeps the excursions at the level
+    they belong to, where a standard deviation or a smoothing kernel
+    would spread them into their neighbours.
 
     Parameters
     ----------
@@ -633,27 +648,30 @@ def instability_boundary(fcut_range: np.ndarray, sensitivity: np.ndarray,
     """
     Cutoff frequency up to which the fit is undetermined, or None.
 
-    Implements the rule that when the record's fundamental falls inside
-    a region where the baseline is flailing, that region is unusable up
-    to the point where the oscillations become small again. The test is
-    made at the fundamental itself, so it is local to the signal and
-    needs no prior classification of the curve.
+    When the record's fundamental falls inside a region where the
+    baseline is flailing, that region is unusable up to the point where
+    the oscillations become small again. The test is made at the
+    fundamental itself, so it is local to the signal and needs no prior
+    classification of the curve.
 
-    Below the fundamental the data cannot constrain the baseline at all
-    and ``trim_candidates`` already clips there; this extends the
-    exclusion upward over the frequencies where the fit is still
-    swinging, which the sub-fundamental clip cannot reach.
+    ``trim_candidates`` already clips below the fundamental, where the
+    data cannot constrain the baseline at all. This extends the exclusion
+    upward, over frequencies the clip cannot reach.
 
-    .. warning::
-       `trigger` and `settled` are **not grounded**. They are amplitudes
-       of the sensitivity curve, which is dimensionless (rms baseline
-       change as a fraction of the signal range, per decade), so they
-       read as physical statements about tolerable baseline movement
-       rather than as instrument constants — but no reference fixes
-       where that tolerance lies. The values are adopted provisionally
-       from a review of all 339 reference signals. `settled` is the
-       sensitive one: it sets how far the exclusion reaches. See the
-       README TO DO.
+    Warnings
+    --------
+    `trigger` and `settled` are **not grounded**. They are amplitudes of
+    the sensitivity curve, which is dimensionless (rms baseline change as
+    a fraction of the signal range, per decade), so they read as
+    statements about tolerable baseline movement, but no source fixes
+    where that tolerance lies. They were adopted provisionally from a
+    review of a signal collection. `settled` is the sensitive one,
+    setting how far the exclusion reaches; `trigger` only changes how
+    many signals it touches. See the README TO DO.
+
+    This exclusion is also the least reproducible stage of the chain
+    across library versions, because it reads the sensitivity curve at
+    low cutoff where the fit is ill-conditioned.
 
     Parameters
     ----------
@@ -699,9 +717,37 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
     """
     Apply the stage-1 exclusions to a given detected selection.
 
-    Split out of ``trim_plateaus`` so that the flat channel can be run
-    through the identical chain on its own, which is what decides
-    whether the proto-plateaus are needed at all.
+    Separate from ``trim_plateaus`` so the flat channel can be run
+    through the identical chain on its own, which is what decides whether
+    the proto-plateaus are needed at all.
+
+    Parameters
+    ----------
+    fcut_range : array-like, shape (N,)
+        The (geometrically spaced) cutoff frequencies.
+    segments : list of dict
+        The classified segments from ``classify_segments``.
+    dips : list of dict
+        The proto-plateau dips from ``detect_dips``; pass ``[]`` to run
+        the flat channel alone.
+    n_used : int
+        Number of signal points used for the autocorrelation sweep.
+    exclude_collapse : bool
+        Whether to apply the collapse exclusion.
+    c1 : float
+        Safety factor of the sub-fundamental clip.
+    collapse_level : float
+        Level of the total drop below which a plateau is past the
+        collapse, in [0, 1].
+    sensitivity : array-like, shape (N,), or None
+        The baseline-sensitivity curve; None disables the instability
+        exclusion.
+
+    Returns
+    -------
+    masks : dict of numpy.ndarray, dtype bool
+        Keys ``surviving``, ``removed``, ``snr_removed`` and
+        ``instab_removed``, as documented on ``trim_plateaus``.
 
     """
     cp_flat = np.zeros(len(fcut_range), dtype=bool)
@@ -711,9 +757,15 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
     cp_dips = dips_to_mask(fcut_range, dips)
     union = cp_flat | cp_dips
     sub_fund = fcut_range >= c1 / n_used
+    # The rebound clip applies to the proto-plateaus too. `trim_candidates`
+    # only ever sees the flat segments, so the dip channel is clipped here
+    # rather than there.
+    pre_floor = np.ones(len(fcut_range), dtype=bool)
+    pre_floor[collapse_floor(segments):] = False
+    cp_dips = cp_dips & pre_floor
 
     # No bridging: bridging absorbs the non-cliff connector between two
-    # candidate regions, which on a gentle (e.g. blank) descent merges a
+    # candidate regions, which on a gentle descent merges a
     # plateau and a lower shelf into one region, so the sampling then
     # lands on the descent *between* the plateaus. The surviving set must
     # keep the plateaus separate.
@@ -756,8 +808,8 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
     surviving, snr_removed, instab_removed = _with_collapse(exclude_collapse)
     # The collapse exclusion narrows the choice among surviving regions;
     # it is not a veto on selecting at all. When the sub-fundamental
-    # clip, the frozen tail and the instability boundary have already
-    # removed everything outside it, applying it as well leaves nothing
+    # clip and the instability boundary have already removed
+    # everything outside it, applying it as well leaves nothing
     # and the signal yields no cutoff, which is a worse answer than the
     # one it was refining. Fall back to the set without it in that case.
     if exclude_collapse and not surviving.any():
@@ -784,27 +836,30 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     proto-plateau basins (``detect_dips``, the relative flattenings the
     flat test misses). This applies the a-priori exclusions to it:
 
-    - the sub-fundamental clip and the frozen tail, always;
+    - the sub-fundamental clip, always;
     - the SNR-gated collapse exclusion, only when ``exclude_collapse``.
       Past the collapse a cutoff destroys analyte peak area
-      (Navarro-Huerta et al. 2017), so for a signal that *has* analyte
-      the plateaus below ``collapse_level`` of the drop are removed; a
-      blank keeps them. Whether a signal has analyte is a property of
-      the signal, not the curve, so the caller sets this from the SNR.
+      (Navarro-Huerta et al. 2017 §3.4), so on a signal carrying analyte
+      the plateaus below ``collapse_level`` of the drop are removed,
+      while a weak signal keeps them. Whether a signal carries analyte is a
+      property of the signal, not of the curve, so the caller decides it
+      from the signal-to-noise ratio;
     - the stiff-side instability exclusion, when `sensitivity` is given.
 
     The proto-plateaus are a **fallback**: the flat channel is run
-    through the identical chain on its own, and the dips contribute
-    only where it leaves nothing. Unioned unconditionally they also
-    fire on the descent past the collapse, where an easing of the slope
-    is a local minimum of the rolling standard deviation while still an
-    order of magnitude steeper than a plateau. On the 339 reference
-    signals the rule keeps the dips of the 5 signals with no flat
-    region and drops them everywhere else.
+    through the identical chain on its own, and the dips contribute only
+    where it leaves nothing. Unioned unconditionally they also fire on
+    the descent past the collapse, where an easing of the slope is a
+    local minimum of the rolling standard deviation while still an order
+    of magnitude steeper than a plateau. The rule keeps the dips only
+    for signals with no flat region, and drops them everywhere else.
 
-    This is the single source of the trimming: both the diagnostic
-    overlay (``baseline.auto_beads``) and the fcut gallery use it, so
-    the surviving regions cannot drift between them.
+    Applying the collapse exclusion never leaves the caller with nothing:
+    if it would empty the surviving set, the set without it is used
+    instead. No cutoff at all is a worse answer than a poor one.
+
+    Both the diagnostic overlay and the fcut gallery read the trimming
+    from here, so the surviving regions are the same in both.
 
     Parameters
     ----------
@@ -828,19 +883,26 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     sensitivity : array-like, shape (N,), optional
         The baseline-sensitivity curve. When given, the stiff-side
         instability exclusion of ``instability_boundary`` is applied on
-        top of the others — note its thresholds are not grounded.
-        Default is None, which disables that exclusion.
+        top of the others; its thresholds are not grounded. Default is
+        None, which disables that exclusion.
 
     Returns
     -------
     masks : dict of numpy.ndarray, dtype bool
-        ``surviving`` — regions that survive every applied exclusion;
-        ``removed`` — detected regions cut by the clip and frozen tail,
-        and the proto-plateaus dropped as unnecessary by the fallback
-        rule above;
-        ``snr_removed`` — the extra cut by the collapse exclusion;
-        ``instab_removed`` — the extra cut by the instability
-        exclusion (all False when `sensitivity` is None).
+        ``surviving``, the regions surviving every applied exclusion;
+        ``removed``, the detected regions cut by the sub-fundamental
+        clip, together with the proto-plateaus the fallback rule dropped
+        as unnecessary; ``snr_removed``, the extra cut by the collapse
+        exclusion; and ``instab_removed``, the extra cut by the
+        instability exclusion, all False when `sensitivity` is None.
+
+    Notes
+    -----
+    The collapse exclusion is gated on the signal-to-noise ratio, and
+    that gate discriminates only where the population straddles the
+    threshold. On data whose values sit far above it the exclusion is
+    applied to everything and the gate is a constant, which also means
+    such data cannot validate the threshold. See ``baseline._snr``.
 
     """
     masks = _trim_masks(fcut_range, segments, dips, n_used,

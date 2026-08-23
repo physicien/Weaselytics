@@ -237,7 +237,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     gs = fig.add_gridspec(3, hspace=0, height_ratios=[2.0, 1.0, 1.0])
     axs = gs.subplots(sharex=True)
     # Red fill: the detected plateaus/proto-plateaus removed by the
-    # stage-1 trimming (sub-fundamental clip and frozen tail).
+    # stage-1 trimming (the sub-fundamental clip).
     if cp_removed is not None:
         axs[0].fill_between(x, 0, 1,
                             where=cp_removed,
@@ -247,7 +247,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     # Dark-red cross-hatch: what the SNR-gated collapse exclusion (#3)
     # would additionally remove. A preview; it does not affect selection.
     # Only drawn (and labelled) when it actually removes something, so
-    # blanks do not carry a phantom legend entry.
+    # a signal it never fires on carries no phantom legend entry.
     if cp_snr_removed is not None and np.any(cp_snr_removed):
         # facecolor/edgecolor set explicitly, with the alpha carried in
         # the RGBA edge colour rather than passed as `alpha`. See

@@ -302,6 +302,46 @@ class TestAutoBeads:
         assert len(baseline) == len(y)
         assert "noise" in params
 
+    def test_default_method_is_custom_beads(self):
+        """The default fits through custom_bc, not the plain path.
+
+        Every other test passes `method` explicitly, so nothing else
+        here notices if the default moves. It matters: the two paths
+        put the collapse of the r2 curve at different cutoffs, and the
+        selection anchors on the last plateau before it.
+
+        Routing is asserted directly rather than through the fitted
+        baseline, because the two paths return the identical baseline
+        whenever ``_relevant_regions`` finds no region, which is the
+        case on small synthetic traces.
+        """
+        x = np.linspace(0, 10, 201)
+        rng = np.random.default_rng(107)
+        y = 3.0 * np.exp(-0.5 * ((x - 3.0) / 0.3) ** 2)
+        y += 2.0 * np.exp(-0.5 * ((x - 7.0) / 1.2) ** 2)
+        y += 0.1 * (x - 5.0)
+        y += 0.01 * rng.normal(size=len(x))
+
+        import weaselytics.baseline as bl_mod
+        called = []
+        real = bl_mod._custom_beads
+
+        def spy(*args, **kwargs):
+            called.append(kwargs.get('regions', 'missing'))
+            return real(*args, **kwargs)
+
+        bl_mod._custom_beads = spy
+        # The dispatch table is rebuilt per call from module globals.
+        try:
+            baseline, params = auto_beads(y, x, freq_cutoff=0.01)
+        finally:
+            bl_mod._custom_beads = real
+
+        assert called, "auto_beads did not route through _custom_beads"
+        assert len(baseline) == len(y)
+        # `noise` is rebuilt only on the custom_bc path.
+        assert "noise" in params
+
     def test_raises_on_invalid_asymmetry(self):
         x = np.linspace(0, 10, 50)
         y = np.ones(50)

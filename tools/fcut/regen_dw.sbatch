@@ -11,9 +11,15 @@
 # would add a queue wait per shard and a merge step afterwards to
 # subdivide a job that does not need it.
 #
-#   sbatch --export=ALL,MODE=prod  tools/fcut/regen_dw.sbatch
-#   sbatch --export=ALL,MODE=synth,DATASET=/path/to/SYNTH_ERB_2026-08-18 \
-#          tools/fcut/regen_dw.sbatch
+#   sbatch -J DW_PROD  --export=ALL,MODE=prod tools/fcut/regen_dw.sbatch
+#   sbatch -J DW_SYNTH --export=ALL,MODE=synth,\
+#DATASET=/path/to/SYNTH_ERB_2026-08-18 tools/fcut/regen_dw.sbatch
+#
+# The job name is not optional. Slurm resolves %x in the log filename at
+# submission, before this script runs, so the name cannot be derived
+# from MODE here: two runs submitted without -J produce two logs called
+# the same thing and only the job id tells them apart. The check below
+# refuses to start unless the name matches the mode.
 #
 # Submit from the checkout. On Rorqual that is
 #   ~/links/projects/rrg-cotemich-ac/$USER/Git/Weaselytics
@@ -30,7 +36,7 @@
 # so pointing this at runs/PROD_2026-08-20/r2_cache would destroy the
 # curves it is replacing before knowing the new ones are good.
 
-#SBATCH --job-name=REGEN_DW
+#SBATCH --job-name=DW_UNNAMED         # override with -J, see above
 #SBATCH --account=rrg-cotemich-ac
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=manubou5@gmail.com
@@ -46,6 +52,12 @@
 set -euo pipefail
 
 MODE=${MODE:-prod}
+WANT="DW_$(echo "$MODE" | tr '[:lower:]' '[:upper:]')"
+if [ "${SLURM_JOB_NAME:-$WANT}" != "$WANT" ]; then
+  echo "job name is '${SLURM_JOB_NAME}', expected '$WANT'." >&2
+  echo "resubmit with:  sbatch -J $WANT --export=ALL,MODE=$MODE ..." >&2
+  exit 2
+fi
 # Sharding is inert here: one task takes everything. The flags stay
 # because synth_diag.py carries them and they cost nothing at 1/0.
 NSHARDS=${NSHARDS:-1}

@@ -65,11 +65,14 @@ class TestFcutoffSelection:
     def _drive(self, r2):
         x = np.linspace(0, 10, 4000)
         s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
-        # _fcutoff requests the sensitivity curve too, so the mock returns
-        # the (r2, sensitivity) tuple; the sensitivity value is unused here.
+        # _fcutoff requests the Durbin-Watson array and the sensitivity
+        # curve too, so the mock returns the (r2, dw, sensitivity) tuple.
+        # Neither extra is used by the assertions here; dw is filled with
+        # 2.0, the value at which the residual is uncorrelated.
         with mock.patch.object(
                 baseline_module, "_r2_array_cached",
                 return_value=(np.ascontiguousarray(r2),
+                              np.full_like(r2, 2.0, dtype=float),
                               np.zeros_like(r2, dtype=float))):
             return baseline_module._fcutoff(s, x, len(s), num=self._N,
                                             method="beads")
@@ -230,7 +233,7 @@ class TestBeads:
         signal = np.linspace(0.0, 1.0, 50)
         param_range = np.geomspace(1e-4, 0.4, 10)
         key = _r2_cache_key(_beads, signal, param_range, "freq_cutoff", {})
-        assert _R2_CHANNEL in ("y-baseline",)
+        assert _R2_CHANNEL in ("y-baseline-dw",)
         import unittest.mock as mock
         with mock.patch.object(baseline_module, "_R2_CHANNEL", "other"):
             other = _r2_cache_key(_beads, signal, param_range,

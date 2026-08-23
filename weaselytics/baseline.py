@@ -25,10 +25,10 @@ from weaselytics.segmentation import (
     trim_plateaus,
 )
 from weaselytics.utils import (
+    _durbin_watson,
     end_window,
     merge_intervals,
     peaks_params,
-    r2_dw,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Quantity the autocorrelation of `_r2` is computed on. Part of the
 # cache key: bump it whenever the definition changes, so that curves
 # cached under the previous one are recomputed rather than reused.
-_R2_CHANNEL = "y-baseline"
+_R2_CHANNEL = "y-baseline-dw"
 
 # The cache also stores the baseline-sensitivity curve (see
 # `_sensitivity_curve`). Bump this token whenever the sensitivity
@@ -417,11 +417,18 @@ def _r2_and_baseline(
     The baseline is computed anyway to form ``y - baseline``; returning
     it lets the sweep measure how much it moves between adjacent cutoff
     frequencies (see `_sensitivity_curve`) at no extra fit.
+    dw : float
+        The Durbin-Watson statistic of ``y - baseline``. Returned
+        because ``r2`` is a square and loses the sign of the
+        correlation: ``r = 1 - dw/2``, and ``dw > 2`` marks a residual
+        that alternates sign point to point, which is the baseline
+        tracking the noise rather than the fit improving.
     """
     kwargs[param] = p
     baseline, _ = algo(baseline_fitter, y, **kwargs)
-    r2 = r2_dw(y - baseline)
-    return r2, baseline
+    resid = y - baseline
+    dw = _durbin_watson(resid)
+    return ((2.0 - dw) ** 2) / 4.0, dw, baseline
 
 
 def _sensitivity_curve(steps: np.ndarray, param_range: np.ndarray,
@@ -463,6 +470,9 @@ def _r2_chunk(args: tuple) -> tuple[list[float], np.ndarray,
     -------
     r2_values : list of float
         The r2 value for each parameter in `chunk`, in order.
+    dw_values : list of float
+        The Durbin-Watson statistic for each parameter in `chunk`, which
+        carries the sign `r2` squares away.
     steps : numpy.ndarray, shape (len(chunk),)
         The rms baseline change between consecutive parameters *within*
         the chunk. ``steps[0]`` is 0 (the seam to the previous chunk is
@@ -473,40 +483,43 @@ def _r2_chunk(args: tuple) -> tuple[list[float], np.ndarray,
 
     """
     algo, baseline_fitter, signal, chunk, param, kwargs = args
-    r2_values = []
+    r2_values, dw_values = [], []
     prev = None
     steps = np.zeros(len(chunk))
     first = last = None
     for i, p in enumerate(chunk):
-        r2, b = _r2_and_baseline(algo, baseline_fitter, signal, p,
-                                 param=param, **kwargs)
+        r2, dw, b = _r2_and_baseline(algo, baseline_fitter, signal, p,
+                                     param=param, **kwargs)
         r2_values.append(r2)
+        dw_values.append(dw)
         if i == 0:
             first = b
         else:
             steps[i] = np.sqrt(np.mean((b - prev) ** 2))
         prev = b
     last = prev
-    return r2_values, steps, first, last
+    return r2_values, dw_values, steps, first, last
 
 def _r2_array(
     algo: Callable[..., tuple[np.ndarray, dict]],
     baseline_fitter: Baseline,
     signal: np.ndarray, param_range: np.ndarray,
     param: str = "freq_cutoff", workers: int = 1,
-    return_sensitivity: bool = False, **kwargs
-) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    return_sensitivity: bool = False, return_dw: bool = False, **kwargs
+) -> np.ndarray | tuple[np.ndarray, ...]:
     """
-    Calculate the array of `r2`, the Durbin-Watson autocorrelation of the
-    baseline corrected signal, relative to a parameter on a specific range.
+    Sweep `r2` over a range of parameter values.
+
+    Evaluates `_r2` at every point of `param_range`, giving the curve the
+    cutoff frequency is selected from.
 
     The M evaluations are independent, and this sweep dominates the
     total runtime of the automatic cutoff-frequency selection (99.9% of
     the compute in the reference run), so they can be distributed over a
-    pool of worker processes. Processes are required rather than threads
-    because the iterative baseline fits hold the GIL. The parameter
-    range is split into chunks of several evaluations each so that the
-    inter-process overhead stays negligible compared to the fits.
+    pool of worker processes. The fits hold the GIL, so the pool is of
+    processes. The parameter range is split into chunks of several
+    evaluations each, keeping the inter-process overhead small next to
+    the fits.
 
     The baseline-sensitivity curve (`_sensitivity_curve`) is computed
     alongside r2 from the same fits, at no extra baseline fit; it is
@@ -544,13 +557,14 @@ def _r2_array(
 
     """
     signal_range = float(np.max(signal) - np.min(signal))
+    vdw = np.empty(len(param_range))
     if workers is None or workers <= 1:
         vr2 = np.empty(len(param_range))
         steps = np.zeros(len(param_range))
         prev = None
         for i, p in enumerate(param_range):
-            vr2[i], b = _r2_and_baseline(algo, baseline_fitter, signal, p,
-                                         param=param, **kwargs)
+            vr2[i], vdw[i], b = _r2_and_baseline(
+                algo, baseline_fitter, signal, p, param=param, **kwargs)
             if prev is not None:
                 steps[i] = np.sqrt(np.mean((b - prev) ** 2))
             prev = b
@@ -566,20 +580,24 @@ def _r2_array(
         ]
         with ProcessPoolExecutor(max_workers=workers) as executor:
             results = list(executor.map(_r2_chunk, payloads))
-        vr2 = np.array([r2 for r2s, _, _, _ in results for r2 in r2s])
+        vr2 = np.array([r2 for r2s, _, _, _, _ in results for r2 in r2s])
+        vdw = np.array([dw for _, dws, _, _, _ in results for dw in dws])
         steps = np.zeros(len(param_range))
         i = 0
         prev_last = None
-        for r2s, chunk_steps, first, last in results:
+        for r2s, _, chunk_steps, first, last in results:
             m = len(r2s)
             if prev_last is not None:            # seam to previous chunk
                 steps[i] = np.sqrt(np.mean((first - prev_last) ** 2))
             steps[i + 1:i + m] = chunk_steps[1:]
             prev_last = last
             i += m
-    if not return_sensitivity:
-        return vr2
-    return vr2, _sensitivity_curve(steps, param_range, signal_range)
+    out = (vr2,)
+    if return_dw:
+        out += (vdw,)
+    if return_sensitivity:
+        out += (_sensitivity_curve(steps, param_range, signal_range),)
+    return out[0] if len(out) == 1 else out
 
 def _r2_cache_key(algo: Callable[..., tuple[np.ndarray, dict]],
                   signal: np.ndarray, param_range: np.ndarray,
@@ -670,8 +688,8 @@ def _r2_array_cached(
     signal: np.ndarray, param_range: np.ndarray,
     param: str = "freq_cutoff", cache_dir: str | None = None,
     path: str = "./file.txt", workers: int = 1,
-    return_sensitivity: bool = False, **kwargs
-) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    return_sensitivity: bool = False, return_dw: bool = False, **kwargs
+) -> np.ndarray | tuple[np.ndarray, ...]:
     """
     Compute the array of `r2` with an optional on-disk cache.
 
@@ -723,18 +741,28 @@ def _r2_array_cached(
     Returns
     -------
     vr2 : numpy.ndarray, shape (M,)
-        The calculated (or cached) array of r2. If `return_sensitivity`, a
-        tuple ``(vr2, sensitivity)`` is returned instead.
+        The calculated (or cached) array of r2.
+    vdw : numpy.ndarray, shape (M,)
+        The Durbin-Watson statistic at the same grid points, which
+        carries the sign that squaring removes from `vr2`.
+    sensitivity : numpy.ndarray, shape (M,)
+        Returned only when `return_sensitivity`.
 
     """
-    def _out(vr2, stab):
-        return (vr2, stab) if return_sensitivity else vr2
+    def _out(vr2, vdw, stab):
+        out = (vr2,)
+        if return_dw:
+            out += (vdw,)
+        if return_sensitivity:
+            out += (stab,)
+        return out[0] if len(out) == 1 else out
 
     if cache_dir is None:
-        vr2, stab = _r2_array(algo, baseline_fitter, signal, param_range,
-                              param=param, workers=workers,
-                              return_sensitivity=True, **kwargs)
-        return _out(vr2, stab)
+        vr2, vdw, stab = _r2_array(algo, baseline_fitter, signal,
+                                   param_range, param=param,
+                                   workers=workers, return_dw=True,
+                                   return_sensitivity=True, **kwargs)
+        return _out(vr2, vdw, stab)
 
     key = _r2_cache_key(algo, signal, param_range, param, kwargs)
     stem = os.path.splitext(os.path.basename(path))[0]
@@ -744,12 +772,18 @@ def _r2_array_cached(
         with np.load(cache_file) as data:
             vr2 = data["r2_val"]
             stab = data["sensitivity"]
-        logger.info(f"{'r2 cache:':<20}loaded {cache_file}")
-        return _out(vr2, stab)
+            # `dw_val` was added after the first caches were written.
+            # The channel token below makes those entries miss, so a
+            # file without it can only come from a cache written by
+            # hand; recompute rather than guess a sign.
+            vdw = data["dw_val"] if "dw_val" in data.files else None
+        if vdw is not None or not return_dw:
+            logger.info(f"{'r2 cache:':<20}loaded {cache_file}")
+            return _out(vr2, vdw, stab)
 
-    vr2, stab = _r2_array(algo, baseline_fitter, signal, param_range,
-                          param=param, workers=workers,
-                          return_sensitivity=True, **kwargs)
+    vr2, vdw, stab = _r2_array(algo, baseline_fitter, signal, param_range,
+                               param=param, workers=workers, return_dw=True,
+                               return_sensitivity=True, **kwargs)
     os.makedirs(cache_dir, exist_ok=True)
     # Keep at most one cached curve per data file: a new write replaces
     # any entry of the same stem computed from other inputs, so stale
@@ -758,9 +792,10 @@ def _r2_array_cached(
     for name in os.listdir(cache_dir):
         if name.startswith(prefix) and name.endswith(".npz"):
             os.remove(os.path.join(cache_dir, name))
-    np.savez(cache_file, fcut_range=param_range, r2_val=vr2, sensitivity=stab)
+    np.savez(cache_file, fcut_range=param_range, r2_val=vr2, dw_val=vdw,
+             sensitivity=stab)
     logger.info(f"{'r2 cache:':<20}saved {cache_file}")
-    return _out(vr2, stab)
+    return _out(vr2, vdw, stab)
 
 def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             num: int = 1000,
@@ -844,9 +879,9 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     fcut_range = np.geomspace(0.00001, 0.5, num=num, endpoint=False)
 
     # y-data
-    r2_val, sensitivity_val = _r2_array_cached(
+    r2_val, dw_val, sensitivity_val = _r2_array_cached(
         algo, baseline_fitter, z, fcut_range, param=param,
-        cache_dir=cache_dir, path=path, workers=workers,
+        cache_dir=cache_dir, path=path, workers=workers, return_dw=True,
         return_sensitivity=True, **kwargs)
     #####
     # Changepoint-based prototype (issue #4), for diagnostics only: the

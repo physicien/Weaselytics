@@ -17,7 +17,7 @@ from weaselytics.segmentation import (  # noqa: E402
     segment_features, select_center, trim_plateaus)
 
 CACHE = ('/home/esteban/Simulation/DFT/separation_part2/runs/'
-         'PROD_2026-08-20/r2_cache')
+         'DW_prod_2026-08-23/r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 N_USED, DPI = 400, 200

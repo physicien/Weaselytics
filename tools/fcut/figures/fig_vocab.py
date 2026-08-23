@@ -26,7 +26,7 @@ matplotlib.rcParams['savefig.dpi'] = 200
 import matplotlib.pyplot as plt
 
 CACHE = ('/home/esteban/Simulation/DFT/separation_part2/runs/'
-         'PROD_2026-08-20/r2_cache')
+         'DW_prod_2026-08-23/r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 N_USED = 400

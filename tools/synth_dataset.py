@@ -351,7 +351,8 @@ PEARSON7_ASYMMETRY = (min(PEARSON7_ASYMMETRY_NIEZEN[0],
 # date. The formulas below are copied verbatim from the documentation at
 # the pinned commit and are covered by tests.
 #
-# Sources, both at pybaselines commit c36ce6128:
+# Sources, both read at pybaselines commit c36ce6128 and unchanged
+# since:
 #   [A] docs/examples/misc/plot_beads_preprocessing.py, make_data()
 #       -- three baselines forming a deliberate ladder of violation of
 #          the BEADS periodicity requirement (Navarro-Huerta 2017

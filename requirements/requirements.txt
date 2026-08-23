@@ -44,4 +44,12 @@ pandas>=2.0
 # (`lam_0 = 1 / abs(y_transf).sum()`, etc.). The old `lam=1.0` is the
 # unjustified value. Unpinning to an older pybaselines would be a
 # regression, not a fix.
-pybaselines @ git+https://github.com/derb12/pybaselines@c36ce6128a8acae93503d0167207a99a035e9095
+#
+# Moved forward from c36ce6128 to 98d50d01f on 2026-08-21, 22 commits.
+# `pybaselines/misc.py`, which holds beads, is untouched across them,
+# and the changed modules (whittaker, spline, morphological,
+# classification) are not on this project's path. Verified rather than
+# assumed: on three reference chromatograms, both fitting paths, the
+# baselines are bit-identical across the two commits, so the r2 caches
+# stay valid.
+pybaselines @ git+https://github.com/derb12/pybaselines@98d50d01f63082090c0b565a5306cbb6f345bfb9

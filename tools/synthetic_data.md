@@ -325,7 +325,7 @@ auto-scaled with no changelog entry, shifting r² from 0.885 to 0.950 at a
 fixed cutoff — so a benchmark that imported it would silently depend on the
 install date.
 
-The formulas are therefore copied from the documentation at the pinned
+The formulas are therefore copied from the documentation as it stood at
 commit `c36ce6128` and covered by tests, including one asserting
 **bit-for-bit** equality with `pybaselines.utils.gaussian`. Note the
 transcription evaluates `h·exp(-0.5(x-c)²/σ²)` rather than

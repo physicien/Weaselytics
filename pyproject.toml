@@ -26,7 +26,7 @@ dependencies = [
     # the beads lam_0/1/2 defaults changed on it with no changelog entry.
     # Pin forward only — the new default is the literature-backed L1
     # scaling. See requirements/requirements.txt for the measured impact.
-    "pybaselines @ git+https://github.com/derb12/pybaselines@c36ce6128a8acae93503d0167207a99a035e9095",
+    "pybaselines @ git+https://github.com/derb12/pybaselines@98d50d01f63082090c0b565a5306cbb6f345bfb9",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

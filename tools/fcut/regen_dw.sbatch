@@ -6,13 +6,19 @@
 # has to be paid once more. That sweep is 99.9% of the compute, hence the
 # job array: each task takes an interleaved shard of the signals.
 #
-#   sbatch --export=ALL,MODE=prod  Weaselytics/tools/fcut/regen_dw.sbatch
-#   sbatch --export=ALL,MODE=synth Weaselytics/tools/fcut/regen_dw.sbatch
+#   sbatch --export=ALL,MODE=prod  tools/fcut/regen_dw.sbatch
+#   sbatch --export=ALL,MODE=synth,DATASET=/path/to/SYNTH_ERB_2026-08-18 \
+#          tools/fcut/regen_dw.sbatch
 #
-# Submit from the project directory, the one holding `data`, `runs`,
-# `SYNTH_ERB_*` and the `Weaselytics` checkout. The repository is a
-# subdirectory of it, not the working directory: nothing this job writes
-# lands inside the checkout.
+# Submit from the checkout. On Rorqual that is
+#   ~/links/projects/rrg-cotemich-ac/$USER/Git/Weaselytics
+# and `data` sits inside it. On a workstation `data` may instead be a
+# sibling of the checkout, so both are looked for rather than assumed;
+# set DATADIR to override.
+#
+# DATASET has no default. The synthetic set is not beside the code on
+# every machine and guessing its path has already cost one stray output
+# directory, so MODE=synth refuses to start without it.
 #
 # The caches are written to a NEW directory, never on top of an existing
 # one: a cache miss deletes every entry of the same stem before writing,
@@ -40,15 +46,22 @@ NSHARDS=${SLURM_ARRAY_TASK_COUNT:-12}
 SHARD=${SLURM_ARRAY_TASK_ID:-0}
 CPUS=${SLURM_CPUS_PER_TASK:-1}
 
-# Submitted from the project directory; the checkout sits inside it.
-# Override REPO if it lives somewhere else.
-PROJDIR=$PWD
-REPO=${REPO:-$PROJDIR/Weaselytics}
-for d in "$PROJDIR/data" "$PROJDIR/runs" "$REPO/weaselytics"; do
-  [ -d "$d" ] || { echo "missing: $d" >&2; exit 2; }
-done
+REPO=$PWD
+[ -d "$REPO/weaselytics" ] || {
+  echo "submit from the checkout: no $REPO/weaselytics" >&2; exit 2; }
+
+# `data` lives inside the checkout on the cluster and beside it on some
+# workstations. Look, do not assume.
+if [ -z "${DATADIR:-}" ]; then
+  for c in "$REPO/data" "$REPO/../data"; do
+    [ -d "$c" ] && { DATADIR=$(cd "$c" && pwd); break; }
+  done
+fi
+[ -n "${DATADIR:-}" ] && [ -d "$DATADIR" ] || {
+  echo "no data directory found; set DATADIR" >&2; exit 2; }
+
 STAMP=${STAMP:-$(date +%Y-%m-%d)}
-OUTROOT=$PROJDIR/runs/DW_${MODE}_${STAMP}
+OUTROOT=${OUTROOT:-$REPO/runs/DW_${MODE}_${STAMP}}
 CACHEDIR=$OUTROOT/r2_cache
 mkdir -p "$CACHEDIR"
 
@@ -65,7 +78,9 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 echo "mode=$MODE shard=$SHARD/$NSHARDS cpus=$CPUS"
-echo "proj=$PROJDIR repo=$REPO out=$OUTROOT"
+echo "repo=$REPO"
+echo "data=$DATADIR"
+echo "out =$OUTROOT"
 python -c "import weaselytics.baseline as b; print('channel:', b._R2_CHANNEL)"
 
 case "$MODE" in
@@ -73,7 +88,7 @@ prod)
   # Interleave rather than take a contiguous block: the files are sorted
   # by molecule and the record lengths cluster, so contiguous shards
   # would differ in wall time.
-  mapfile -t FILES < <(ls "$PROJDIR"/data/*/*.txt | sort \
+  mapfile -t FILES < <(ls "$DATADIR"/*/*.txt | sort \
                        | awk -v n="$NSHARDS" -v s="$SHARD" 'NR%n==s')
   echo "${#FILES[@]} signals in this shard"
   for f in "${FILES[@]}"; do
@@ -83,7 +98,11 @@ prod)
   done
   ;;
 synth)
-  DATASET=${DATASET:-$PROJDIR/SYNTH_ERB_2026-08-18}
+  # No default: guessing this path is what produced a stray W_synth
+  # directory on the cluster once already.
+  [ -n "${DATASET:-}" ] || {
+    echo "MODE=synth needs DATASET=/path/to/the/synthetic/dataset" >&2
+    exit 2; }
   [ -d "$DATASET/signals" ] || { echo "missing: $DATASET/signals" >&2; exit 2; }
   python "$REPO/tools/synth_diag.py" "$DATASET" \
       --cache-dir "$CACHEDIR" --diag-dir "$OUTROOT/diag" \

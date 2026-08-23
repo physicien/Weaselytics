@@ -165,16 +165,41 @@ def main() -> None:
     parser.add_argument('--stride', type=int, default=4,
                         help='fcut grid stride of the error curve '
                              '(default: 4)')
+    parser.add_argument('--cache-dir', default=None,
+                        help='directory for the r2 curve cache. Default '
+                             'is <dataset>/r2_cache. Point it elsewhere '
+                             'to leave an existing cache untouched: a '
+                             'miss deletes every entry of the same stem '
+                             'before writing.')
+    parser.add_argument('--diag-dir', default=None,
+                        help='directory for the per-signal diagnostics. '
+                             'Default is <dataset>/diag.')
+    parser.add_argument('--nshards', type=int, default=1,
+                        help='split the signals into this many shards so '
+                             'a job array can cover them (default: 1)')
+    parser.add_argument('--shard', type=int, default=0,
+                        help='which shard this process handles, '
+                             '0 <= shard < nshards (default: 0)')
     args = parser.parse_args()
+    if not 0 <= args.shard < args.nshards:
+        parser.error('shard must satisfy 0 <= shard < nshards')
 
     sig_dir = os.path.join(args.dataset, 'signals')
     truth_dir = os.path.join(args.dataset, 'truth')
-    cache_dir = os.path.join(args.dataset, 'r2_cache')
-    diag_dir = os.path.join(args.dataset, 'diag')
+    cache_dir = args.cache_dir or os.path.join(args.dataset, 'r2_cache')
+    diag_dir = args.diag_dir or os.path.join(args.dataset, 'diag')
+    os.makedirs(cache_dir, exist_ok=True)
     os.makedirs(diag_dir, exist_ok=True)
 
     stems = sorted(os.path.splitext(os.path.basename(p))[0]
                    for p in glob(os.path.join(sig_dir, '*.txt')))
+    # Round-robin rather than contiguous blocks: the cost of a sweep
+    # varies with the record length, and the stems are sorted by name,
+    # which groups the long ones together. Interleaving keeps the shards
+    # comparable in wall time.
+    if args.nshards > 1:
+        stems = stems[args.shard::args.nshards]
+        print(f'shard {args.shard} of {args.nshards}: {len(stems)} signals')
     rows = []
     failures = []
     for stem in stems:
@@ -189,7 +214,11 @@ def main() -> None:
         print(f"{stem}: fc*={row['fc_best']:0.3e} "
               f"cand={row['in_candidates']}")
 
-    out = os.path.join(args.dataset, 'diag_summary.csv')
+    if args.nshards > 1:
+        out = os.path.join(diag_dir,
+                           f'diag_summary.shard{args.shard:03d}.csv')
+    else:
+        out = os.path.join(args.dataset, 'diag_summary.csv')
     with open(out, 'w') as f:
         keys = list(rows[0].keys())
         f.write(','.join(keys) + '\n')

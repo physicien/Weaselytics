@@ -3,8 +3,13 @@
 #
 # The sweep now stores dw_val alongside r2_val, and _R2_CHANNEL is bumped
 # to "y-baseline-dw", so every existing entry misses and the BEADS sweep
-# has to be paid once more. That sweep is 99.9% of the compute, hence the
-# job array: each task takes an interleaved shard of the signals.
+# has to be paid once more.
+#
+# One task, not an array. The sweep already parallelises internally over
+# the cutoff grid (-w), and the whole production set costs about 8400 s
+# of autocorrelation serially, so on 32 cpus it is minutes. An array
+# would add a queue wait per shard and a merge step afterwards to
+# subdivide a job that does not need it.
 #
 #   sbatch --export=ALL,MODE=prod  tools/fcut/regen_dw.sbatch
 #   sbatch --export=ALL,MODE=synth,DATASET=/path/to/SYNTH_ERB_2026-08-18 \
@@ -29,21 +34,22 @@
 #SBATCH --account=rrg-cotemich-ac
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=manubou5@gmail.com
-#SBATCH --array=0-11
 ##SBATCH --ntasks=1                   # cpus, if across several nodes
-##SBATCH --mem-per-cpu=2G             # memory, if across several nodes
+##SBATCH --mem-per-cpu=2000M          # memory, if across several nodes
 #SBATCH --nodes=1                     # nb of whole nodes
 #SBATCH --ntasks-per-node=1           # one task; the sweep forks its own
-#SBATCH --cpus-per-task=16            # workers for the r2 sweep (-w)
-#SBATCH --mem=32G                     # mem=0 for all memory of the node
-#SBATCH --time=00-06:00               # time (DD-HH:MM)
-#SBATCH --output=%x_%A_%a.log
+#SBATCH --cpus-per-task=32            # workers for the r2 sweep (-w)
+#SBATCH --mem=64000M                  # mem=0 for all memory of the node
+#SBATCH --time=00-02:00               # time (DD-HH:MM)
+#SBATCH --output=%x_%j.log
 
 set -euo pipefail
 
 MODE=${MODE:-prod}
-NSHARDS=${SLURM_ARRAY_TASK_COUNT:-12}
-SHARD=${SLURM_ARRAY_TASK_ID:-0}
+# Sharding is inert here: one task takes everything. The flags stay
+# because synth_diag.py carries them and they cost nothing at 1/0.
+NSHARDS=${NSHARDS:-1}
+SHARD=${SHARD:-0}
 CPUS=${SLURM_CPUS_PER_TASK:-1}
 
 REPO=$PWD
@@ -85,9 +91,6 @@ python -c "import weaselytics.baseline as b; print('channel:', b._R2_CHANNEL)"
 
 case "$MODE" in
 prod)
-  # Interleave rather than take a contiguous block: the files are sorted
-  # by molecule and the record lengths cluster, so contiguous shards
-  # would differ in wall time.
   mapfile -t FILES < <(ls "$DATADIR"/*/*.txt | sort \
                        | awk -v n="$NSHARDS" -v s="$SHARD" 'NR%n==s')
   echo "${#FILES[@]} signals in this shard"
@@ -114,4 +117,4 @@ synth)
   ;;
 esac
 
-echo "shard $SHARD done: $(ls "$CACHEDIR" | wc -l) curves in the cache"
+echo "done: $(ls "$CACHEDIR" | wc -l) curves in the cache"

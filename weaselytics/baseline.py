@@ -766,7 +766,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             num: int = 1000,
             method: str = "beads", param: str = "freq_cutoff",
             cache_dir: str | None = None, path: str = "./file.txt",
-            workers: int = 1, snr_threshold: float = 25.0, **kwargs
+            workers: int = 1, snr_threshold: float = 10.0, **kwargs
             ) -> tuple[float, dict]:
     """
     Find the optimal cutoff frequency.
@@ -806,7 +806,8 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     snr_threshold : float, optional
         Signal-to-noise ratio above which the collapsed plateaus are
         excluded from the candidate regions (see `_snr` and
-        `trim_candidates`). Default is 25.
+        `trim_candidates`). Default is 10, the limit of quantitation
+        [3]_.
     **kwargs
         Additional keyword arguments.
 
@@ -933,7 +934,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
                fit_parabola: bool = True, alpha: float | None = None,
                parabola_len: int | None = 3,
                cache_dir: str | None = None,
-               workers: int = 1, snr_threshold: float = 25.0
+               workers: int = 1, snr_threshold: float = 10.0
                ) -> tuple[np.ndarray, dict]:
     """
     Automatic implementation of the Baseline estimation and denoising with
@@ -1013,9 +1014,15 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         Signal-to-noise ratio (see `_snr`) above which the collapsed
         plateaus past the r2 drop are excluded from the candidate cutoff
         regions, because on a signal with analyte a cutoff there destroys
-        peak area. Below it the shelves are kept, as a blank's optimum
-        can lie past the collapse. Default is 25. Only relevant when
-        `freq_cutoff` is None.
+        peak area. Below it the shelves are kept, as a weak signal's optimum
+        can lie past the collapse. Default is 10, the limit of
+        quantitation of MacDougall et al. [3]_: below it a peak's area
+        cannot be measured with acceptable precision, so there is little
+        left for a cutoff past the collapse to destroy. Their ratio is
+        built on the standard deviation of a blank, while `_snr` reads
+        the tallest excursion of the record itself against a robust
+        noise estimate, so the value is carried over rather than
+        derived. Only relevant when `freq_cutoff` is None.
 
     Returns
     -------
@@ -1038,6 +1045,11 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     .. [2] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in
         complex chromatograms using the BEADS algorithm. Journal of
         Chromatography A, 2017, 1507, 1-10.
+    .. [3] MacDougall, D., et al. Guidelines for data acquisition and
+        data quality evaluation in environmental chemistry. Analytical
+        Chemistry, 1980, 52(14), 2242-2249. Their Table I sets the
+        region of quantitation at a signal-to-noise ratio above 10, and
+        the region of detection between 3 and 10.
 
     """
     if asymmetry <= 0:

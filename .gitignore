@@ -50,5 +50,11 @@ ENV/
 images/
 r2_plots/
 
+# ... but the figures of the fcut documentation are source, not output.
+# The rule above matches a directory of that name at any depth, so the
+# directory has to be re-included before its contents can be.
+!tools/fcut/images/
+!tools/fcut/images/**
+
 # Exported data files
 *_bl.txt

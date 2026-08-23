@@ -1,0 +1,4 @@
+# Scratch space of render_all.sh: intermediate PNGs, the r2 cache the
+# diagnostic figure builds, and the historical worktrees.
+.work/
+*.png

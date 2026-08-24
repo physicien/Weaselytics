@@ -46,7 +46,6 @@ from weaselytics.segmentation import (
     segment_features,
     trim_candidates,
 )
-from weaselytics.utils import end_window
 
 
 def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
@@ -56,7 +55,7 @@ def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
 
     Mirrors the final-correction configuration of ``auto_beads``
     (custom_beads, per-region sampling, ``alpha=1``,
-    ``parabola_len=end_window(s)``, asymmetry 1).
+    ``parabola_len=3``, asymmetry 1).
 
     Parameters
     ----------
@@ -80,7 +79,7 @@ def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     fitter = Baseline(x_data=x)
     kwargs = {'regions': peak_regions, 'sampling': sampling,
               'asymmetry': 1.0, 'fit_parabola': True, 'alpha': 1.0,
-              'parabola_len': end_window(s)}
+              'parabola_len': 3}
     err = np.full(len(fcuts), np.nan)
     for k, fc in enumerate(fcuts):
         try:

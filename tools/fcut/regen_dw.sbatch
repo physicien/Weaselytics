@@ -11,15 +11,20 @@
 # would add a queue wait per shard and a merge step afterwards to
 # subdivide a job that does not need it.
 #
-#   sbatch -J DW_PROD  --export=ALL,MODE=prod tools/fcut/regen_dw.sbatch
-#   sbatch -J DW_SYNTH --export=ALL,MODE=synth,\
+#   sbatch -J PROD_2026-08-24  --export=ALL,MODE=prod \
+#          tools/fcut/regen_dw.sbatch
+#   sbatch -J SYNTH_2026-08-24 --export=ALL,MODE=synth,\
 #DATASET=/path/to/SYNTH_ERB_2026-08-18 tools/fcut/regen_dw.sbatch
 #
-# The job name is not optional. Slurm resolves %x in the log filename at
-# submission, before this script runs, so the name cannot be derived
-# from MODE here: two runs submitted without -J produce two logs called
-# the same thing and only the job id tells them apart. The check below
-# refuses to start unless the name matches the mode.
+# The job name is not optional, and it must equal the basename of the
+# run directory. Slurm resolves %x in the log filename at submission,
+# before this script runs, so the name cannot be set here; the check
+# below refuses to start unless it matches. That ties the queue entry,
+# the log and the output directory to one string, so a run can be traced
+# from any of them. Naming after MODE alone, as this did until
+# 2026-08-24, gives two runs a week apart the same name, and a fixed
+# prefix goes stale as soon as the reason for the run changes: `DW_`
+# meant the Durbin-Watson refill and outlived it by one day.
 #
 # Submit from the checkout. On Rorqual that is
 #   ~/links/projects/rrg-cotemich-ac/$USER/Git/Weaselytics
@@ -52,12 +57,6 @@
 set -euo pipefail
 
 MODE=${MODE:-prod}
-WANT="DW_$(echo "$MODE" | tr '[:lower:]' '[:upper:]')"
-if [ "${SLURM_JOB_NAME:-$WANT}" != "$WANT" ]; then
-  echo "job name is '${SLURM_JOB_NAME}', expected '$WANT'." >&2
-  echo "resubmit with:  sbatch -J $WANT --export=ALL,MODE=$MODE ..." >&2
-  exit 2
-fi
 # Sharding is inert here: one task takes everything. The flags stay
 # because synth_diag.py carries them and they cost nothing at 1/0.
 NSHARDS=${NSHARDS:-1}
@@ -79,7 +78,22 @@ fi
   echo "no data directory found; set DATADIR" >&2; exit 2; }
 
 STAMP=${STAMP:-$(date +%Y-%m-%d)}
-OUTROOT=${OUTROOT:-$REPO/runs/DW_${MODE}_${STAMP}}
+OUTROOT=${OUTROOT:-$REPO/runs/$(echo "$MODE" | tr '[:lower:]' '[:upper:]')_$STAMP}
+
+# The job name has to equal the run directory's name, so the queue
+# entry, the log (%x_%j) and the output directory all carry the same
+# string and a run can be traced from any one of them. Slurm resolves
+# %x at submission, before this script runs, so the name cannot be set
+# here: it has to be given with -J and checked. Anything derived from
+# MODE alone would name two runs a week apart identically, and a fixed
+# prefix goes stale as soon as the reason for the run changes.
+WANT=$(basename "$OUTROOT")
+if [ "${SLURM_JOB_NAME:-$WANT}" != "$WANT" ]; then
+  echo "job name is '${SLURM_JOB_NAME}', expected '$WANT'." >&2
+  echo "resubmit with:  sbatch -J $WANT --export=ALL,MODE=$MODE,..." >&2
+  exit 2
+fi
+
 CACHEDIR=$OUTROOT/r2_cache
 mkdir -p "$CACHEDIR"
 

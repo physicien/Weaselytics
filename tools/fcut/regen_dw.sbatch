@@ -33,7 +33,7 @@
 #
 # The caches are written to a NEW directory, never on top of an existing
 # one: a cache miss deletes every entry of the same stem before writing,
-# so pointing this at runs/PROD_2026-08-20/r2_cache would destroy the
+# so pointing this at an existing run's r2_cache would destroy the
 # curves it is replacing before knowing the new ones are good.
 
 #SBATCH --job-name=DW_UNNAMED         # override with -J, see above

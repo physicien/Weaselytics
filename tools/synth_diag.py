@@ -214,11 +214,15 @@ def main() -> None:
         print(f"{stem}: fc*={row['fc_best']:0.3e} "
               f"cand={row['in_candidates']}")
 
+    # Beside the diagnostics, never inside the dataset: a run that
+    # writes into its own input overwrites the summary of whatever
+    # produced it. `--diag-dir` defaults to <dataset>/diag, so the
+    # unsharded path is unchanged for anyone not passing it.
     if args.nshards > 1:
         out = os.path.join(diag_dir,
                            f'diag_summary.shard{args.shard:03d}.csv')
     else:
-        out = os.path.join(args.dataset, 'diag_summary.csv')
+        out = os.path.join(diag_dir, 'diag_summary.csv')
     with open(out, 'w') as f:
         keys = list(rows[0].keys())
         f.write(','.join(keys) + '\n')

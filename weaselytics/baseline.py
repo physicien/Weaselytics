@@ -249,18 +249,22 @@ def _log_transform(s: np.ndarray, epsilon: float = 1) -> np.ndarray:
     -----
     Navarro-Huerta et al. [1] §3.3.2 give two reasons for
     ``epsilon = 1``: it suits signals whose maxima reach 500 to 10,000,
-    which is the range they worked in; and it sends the minimum of the
-    record to zero, since ``log10(1) = 0``.
+    and it sends the minimum of the record to zero, since
+    ``log10(1) = 0``. The value is stated rather than measured, and the
+    paper applies it unchanged to every chromatogram it shows, from the
+    60 A.U. of its Fig. 8 to the 2100 of its Fig. 6c.
 
-    The first reason is a property of their data and does not transfer.
-    The second is arithmetic and holds at any scale. Since the offset
-    sets how aggressive the compression is, a record whose maximum is
-    well below 500 is compressed harder than theirs were, and no
-    measurement here establishes what the offset should be in that case.
+    The offset behaves the same way at every scale. The local gain of
+    the transform is ``1 / ((u + epsilon) ln 10)`` with
+    ``u = s - min(s)``, so a record of span ``S`` is compressed by
+    ``(S + epsilon) / epsilon`` between its bottom and its top. Tall
+    peaks are therefore compressed far more than small ones, and the
+    ratio shrinks with the span, so a short record is treated more
+    gently than a tall one.
 
-    The base is ten, following Eq. (8). Under the auto-scaled ``lam_d``
-    the penalty terms are scale-invariant while the data-fidelity term
-    is not, so the base sets the balance between them.
+    Under the auto-scaled ``lam_d`` the penalty terms are
+    scale-invariant while the data-fidelity term is not, so the base of
+    the logarithm sets the balance between them.
 
     References
     ----------

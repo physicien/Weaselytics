@@ -1,9 +1,13 @@
 #!/bin/bash
-# Refill the r2 caches with the Durbin-Watson statistic.
+# Rebuild an r2 cache from scratch, for the production set or for a
+# synthetic dataset.
 #
-# The sweep now stores dw_val alongside r2_val, and _R2_CHANNEL is bumped
-# to "y-baseline-dw", so every existing entry misses and the BEADS sweep
-# has to be paid once more.
+# Any change to what the sweep stores or to how it is computed bumps
+# _R2_CHANNEL, every existing entry then misses, and the BEADS sweep has
+# to be paid once more. That is what this job is for, whatever the
+# change happens to be: adding dw_val alongside r2_val on 2026-08-23,
+# correcting the benchmark's parabola length on 2026-08-24. Name the run
+# after the dataset and the date, never after the reason.
 #
 # One task, not an array. The sweep already parallelises internally over
 # the cutoff grid (-w), and the whole production set costs about 8400 s
@@ -12,9 +16,9 @@
 # subdivide a job that does not need it.
 #
 #   sbatch -J PROD_2026-08-24  --export=ALL,MODE=prod \
-#          tools/fcut/regen_dw.sbatch
+#          tools/fcut/regen_cache.sbatch
 #   sbatch -J SYNTH_2026-08-24 --export=ALL,MODE=synth,\
-#DATASET=/path/to/SYNTH_ERB_2026-08-18 tools/fcut/regen_dw.sbatch
+#DATASET=/path/to/SYNTH_ERB_2026-08-18 tools/fcut/regen_cache.sbatch
 #
 # The job name is not optional, and it must equal the basename of the
 # run directory. Slurm resolves %x in the log filename at submission,
@@ -41,7 +45,7 @@
 # so pointing this at an existing run's r2_cache would destroy the
 # curves it is replacing before knowing the new ones are good.
 
-#SBATCH --job-name=DW_UNNAMED         # override with -J, see above
+#SBATCH --job-name=UNNAMED         # override with -J, see above
 #SBATCH --account=rrg-cotemich-ac
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=manubou5@gmail.com

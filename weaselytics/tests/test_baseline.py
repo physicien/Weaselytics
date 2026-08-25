@@ -78,15 +78,21 @@ class TestSmoothSigma:
 class TestSnr:
     def test_high_for_analyte_low_for_blank(self):
         # A tall peak on light noise is well above the gate; a flat
-        # trace of the same noise is well below it. The ~25 split must
-        # sit cleanly between them.
+        # trace of the same noise is well below it. These score 437.6
+        # and 4.0. The gate is read from the production default rather
+        # than written here, so moving it cannot leave this test
+        # asserting a value the package no longer uses.
+        import inspect
+
+        gate = (inspect.signature(auto_beads)
+                .parameters['snr_threshold'].default)
         x = np.linspace(0, 10, 1000)
         rng = np.random.default_rng(3)
         peak = 5. * np.exp(-0.5 * ((x - 5.) / 0.1) ** 2)
         peak += 0.01 * rng.normal(size=1000)
         blank = 0.01 * rng.normal(size=1000)
-        assert _snr(peak) >= 25.
-        assert _snr(blank) < 25.
+        assert _snr(peak) >= gate
+        assert _snr(blank) < gate
 
     def test_constant_difference_signal_is_infinite(self):
         # A perfectly linear ramp has constant consecutive differences,

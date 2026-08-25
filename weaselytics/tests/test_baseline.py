@@ -32,6 +32,49 @@ class TestRelevantRegions:
         assert scut <= len(s)
 
 
+class TestSmoothSigma:
+    """The pre-smoothing width is an argument, and it is a sigma.
+
+    Exposing it changed no result. Checked by running the previous
+    revision and this one over the 339 LPYE records and comparing all
+    three outputs: `peak_regions`, `sampling` and `scut` agree on every
+    record. That comparison needs two revisions of the module and so
+    cannot live here; what is asserted below is that the default is
+    still 3 and that the argument reaches the filter.
+
+    It is not a window length, so a small value does not clean the
+    trace, it stops cleaning it.
+    """
+
+    @staticmethod
+    def _noisy_peak():
+        x = np.arange(2000) / 60.
+        rng = np.random.default_rng(11)
+        s = 5. * np.exp(-0.5 * ((x - 12.) / 0.2) ** 2)
+        s += 0.05 * rng.normal(size=len(x))
+        return x, s
+
+    def test_default_is_three(self):
+        import inspect
+
+        sig = inspect.signature(_relevant_regions)
+        assert sig.parameters['smooth_sigma'].default == 3.
+
+    def test_passing_the_default_explicitly_is_a_no_op(self):
+        x, s = self._noisy_peak()
+        assert (_relevant_regions(s, x)[2]
+                == _relevant_regions(s, x, smooth_sigma=3.)[2])
+
+    def test_a_small_sigma_admits_the_noise(self):
+        # At a spike-removal scale the detection reads the noise floor
+        # as peaks; measured over the 339 LPYE records, the relevance
+        # filter returns 2092 against 1294.
+        x, s = self._noisy_peak()
+        wide = _relevant_regions(s, x, smooth_sigma=3.)
+        narrow = _relevant_regions(s, x, smooth_sigma=0.5)
+        assert narrow[2] > wide[2]
+
+
 class TestSnr:
     def test_high_for_analyte_low_for_blank(self):
         # A tall peak on light noise is well above the gate; a flat

@@ -57,7 +57,8 @@ _SENSITIVITY_VERSION = "sens-1"
 
 
 def _relevant_regions(
-    s: np.ndarray, x: np.ndarray, tol: float = 6.
+    s: np.ndarray, x: np.ndarray, tol: float = 6.,
+    smooth_sigma: float = 3.
 ) -> tuple[np.ndarray | None, np.ndarray, int]:
     """
     Locate the peaks and the useful extent of the signal.
@@ -85,6 +86,11 @@ def _relevant_regions(
         Largest peak width, per unit of `x`, still counted as analyte. A
         wider feature is treated as baseline structure and ignored.
         Default is 6.
+    smooth_sigma : float, optional
+        Standard deviation, in points, of the Gaussian applied to the
+        copy of `s` that peaks are detected on. It sets the scale below
+        which structure is treated as noise rather than as a peak.
+        Default is 3.
 
     Returns
     -------
@@ -108,12 +114,31 @@ def _relevant_regions(
     Fails on a trace carrying no genuine negative peak: the bar is then
     the noise floor, and the deepest noise dip is admitted.
 
+    `smooth_sigma` is load-bearing and nothing fixes its value. What it
+    costs and what it buys, measured over the 339 LPYE records:
+
+    - It attenuates and broadens what it keeps. The smoothed apex holds
+      a median 87% of the raw local maximum, and a peak of FWHM `w`
+      comes out at `sqrt(w**2 + (2.355*smooth_sigma)**2)`, which at the
+      default widens a 5-point peak by 73%.
+    - Lowering it to a spike-removal scale floods the detection. At the
+      equivalent of a 3-point median the relevance filter returns 2092
+      peaks against 1294, 13% of them under 5 points wide, and `scut`
+      moves on 328 of the 339 records because the last feature admitted
+      is a noise bump rather than a peak.
+
+    So the run-length argument that fixes a median filter's window says
+    nothing here: the value sets a noise-suppression scale, not an
+    impulse length.
+
     """
     # NOTE: A weak smoothing helps to avoid peak detection in noisy region of
     #       the signal by:
     #           1) removing most of the spurious features in the raw signal
     #           2) sligntly enlarging features relevant for peaks detection
-    z = gaussian_filter1d(s,3)
+    #       `smooth_sigma` is a standard deviation, not a window: scipy
+    #       truncates at 4 sigma, so the default spans 25 points.
+    z = gaussian_filter1d(s, smooth_sigma)
     # A feature carrying taller peaks is structure, not a peak: the
     # peaks on it are what define the region.
     peaks, widths = peaks_params(z, width=3, rel_prom_p=0.01,

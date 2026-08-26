@@ -317,7 +317,7 @@ def fit_peak(
     mol: str | None = None,
     path: str | None = None,
     output_dir: str = "results",
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Fit robustly the most prominent peak on `x` with both Gaussian and
     Skew-Normal distributions.

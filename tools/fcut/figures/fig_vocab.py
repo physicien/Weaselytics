@@ -25,12 +25,18 @@ matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
 import matplotlib.pyplot as plt
 
+from weaselytics.segmentation import (  # noqa: E402
+    classify_segments,
+    pelt_linear,
+    segment_features,
+)
+
 CACHE = ('/home/esteban/Simulation/DFT/separation_part2/runs/'
-         'DW_prod_2026-08-23/r2_cache')
+         'PROD_2026-08-24/r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 N_USED = 400
-COLLAPSE_LEVEL = 0.5
+DROP_LEVEL = 0.5
 
 TERM_SIZE = 10.5
 NOTE_SIZE = 8.5
@@ -45,8 +51,14 @@ def main():
     d = np.load(f)
     fr, r2 = d['fcut_range'], d['r2_val']
     fund = 1.0 / N_USED
-    lo, hi = float(np.nanmin(r2)), float(np.nanmax(r2))
-    half = lo + COLLAPSE_LEVEL * (hi - lo)
+    # The drop level is taken from the SEGMENT MEANS, the same scale
+    # `trim_candidates` compares against, so the drawn line is the
+    # threshold the code actually applies rather than a second one
+    # built on the raw curve.
+    means = [s['mean'] for s in
+             classify_segments(segment_features(fr, r2, pelt_linear(r2)))]
+    lo, hi = float(min(means)), float(max(means))
+    half = lo + DROP_LEVEL * (hi - lo)
 
     fig, ax = plt.subplots(figsize=(11.0, 6.0))
     ax.plot(fr, r2, lw=1.7, color=BLUE, zorder=4)
@@ -145,12 +157,12 @@ def main():
     ax.axhline(half, color=GREY, lw=1.0, ls=':', zorder=2)
 
     label(7.5e-5, 0.79, 'initial plateau',
-          'every cutoff here returns\nthe same rigid baseline',
+          'every cutoff here returns\nan overly rigid baseline',
           color=GREEN, arrow=(None, 0.993), side='up')
 
-    label(1.25e-5, half - 0.085, 'half the total drop',
-          'a plateau below this line counts as "past the collapse",\n'
-          'where a cutoff eats analyte peak area', color=GREY)
+    label(1.25e-5, half - 0.085, 'the drop level',
+          'a plateau below this line counts as "past the drop",\n'
+          'where most of the peak area is already gone', color=GREY)
 
     # the fundamental, along its own line
     ax.axvline(fund, color=RED, lw=1.4, ls='--', zorder=3)

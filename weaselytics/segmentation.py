@@ -11,6 +11,23 @@ frequency is read off what survives. This is the production path of
 
 The method, its parameters and the questions still open are documented in
 ``tools/fcut/segmentation.md``.
+
+References
+----------
+.. [1] Jackson, B. et al. An algorithm for optimal partitioning of data
+   on an interval. IEEE Signal Process. Lett. 12(2), 105-108 (2005).
+   doi:10.1109/LSP.2001.838216
+.. [2] Killick, R., Fearnhead, P. and Eckley, I. A. Optimal detection
+   of changepoints with a linear computational cost. J. Am. Stat.
+   Assoc. 107(500), 1590-1598 (2012). doi:10.1080/01621459.2012.737745
+.. [3] Schwarz, G. Estimating the dimension of a model. Ann. Statist.
+   6(2), 461-464 (1978). doi:10.1214/aos/1176344136
+.. [4] Truong, C., Oudre, L. and Vayatis, N. Selective review of
+   offline change point detection methods. Signal Process. 167, 107299
+   (2020). doi:10.1016/j.sigpro.2019.107299
+.. [5] Navarro-Huerta, J. A. et al. Assisted baseline subtraction in
+   complex chromatograms using the BEADS algorithm. J. Chromatogr. A
+   1507, 1-10 (2017). doi:10.1016/j.chroma.2017.05.057
 """
 from collections.abc import Callable
 
@@ -44,6 +61,30 @@ def _linear_costs(y: np.ndarray) -> Callable[[int, np.ndarray], np.ndarray]:
         costs of ``y[i:j]`` for every start index ``i`` in ``i_arr``,
         evaluated in O(1) per segment from cumulative sums.
 
+    Notes
+    -----
+    The cumulative sums make each segment cost O(1), which is what
+    keeps the exact partitioning affordable, and they are also where
+    the accuracy goes: ``SSE`` is recovered by expanding
+    ``sum((y - a - b t)^2)`` into moments that are each far larger than
+    their difference. The relative error is around 1e-10 on the sizes
+    this package sweeps, which is immaterial against a penalty of order
+    ``log(N)``.
+
+    **On a segment that is exactly straight the cost is set by rounding
+    rather than by the data.** The true residual sum is zero, the
+    expansion leaves a positive remainder some orders of magnitude
+    above the ``1e-16`` clamp, and that remainder is what the logarithm
+    sees. The clamp therefore does not govern this case, and the cost
+    of a perfect fit is not reproducible across builds that round
+    differently. Real curves carry noise, so this is reached by
+    synthetic or already-fitted input rather than by a swept
+    autocorrelation.
+
+    **A one-point segment divides by zero**, the normal-equation
+    determinant vanishing when the segment cannot define a slope.
+    `pelt_linear` never asks for one, holding segments to `min_size`.
+
     """
     n = len(y)
     t = np.arange(n, dtype=float)
@@ -55,6 +96,7 @@ def _linear_costs(y: np.ndarray) -> Callable[[int, np.ndarray], np.ndarray]:
     cty = np.concatenate([[0.0], np.cumsum(t * y)])
 
     def costs(j: int, i_arr: np.ndarray) -> np.ndarray:
+        """Cost of ``y[i:j]`` for every start `i`, from the cumsums."""
         m = j - i_arr
         s1 = c1[j] - c1[i_arr]
         st = ct[j] - ct[i_arr]
@@ -125,10 +167,21 @@ def pelt_linear(y: np.ndarray, penalty: float | None = None,
     penalty favours many regimes, a large one discards most
     changepoints.
 
-    On the autocorrelation curves this package sweeps, the selected
-    cutoff is insensitive to the penalty over ``3`` to ``40 log(N)``,
-    while the segment count falls fourfold. The value is therefore set
-    by its citation rather than by tuning.
+    The recursion is the optimal partitioning of Jackson et al. [1]_
+    §II: the best segmentation ending at ``j`` is the best ending at
+    some earlier ``i``, plus the cost of ``y[i:j]``, plus the penalty.
+    ``best[0]`` is seeded at ``-penalty`` so the first segment is not
+    charged for a changepoint that does not exist.
+
+    Timing is about a tenth of a second at ``N = 1000`` and a few
+    seconds by ``N = 8000``, so the exact search is comfortable at
+    sweep sizes.
+
+    **The model is piecewise linear, so a curve that bends inside a
+    segment is fitted by a chord.** Where the curvature is gradual
+    there is no boundary in the data to find, and the partition places
+    one where it most reduces the residual variance, which makes the
+    segment edges a property of the penalty as much as of the curve.
 
     The minimum is exact over all partitions, not greedy. The pruning of
     Killick et al. [2]_ would bring the cost down to expected O(N), and
@@ -207,6 +260,35 @@ def segment_features(fcut_range: np.ndarray, r2: np.ndarray,
         One dict per segment with keys ``start``, ``end``, ``mean``,
         ``slope``, ``resid_std``, ``rel_slope`` and ``rel_noise``.
 
+    Notes
+    -----
+    ``rel_slope = 1`` is a segment that falls by the whole drop of the
+    curve within one decade, which is the unit `cliff_min` names. A
+    curve descending uniformly across the entire sweep sits at one over
+    its span in decades.
+
+    Slopes are fitted against the sample index rather than against
+    `fcut`. On a geometric grid the index is proportional to the
+    logarithm of the cutoff, so this is a slope per decade up to the
+    constant that `points_per_decade` removes.
+
+    **Both scales are global.** `drop` is the range of the whole curve,
+    so a segment is judged against the total descent rather than
+    against its neighbours. Where the descent is split across several
+    cliffs, an intermediate shelf falls by a large share of the global
+    scale and reads as steep even when it is flat beside the cliffs
+    bounding it; the loose tier of `classify_segments` exists for that
+    case.
+
+    **A curve with no drop is clamped**, the divisor being held at
+    1e-16, which sends the ratios up and leaves nothing marked flat.
+
+    **A segment of a single point yields NaN features**, from a
+    straight-line fit through one point, and NaN compares false against
+    every threshold, so the segment is silently classified as not flat
+    rather than raising. `pelt_linear` keeps segments to `min_size`, so
+    this is reachable only by passing breakpoints from elsewhere.
+
     """
     n = len(r2)
     t = np.arange(n, dtype=float)
@@ -284,13 +366,30 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
     -----
     Both criteria are ratios against the total drop of the curve, so
     they carry no units and do not depend on the grid density or the
-    record length. They fail on a curve with no drop: `segment_features`
+    signal length. They fail on a curve with no drop: `segment_features`
     clamps the divisor, the ratios become large, and no segment is
     marked flat.
 
+    **None of the four thresholds is grounded.** Each cuts a continuous
+    quantity where no gap in the distribution marks a boundary, so the
+    dividing point is chosen rather than found.
+
+    A significance or likelihood criterion would not settle them
+    either. The curve carries almost no independent noise at the grid
+    scale, so a segment's residual is leftover curvature rather than
+    sampling scatter, and a test built on a null distribution answers a
+    question the data cannot pose. Flatness here is geometric.
+
+    The noise criterion is ANDed with the slope criterion rather than
+    folded into it, so it can reject a segment that either tier
+    accepts.
+
+    The first and the last segment can never qualify under the loose
+    tier, which requires a cliff on each side and finds nothing beyond
+    them.
+
     The loose tier changes the answer rarely, and on the staircase
-    morphologies it was introduced for it may not fire at all, so it
-    should not be assumed to be doing the work its rationale claims.
+    morphologies it was introduced for it may not fire at all.
 
     """
     slopes = [seg['rel_slope'] for seg in segments]
@@ -321,12 +420,30 @@ def dip_curve(r2: np.ndarray, window: int = 3,
     window : int, optional
         Window of the rolling standard deviation. Default is 3.
     sigma : float, optional
-        Standard deviation of the Gaussian smoothing. Default is 8.0.
+        Standard deviation of the Gaussian smoothing, in grid points.
+        Default is 8.0.
 
     Returns
     -------
     curve : numpy.ndarray, shape (N,)
         The normalised curve, in [0, 1]; all zeros if `r2` is constant.
+
+    Notes
+    -----
+    `sigma` is a width in grid points, so what it means on the cutoff
+    axis depends on how densely the sweep samples the range: the same
+    value smooths half as much of the axis if the grid is doubled. It
+    is the one constant in this chain tied to grid density, where the
+    classification thresholds are ratios and are not.
+
+    The normalisation divides by the largest value anywhere on the
+    curve, including the rebound past the collapse, which
+    ``detect_dips`` does not search. A tall feature outside the
+    searched range therefore compresses every prominence inside it.
+
+    The rolling standard deviation is computed over a centred window,
+    so its first and last samples come from fewer points and read high;
+    the smoothing spreads that edge effect inward.
 
     """
     rss = gaussian_filter1d(_rolling_std(r2, window=window), sigma)
@@ -368,9 +485,9 @@ def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
         The autocorrelation coefficients.
     sigma : float, optional
         Standard deviation, in grid points, of the Gaussian smoothing
-        applied to the rolling standard deviation before the valleys are
-        located. On the log-uniform grid this is a fixed fraction of a
-        decade. Default is 8.0.
+        applied to the rolling standard deviation before the valleys
+        are located. What it covers on the cutoff axis depends on the
+        grid density; see `dip_curve`. Default is 8.0.
     min_prominence : float, optional
         Minimum prominence of a valley, as a fraction of the largest
         cliff (the maximum of the normalised rolling standard deviation).
@@ -403,14 +520,26 @@ def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
 
     Notes
     -----
-    The parameters are dimensionless: prominence relative to the largest
-    cliff, level as a fraction of the drop, `sigma` in grid points. They
-    were set by visual validation rather than derived, and no source
-    fixes them.
+    The prominence and level thresholds are dimensionless, prominence
+    relative to the largest cliff and level as a fraction of the drop.
+    `sigma` is not: it is a count of grid points, so it spans a
+    different stretch of the cutoff axis at a different sweep density.
+    All of them were set by visual validation rather than derived, and
+    no source fixes them.
 
-    They are load-bearing, not merely diagnostic: ``trim_plateaus``
-    admits these dips wherever the flat channel survives nothing, and on
-    those signals the parameters below decide the cutoff.
+    ``trim_plateaus`` admits these dips wherever the flat channel
+    survives nothing, and on those signals the parameters below decide
+    the cutoff.
+
+    Only the descent is searched, up to the global minimum of `r2`, so
+    a valley whose floor lies at or past that minimum is not found and
+    one straddling it is truncated. Nothing is returned when the
+    minimum falls within the first two grid points, or when the curve
+    has no drop.
+
+    Prominences are measured on the curve `dip_curve` normalises by its
+    largest value anywhere, including the unsearched tail, so a tall
+    feature outside the search range raises the bar inside it.
 
     """
     n = len(r2)
@@ -462,6 +591,17 @@ def dips_to_mask(fcut_range: np.ndarray, dips: list[dict]) -> np.ndarray:
     mask : numpy.ndarray, shape (N,), dtype bool
         True on the grid points covered by a proto-plateau basin.
 
+    Notes
+    -----
+    **A dip's ``end`` is inclusive, where a segment's ``end`` is
+    exclusive.** ``detect_dips`` clamps it to the last valid index and
+    this function slices with ``end + 1``, while the segments of
+    ``segment_features`` are sliced as ``[start:end]`` throughout. The
+    two dictionaries look alike and are indexed differently.
+
+    Overlapping dips are absorbed into one another, since the mask
+    records only whether a grid point is covered.
+
     """
     mask = np.zeros(len(fcut_range), dtype=bool)
     for dip in dips:
@@ -481,8 +621,10 @@ def collapse_floor(segments: list[dict]) -> int:
 
     The segment mean locates the floor rather than the raw minimum of
     r2, because the segments are all this function is given. The two
-    agree on the production chromatograms: the raw minimum falls inside
-    the lowest-mean segment on every curve checked.
+    need not coincide: a mean taken over a sloping segment can fall
+    below the mean of the segment that actually contains the minimum,
+    and the floor is then placed at the start of the sloping one, which
+    may lie below the minimum and clip candidates that are admissible.
 
     Parameters
     ----------
@@ -532,7 +674,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     frequency can lie, using only a-priori exclusions:
 
     - **sub-fundamental clip**: grid points below ``c1 / n_used`` are
-      removed. The slowest oscillation representable on a record of
+      removed. The slowest oscillation representable on a signal of
       `n_used` points has frequency ``1/n_used``, so every cutoff below
       it requests the same maximally rigid baseline; the region only
       contains duplicates of the solution at the fundamental. This is
@@ -556,7 +698,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       baseline has begun absorbing the analyte-correlated content, so
       for a signal that carries analyte a cutoff there destroys peak
       area and the optimum cannot lie in it (Navarro-Huerta et al.
-      2017). This reaches the descent *before* the floor, which the
+      2017, §3.4). This reaches the descent *before* the floor, which the
       rebound clip does not; the two are complementary and neither
       subsumes the other. Whether a signal carries analyte is a property
       of the signal, not of the curve, so the caller decides
@@ -603,6 +745,14 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     candidates : numpy.ndarray, shape (N,), dtype bool
         Boolean mask of the grid points belonging to a candidate
         plateau region.
+
+    Notes
+    -----
+    **``collapse_level`` names two different scales.** Here it is
+    compared against the level of a flat segment on the total r2 drop.
+    The same value is also compared against ``dip['level']`` from
+    ``detect_dips``, which is computed from the raw curve rather than
+    from segment means. One number, two references.
 
     """
     cand = [seg['flat'] for seg in segments]
@@ -657,6 +807,22 @@ def sensitivity_dispersion(fcut_range: np.ndarray, sensitivity: np.ndarray,
     dispersion : numpy.ndarray, shape (N,)
         The windowed interquartile range of `sensitivity`.
 
+    Notes
+    -----
+    `win_dec` is converted through the grid's own points per decade, so
+    the window covers the same stretch of the cutoff axis whatever the
+    sweep density. The width is forced odd and to at least five points.
+
+    **An interquartile range cannot see a small number of large
+    excursions.** A quarter of the window may be arbitrary without
+    moving it, which is what makes it robust to a steadily moving
+    baseline, and also what makes it blind to a handful of isolated
+    swings. If the instability being looked for is sparse rather than
+    sustained, this statistic will not report it.
+
+    The two ends are padded by repeating the edge value, so the
+    dispersion is damped over the first and last half-window.
+
     """
     per_dec = (len(fcut_range) - 1) / np.log10(fcut_range[-1] / fcut_range[0])
     width = max(5, int(round(win_dec * per_dec)) | 1)
@@ -674,7 +840,7 @@ def instability_boundary(fcut_range: np.ndarray, sensitivity: np.ndarray,
     """
     Cutoff frequency up to which the fit is undetermined, or None.
 
-    When the record's fundamental falls inside a region where the
+    When the signal's fundamental falls inside a region where the
     baseline is flailing, that region is unusable up to the point where
     the oscillations become small again. The test is made at the
     fundamental itself, so it is local to the signal and needs no prior
@@ -698,6 +864,9 @@ def instability_boundary(fcut_range: np.ndarray, sensitivity: np.ndarray,
     This exclusion is also the least reproducible stage of the chain
     across library versions, because it reads the sensitivity curve at
     low cutoff where the fit is ill-conditioned.
+
+    Because the test is an interquartile range, it answers to sustained
+    scatter and not to isolated swings; see `sensitivity_dispersion`.
 
     Parameters
     ----------
@@ -971,8 +1140,8 @@ def select_center(fcut_range: np.ndarray,
     in log(fcut), matching the geometric sweep grid and the decades every
     position in this package is expressed in. It is taken on the index
     axis, so the answer is a grid point the sweep evaluated and its r2
-    can be read from the cached curve; the snap costs at most 0.0024
-    decades.
+    can be read from the cached curve; the snap costs at most half a
+    grid step, on a grid of a thousand points.
 
     Where several regions survive, the last one is used, following
     Navarro-Huerta et al. (2017) §3.4: the optimum lies on the last step
@@ -980,11 +1149,13 @@ def select_center(fcut_range: np.ndarray,
 
     Warnings
     --------
-    **The 0.5 is a placeholder**, held while the real rule is missing.
-    Navarro-Huerta et al. (2017) §3.4 recommend a point between the
-    beginning and the centre of the region, and against baselines that
-    are known exactly the optimum sits well inside the region rather
-    than at its midpoint.
+    **The 0.5 is a placeholder.** It is the value that sits equally
+    well against both ends of the plateau, which is what recommends it
+    while the boundaries themselves still move. Navarro-Huerta et al.
+    (2017) §3.4 advise a point between the beginning and the centre of
+    the region, so the midpoint is the far end of their range, and
+    against baselines that are known exactly the optimum sits well
+    inside the region rather than at its midpoint.
 
     Where it sits is a validation target, not a rule: substituting one
     fixed fraction for another leaves it just as arbitrary. The

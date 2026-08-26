@@ -1,4 +1,16 @@
 #!/usr/bin/python3
+"""
+Command-line entry point for the Weaselytics workflow.
+
+Parses the arguments, reads the file through `parsers.ParsedData`, and
+runs the stages. Baseline correction through `baseline.auto_beads` and
+peak fitting through `peakfitting.fit_peak` run by default and are
+turned off with ``--nobaseline`` and ``--nofit``; smoothing, plotting
+and the exports stay off until their flags are given.
+
+The library emits its progress through the ``logging`` module and is
+silent on import; this module is where that output is turned on.
+"""
 
 import argparse
 import logging

@@ -1,6 +1,10 @@
 # coding: utf-8
 """
 Parser for common spectral data.
+
+`ParsedData` reads a two-column text file by matching a leading pair of
+numbers on each line, which skips instrument headers without needing to
+know their format.
 """
 
 import re
@@ -29,7 +33,11 @@ class ParsedData:
 
     def read_data(self, path: str) -> np.ndarray:
         """
-        Read the file and
+        Read the file and extract its two numeric columns.
+
+        Scans every line for a leading pair of numbers, keeping the
+        lines that match and skipping the rest, so instrument headers
+        and trailing metadata need no separate handling.
 
         Parameters
         ----------
@@ -40,6 +48,19 @@ class ParsedData:
         -------
         data : array-like, shape (2,N)
             Array containing the x-y data extracted from the file.
+
+        Notes
+        -----
+        A line qualifies when it begins with two whitespace-separated
+        numbers, each optionally signed, with an optional decimal part
+        and an optional complete exponent. Requiring the exponent to be
+        complete is what keeps ``1.5e`` out while still admitting a
+        bare integer such as the ``0`` timestamp.
+
+        Anything after the first two columns is ignored, and a file
+        whose columns are separated by something other than whitespace
+        yields shape ``(2, 0)`` rather than an error. See the README
+        TO DO on generalising the parser.
 
         """
         xlist = list()

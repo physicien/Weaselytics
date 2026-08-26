@@ -17,7 +17,7 @@ Tests: [`weaselytics/tests/test_synth_dataset.py`](../weaselytics/tests/test_syn
 
 ## 1. Why a synthetic benchmark exists
 
-The constants that decide the BEADS cutoff frequency — `collapse_level`, and
+The constants that decide the BEADS cutoff frequency — `drop_level`, and
 `instability_boundary`'s `trigger` and `settled` — are adopted, not grounded.
 Grounding them requires knowing the true baseline, which no real chromatogram
 provides. Niezen et al. state the dilemma directly: real data has realistic

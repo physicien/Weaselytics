@@ -243,13 +243,13 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
     peaks = unsorted_peaks[index_array]
     widths = unsorted_widths[index_array]
     if drop_enclosing and len(peaks) > 1:
-        amps = np.abs(s[peaks] - np.median(s))
-        peaks, widths = _drop_enclosing(peaks, widths, amps)
+        abs_dev = np.abs(s[peaks] - np.median(s))
+        peaks, widths = _drop_enclosing(peaks, widths, abs_dev)
     return peaks, widths
 
 
 def _drop_enclosing(peaks: np.ndarray, widths: np.ndarray,
-                    amps: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+                    abs_dev: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Discard features that enclose a taller peak.
 
@@ -268,7 +268,7 @@ def _drop_enclosing(peaks: np.ndarray, widths: np.ndarray,
         Peak indices, sorted.
     widths : array-like, shape (M,)
         Their widths in samples.
-    amps : array-like, shape (M,)
+    abs_dev : array-like, shape (M,)
         Their amplitudes above the signal median, in the same order.
 
     Returns
@@ -282,7 +282,7 @@ def _drop_enclosing(peaks: np.ndarray, widths: np.ndarray,
     inside = ((peaks[None, :] > lo[:, None])
               & (peaks[None, :] < hi[:, None]))
     np.fill_diagonal(inside, False)
-    taller = amps[None, :] > amps[:, None]
+    taller = abs_dev[None, :] > abs_dev[:, None]
     keep = ~(inside & taller).any(axis=1)
     return peaks[keep], widths[keep]
 

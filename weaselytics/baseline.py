@@ -242,7 +242,7 @@ def _snr(s: np.ndarray) -> float:
     consecutive differences, so peaks do not inflate it.
 
     ``auto_beads`` uses it for one decision: whether the optimum may lie
-    past the collapse of the r2 curve, which is allowed on a weak signal
+    past the drop of the r2 curve, which is allowed on a weak signal
     and not on one carrying substantial analyte.
 
     Parameters
@@ -1140,7 +1140,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         Number of worker processes used to parallelize the r2 sweep.
         Default is 1 (serial).
     snr_threshold : float, optional
-        Signal-to-noise ratio above which the collapsed plateaus are
+        Signal-to-noise ratio above which the plateaus past the drop are
         excluded from the candidate regions (see `_snr` and
         `trim_candidates`). Default is 10, the limit of quantitation of
         MacDougall et al. [1]_ Table I, which puts quantitation above
@@ -1219,7 +1219,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     # `cp_snr_removed` (dark red) and IS applied to the selection,
     # unless applying it would leave nothing surviving.
     cp_trim = trim_plateaus(fcut_range, cp_segments, cp_detected_dips,
-                            len(z), exclude_collapse=_snr(s) >= snr_threshold,
+                            len(z), exclude_past_drop=_snr(s) >= snr_threshold,
                             sensitivity=sensitivity_val)
     cp_surviving = cp_trim['surviving']
     cp_removed = cp_trim['removed']
@@ -1377,18 +1377,27 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         sweep that selects `freq_cutoff`. Default is 1 (serial). Only
         relevant when `freq_cutoff` is None.
     snr_threshold : float, optional
-        Signal-to-noise ratio (see `_snr`) above which the collapsed
-        plateaus past the r2 drop are excluded from the candidate cutoff
-        regions, because on a signal with analyte a cutoff there destroys
-        peak area. Below it the shelves are kept, as a weak signal's optimum
-        can lie past the collapse. Default is 10, the limit of
-        quantitation of MacDougall et al. [3]_: below it a peak's area
-        cannot be measured with acceptable precision, so there is little
-        left for a cutoff past the collapse to destroy. Their ratio is
-        built on the standard deviation of a blank, while `_snr` reads
-        the tallest excursion of the signal itself against a robust
-        noise estimate, so the value is carried over rather than
-        derived. Only relevant when `freq_cutoff` is None.
+        Signal-to-noise ratio (see `_snr`) above which the plateaus
+        past the r2 drop are excluded from the candidate cutoff regions.
+        Below it those plateaus are kept, on the reasoning that a signal
+        whose structure is mostly baseline can have its optimum past the
+        drop.
+
+        **That branch is untested and the exclusion itself is in
+        question.** `_snr` reads the tallest excursion above the median
+        against a robust noise estimate, and on a quantised detector the
+        denominator is pinned to the ADC lattice, so the statistic
+        behaves as an absolute amplitude and does not approach the
+        threshold. Peak area is also already being absorbed before the
+        drop, so the boundary the exclusion draws falls after most of
+        the loss rather than before it.
+
+        Default is 10, the limit of quantitation of MacDougall et
+        al. [3]_: below it a peak's area cannot be measured with
+        acceptable precision. Their ratio is built on the standard
+        deviation of a blank, while `_snr` reads the signal itself, so
+        the value is carried over rather than derived. Only relevant
+        when `freq_cutoff` is None.
 
     Returns
     -------

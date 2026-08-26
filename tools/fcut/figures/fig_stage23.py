@@ -40,7 +40,7 @@ def main():
     fr, r2, sens = d['fcut_range'], d['r2_val'], d['sensitivity']
     segs = classify_segments(segment_features(fr, r2, pelt_linear(r2)))
     dips = detect_dips(fr, r2)
-    tr = trim_plateaus(fr, segs, dips, N_USED, exclude_collapse=True,
+    tr = trim_plateaus(fr, segs, dips, N_USED, exclude_past_drop=True,
                        sensitivity=sens)
     flat = np.zeros(len(r2), bool)
     for s in segs:

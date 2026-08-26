@@ -665,8 +665,8 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
                     n_used: int, c1: float = 1.0,
                     cliff_min: float = 1.0,
                     bridge: bool = False,
-                    exclude_collapse: bool = False,
-                    collapse_level: float = 0.5) -> np.ndarray:
+                    exclude_past_drop: bool = False,
+                    drop_level: float = 0.5) -> np.ndarray:
     """
     Trim the flat segments into a mask of candidate plateau regions.
 
@@ -676,8 +676,8 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
     - **sub-fundamental clip**: grid points below ``c1 / n_used`` are
       removed. The slowest oscillation representable on a signal of
       `n_used` points has frequency ``1/n_used``, so every cutoff below
-      it requests the same maximally rigid baseline; the region only
-      contains duplicates of the solution at the fundamental. This is
+      it requests a baseline the data cannot constrain and returns an
+      overly rigid one. No cutoff in that region is admissible. This is
       why the initial plateau of the autocorrelation plot always ends
       at ``~1/n_used``.
     - **rebound clip**: grid points at or above the collapse floor, the
@@ -692,8 +692,8 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       (``rel_slope < cliff_min``), so drifting connectors do not split
       one plateau into several displayed pieces while genuine staircase
       steps still separate regions.
-    - **collapse exclusion** (optional): when ``exclude_collapse`` is
-      set, flat segments lying below ``collapse_level`` of the way up
+    - **collapse exclusion** (optional): when ``exclude_past_drop`` is
+      set, flat segments lying below ``drop_level`` of the way up
       the total r2 drop are removed. Approaching the collapse the
       baseline has begun absorbing the analyte-correlated content, so
       for a signal that carries analyte a cutoff there destroys peak
@@ -702,7 +702,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       rebound clip does not; the two are complementary and neither
       subsumes the other. Whether a signal carries analyte is a property
       of the signal, not of the curve, so the caller decides
-      ``exclude_collapse`` from the signal-to-noise ratio. A weak signal
+      ``exclude_past_drop`` from the signal-to-noise ratio. A weak signal
       leaves it off, and its low shelves survive as legitimate
       candidates.
 
@@ -730,14 +730,14 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
         uses: on a gentle descent, bridging merges a plateau and a lower
         shelf into one region and the sampling then lands on the descent
         between them.
-    exclude_collapse : bool, optional
-        If True, remove flat segments past the collapse (see the summary
+    exclude_past_drop : bool, optional
+        If True, remove flat segments past the drop (see the summary
         above). The caller sets this from the signal-to-noise ratio.
         Default is False.
-    collapse_level : float, optional
+    drop_level : float, optional
         Relative level of the total r2 drop below which a flat segment
-        is considered past the collapse, in [0, 1] (1 = plateau top,
-        0 = collapse floor). Only used when ``exclude_collapse``.
+        is considered past the drop, in [0, 1] (1 = plateau top,
+        0 = collapse floor). Only used when ``exclude_past_drop``.
         Default is 0.5.
 
     Returns
@@ -748,7 +748,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
 
     Notes
     -----
-    **``collapse_level`` names two different scales.** Here it is
+    **``drop_level`` names two different scales.** Here it is
     compared against the level of a flat segment on the total r2 drop.
     The same value is also compared against ``dip['level']`` from
     ``detect_dips``, which is computed from the raw curve rather than
@@ -756,10 +756,10 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
 
     """
     cand = [seg['flat'] for seg in segments]
-    if exclude_collapse and segments:
+    if exclude_past_drop and segments:
         means = [seg['mean'] for seg in segments]
         r2_max, r2_min = max(means), min(means)
-        thr = r2_min + collapse_level * (r2_max - r2_min)
+        thr = r2_min + drop_level * (r2_max - r2_min)
         cand = [c and (seg['mean'] >= thr)
                 for c, seg in zip(cand, segments)]
     if bridge:
@@ -906,8 +906,8 @@ def instability_boundary(fcut_range: np.ndarray, sensitivity: np.ndarray,
 
 
 def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
-                dips: list[dict], n_used: int, exclude_collapse: bool,
-                c1: float, collapse_level: float,
+                dips: list[dict], n_used: int, exclude_past_drop: bool,
+                c1: float, drop_level: float,
                 sensitivity: np.ndarray | None) -> dict[str, np.ndarray]:
     """
     Apply the stage-1 exclusions to a given detected selection.
@@ -927,11 +927,11 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
         the flat channel alone.
     n_used : int
         Number of signal points used for the autocorrelation sweep.
-    exclude_collapse : bool
+    exclude_past_drop : bool
         Whether to apply the collapse exclusion.
     c1 : float
         Safety factor of the sub-fundamental clip.
-    collapse_level : float
+    drop_level : float
         Level of the total drop below which a plateau is past the
         collapse, in [0, 1].
     sensitivity : array-like, shape (N,), or None
@@ -965,7 +965,7 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
     # lands on the descent *between* the plateaus. The surviving set must
     # keep the plateaus separate.
     flat_12 = trim_candidates(fcut_range, segments, n_used, c1=c1,
-                              bridge=False, exclude_collapse=False)
+                              bridge=False, exclude_past_drop=False)
     trimmed_12 = flat_12 | (cp_dips & sub_fund)
     removed = union & ~trimmed_12
 
@@ -975,16 +975,16 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
     boundary = (None if sensitivity is None
                 else instability_boundary(fcut_range, sensitivity, n_used))
 
-    def _with_collapse(active: bool) -> tuple[np.ndarray, np.ndarray,
+    def _with_past_drop(active: bool) -> tuple[np.ndarray, np.ndarray,
                                               np.ndarray]:
         """Surviving set and its two removal masks, collapse on or off."""
         if active:
             flat_123 = trim_candidates(fcut_range, segments, n_used, c1=c1,
-                                       bridge=False, exclude_collapse=True,
-                                       collapse_level=collapse_level)
+                                       bridge=False, exclude_past_drop=True,
+                                       drop_level=drop_level)
             dips_123 = dips_to_mask(
                 fcut_range,
-                [d for d in dips if d['level'] >= collapse_level])
+                [d for d in dips if d['level'] >= drop_level])
             kept = flat_123 | (dips_123 & sub_fund)
         else:
             kept = trimmed_12
@@ -1000,15 +1000,15 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
             kept = surv
         return kept, snr_rm, instab_rm
 
-    surviving, snr_removed, instab_removed = _with_collapse(exclude_collapse)
+    surviving, snr_removed, instab_removed = _with_past_drop(exclude_past_drop)
     # The collapse exclusion narrows the choice among surviving regions;
     # it is not a veto on selecting at all. When the sub-fundamental
     # clip and the instability boundary have already removed
     # everything outside it, applying it as well leaves nothing
     # and the signal yields no cutoff, which is a worse answer than the
     # one it was refining. Fall back to the set without it in that case.
-    if exclude_collapse and not surviving.any():
-        alt, alt_snr, alt_instab = _with_collapse(False)
+    if exclude_past_drop and not surviving.any():
+        alt, alt_snr, alt_instab = _with_past_drop(False)
         if alt.any():
             surviving, snr_removed, instab_removed = (alt, alt_snr,
                                                       alt_instab)
@@ -1019,8 +1019,8 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
 
 def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
                   dips: list[dict], n_used: int,
-                  exclude_collapse: bool = False, c1: float = 1.0,
-                  collapse_level: float = 0.5,
+                  exclude_past_drop: bool = False, c1: float = 1.0,
+                  drop_level: float = 0.5,
                   sensitivity: np.ndarray | None = None
                   ) -> dict[str, np.ndarray]:
     """
@@ -1032,10 +1032,10 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     flat test misses). This applies the a-priori exclusions to it:
 
     - the sub-fundamental clip, always;
-    - the SNR-gated collapse exclusion, only when ``exclude_collapse``.
+    - the SNR-gated collapse exclusion, only when ``exclude_past_drop``.
       Past the collapse a cutoff destroys analyte peak area
       (Navarro-Huerta et al. 2017 §3.4), so on a signal carrying analyte
-      the plateaus below ``collapse_level`` of the drop are removed,
+      the plateaus below ``drop_level`` of the drop are removed,
       while a weak signal keeps them. Whether a signal carries analyte is a
       property of the signal, not of the curve, so the caller decides it
       from the signal-to-noise ratio;
@@ -1044,7 +1044,7 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     The proto-plateaus are a **fallback**: the flat channel is run
     through the identical chain on its own, and the dips contribute only
     where it leaves nothing. Unioned unconditionally they also fire on
-    the descent past the collapse, where an easing of the slope is a
+    the descent past the drop, where an easing of the slope is a
     local minimum of the rolling standard deviation while still an order
     of magnitude steeper than a plateau. The rule keeps the dips only
     for signals with no flat region, and drops them everywhere else.
@@ -1066,14 +1066,14 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
         The proto-plateau dips from ``detect_dips``.
     n_used : int
         Number of signal points used for the autocorrelation sweep.
-    exclude_collapse : bool, optional
+    exclude_past_drop : bool, optional
         If True, apply the SNR-gated collapse exclusion. Default False.
     c1 : float, optional
         Safety factor of the sub-fundamental clip. Default is 1.0 (the
         fundamental itself); see ``trim_candidates``.
-    collapse_level : float, optional
+    drop_level : float, optional
         Relative level of the total drop below which a plateau is past
-        the collapse, in [0, 1]. Only used when ``exclude_collapse``.
+        the collapse, in [0, 1]. Only used when ``exclude_past_drop``.
         Default is 0.5.
     sensitivity : array-like, shape (N,), optional
         The baseline-sensitivity curve. When given, the stiff-side
@@ -1101,13 +1101,13 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
 
     """
     masks = _trim_masks(fcut_range, segments, dips, n_used,
-                        exclude_collapse, c1, collapse_level, sensitivity)
+                        exclude_past_drop, c1, drop_level, sensitivity)
     if not dips:
         return masks
     # The dips are only wanted when the flat channel, put through the
     # same exclusions, has nothing left to offer.
     flat_only = _trim_masks(fcut_range, segments, [], n_used,
-                            exclude_collapse, c1, collapse_level,
+                            exclude_past_drop, c1, drop_level,
                             sensitivity)
     if not flat_only['surviving'].any():
         return masks

@@ -67,7 +67,7 @@ def main():
     flat = mask_from_flat(segments, len(r2))
     dips = detect_dips(fr, r2)
     trim = trim_plateaus(fr, segments, dips, N_USED,
-                         exclude_collapse=SNR_OK, sensitivity=sens)
+                         exclude_past_drop=SNR_OK, sensitivity=sens)
     surviving = trim['surviving']
     fcut = select_center(fr, surviving)
     print(f"  flat points      {flat.sum():4d}/{len(r2)}")

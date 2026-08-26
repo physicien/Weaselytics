@@ -184,7 +184,7 @@ class TestTrimCandidates:
         base = trim_candidates(fcut_range, segments, self.N_USED_LONG)
         assert base[600]                      # low live tail, kept
         excl = trim_candidates(fcut_range, segments, self.N_USED_LONG,
-                               exclude_collapse=True)
+                               exclude_past_drop=True)
         assert not excl[600]                  # low live tail, dropped
         assert excl[400]                      # high shelf, survives
 
@@ -302,14 +302,14 @@ class TestTrimPlateaus:
     def test_no_snr_removed_without_collapse(self):
         fcut_range, y, segments, dips = self._curve()
         masks = trim_plateaus(fcut_range, segments, dips, 1000,
-                              exclude_collapse=False)
+                              exclude_past_drop=False)
         assert not masks['snr_removed'].any()
 
     def test_surviving_disjoint_from_removed(self):
         fcut_range, y, segments, dips = self._curve()
         for excl in (False, True):
             masks = trim_plateaus(fcut_range, segments, dips, 1000,
-                                  exclude_collapse=excl)
+                                  exclude_past_drop=excl)
             assert not (masks['surviving'] & masks['removed']).any()
             assert not (masks['surviving'] & masks['snr_removed']).any()
 
@@ -322,13 +322,13 @@ class TestTrimPlateaus:
         assert not masks['surviving'][sub].any()
 
     def test_collapse_removes_the_low_tail(self):
-        # The low live tail (r2 ~ 0.3) is past the collapse; with the
+        # The low live tail (r2 ~ 0.3) is past the drop; with the
         # gate on it must move into snr_removed and out of surviving.
         fcut_range, y, segments, dips = self._curve()
         off = trim_plateaus(fcut_range, segments, dips, 1000,
-                            exclude_collapse=False)
+                            exclude_past_drop=False)
         on = trim_plateaus(fcut_range, segments, dips, 1000,
-                           exclude_collapse=True)
+                           exclude_past_drop=True)
         assert off['surviving'][600] and not on['surviving'][600]
         assert on['snr_removed'][600]
 
@@ -417,7 +417,7 @@ class TestProtoPlateauFallback:
 
     `detect_dips` exists to catch the relative flattenings the absolute
     flat test misses, so it is a fallback rather than a peer: without
-    this, dips found on the descent past the collapse survive as a
+    this, dips found on the descent past the drop survive as a
     spurious second region.
     """
 
@@ -600,9 +600,9 @@ class TestCollapseFallback:
         # its job: the low tail goes, the shelf stays.
         fcut_range, y, segments, dips = self._curve()
         off = trim_plateaus(fcut_range, segments, dips, 1000,
-                            exclude_collapse=False)
+                            exclude_past_drop=False)
         on = trim_plateaus(fcut_range, segments, dips, 1000,
-                           exclude_collapse=True)
+                           exclude_past_drop=True)
         assert on['surviving'].any()
         assert on['surviving'].sum() < off['surviving'].sum()
         assert on['snr_removed'].any()
@@ -617,15 +617,15 @@ class TestCollapseFallback:
         real = seg.trim_candidates
 
         def fake(fr, segs, n_used, **kw):
-            if kw.get('exclude_collapse'):
+            if kw.get('exclude_past_drop'):
                 return np.zeros(len(fr), dtype=bool)
             return real(fr, segs, n_used, **kw)
 
         no_collapse = trim_plateaus(fcut_range, segments, dips, 1000,
-                                    exclude_collapse=False)['surviving']
+                                    exclude_past_drop=False)['surviving']
         monkeypatch.setattr(seg, 'trim_candidates', fake)
         masks = trim_plateaus(fcut_range, segments, dips, 1000,
-                              exclude_collapse=True)
+                              exclude_past_drop=True)
         assert masks['surviving'].any(), 'the fallback did not fire'
         assert np.array_equal(masks['surviving'], no_collapse)
 
@@ -642,5 +642,5 @@ class TestCollapseFallback:
             seg, 'trim_candidates',
             lambda fr, segs, n_used, **kw: np.zeros(len(fr), dtype=bool))
         masks = trim_plateaus(fcut_range, segments, [], 1000,
-                              exclude_collapse=True)
+                              exclude_past_drop=True)
         assert not masks['surviving'].any()

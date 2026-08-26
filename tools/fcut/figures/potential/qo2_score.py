@@ -78,7 +78,7 @@ def one(stem):
     segs = S.classify_segments(S.segment_features(fcut, r2,
                                                   S.pelt_linear(r2)))
     trim = S.trim_plateaus(fcut, segs, S.detect_dips(fcut, r2), n_used,
-                           exclude_collapse=bool(_snr(y) >= 10.0),
+                           exclude_past_drop=bool(_snr(y) >= 10.0),
                            sensitivity=sens)
     v = S.select_center(fcut, trim['surviving'])
     f_pkg = float(v) if v else np.nan

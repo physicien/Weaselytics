@@ -126,7 +126,7 @@ def main() -> None:
     parser.add_argument('-snr', '--snr-threshold', type=float, default=10.0,
                         help=(
                             'signal-to-noise ratio above which the'
-                            ' collapsed (past-drop) plateaus are excluded'
+                            ' plateaus past the drop are excluded'
                             ' from the candidate cutoff regions: a high-SNR'
                             ' signal has analyte whose area a cutoff there'
                             ' would destroy. Below it they are'

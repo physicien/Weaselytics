@@ -178,7 +178,7 @@ def analyse(stem):
                                                   S.pelt_linear(r2)))
     dips = S.detect_dips(fcut, r2)
     t = dict(S.trim_plateaus(fcut, segs, dips, n_used,
-                             exclude_collapse=bool(_snr(y) >= 10.0),
+                             exclude_past_drop=bool(_snr(y) >= 10.0),
                              sensitivity=sens))
     flat = np.zeros(len(fcut), dtype=bool)
     for seg in segs:

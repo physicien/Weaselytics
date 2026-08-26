@@ -229,7 +229,7 @@ def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
     dips = detect_dips(fcut_range, r2)
     high_snr = _snr(s) >= snr_threshold
     masks = trim_plateaus(fcut_range, segments, dips, n_used,
-                          exclude_collapse=high_snr, c1=c1,
+                          exclude_past_drop=high_snr, c1=c1,
                           sensitivity=sensitivity)
     cp_flat = np.zeros(len(fcut_range), dtype=bool)
     for seg in segments:

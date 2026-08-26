@@ -17,7 +17,7 @@ from weaselytics.segmentation import (  # noqa: E402
     segment_features, select_center, trim_plateaus)
 
 CACHE = ('/home/esteban/Simulation/DFT/separation_part2/runs/'
-         'DW_prod_2026-08-23/r2_cache')
+         'PROD_2026-08-24/r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 N_USED, DPI = 400, 200
@@ -55,7 +55,6 @@ def main():
                     loc='left', pad=4)
     ax[1].plot(fr, _rolling_std(r2, window=3), lw=1.0, color='#7a3fa0')
     ax[1].set_ylabel('rolling std\n(window 3)')
-    ax[1].set_yscale('log')
     ax[1].set_title('step 1: rolling standard deviation, raw',
                     fontsize=9.5, loc='left', pad=4)
     curve = dip_curve(r2)
@@ -67,6 +66,7 @@ def main():
         ax[2].axvspan(fr[dp['start']], fr[dp['end']], color=ORANGE,
                       alpha=.25, lw=0, zorder=1)
     ax[2].set_ylabel('dip curve\n(smoothed, /max)')
+    ax[2].set_ylim(bottom=-0.06, top=1.05)
     ax[2].set_title(r'step 2: Gaussian smoothed by $\sigma$ = 8 and '
                     'normalised; its local minima are the candidates',
                     fontsize=9.5, loc='left', pad=4)
@@ -89,7 +89,7 @@ def main():
              detected, KEEP),
             ('removed by the sub-fundamental clip and the region trim',
              tr['removed'], CUT),
-            ('removed by the collapse exclusion (SNR gate on)',
+            ('removed by the past-drop exclusion (SNR gate on)',
              tr['snr_removed'], '#7a3fa0'),
             ('removed by the stiff-side instability boundary',
              tr['instab_removed'], ORANGE),

@@ -25,7 +25,7 @@ from weaselytics.segmentation import (  # noqa: E402
     classify_segments, pelt_linear, segment_features)
 
 CACHE = ('/home/esteban/Simulation/DFT/separation_part2/runs/'
-         'DW_prod_2026-08-23/r2_cache')
+         'PROD_2026-08-24/r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 DPI = 200
@@ -58,7 +58,7 @@ def fig_segments(fr, r2, segs):
         for k, s in enumerate(segs):
             if k % 2:
                 ax.axvspan(fr[s['start']], fr[s['end'] - 1],
-                           color='0.45', alpha=.07, lw=0, zorder=0)
+                           color='0.45', alpha=.15, lw=0, zorder=0)
 
     ax = axes[0]
     ax.plot(fr, r2, lw=4.0, color='0.86', zorder=2,
@@ -137,12 +137,15 @@ def fig_features(segs):
     ax.grid(alpha=.2, which='both')
     ax.set_xlim(FLOOR, max(rs.max() * 3, 4))
     ax.set_ylim(min(rn.min() * 0.5, 1e-5), max(rn.max() * 4, 0.05))
-    ax.text(REL_SLOPE_MAX, ax.get_ylim()[1], ' tight 0.2', fontsize=8.5,
-            color='#2e6b4a', va='top', rotation=90, ha='left')
-    ax.text(REL_SLOPE_LOOSE, ax.get_ylim()[1], ' loose 0.6', fontsize=8.5,
-            color='#8a6a1f', va='top', rotation=90, ha='left')
-    ax.text(CLIFF_MIN, ax.get_ylim()[1], ' cliff 1.0', fontsize=8.5,
-            color=CLIFF, va='top', rotation=90, ha='left')
+    # Offset in points rather than a leading space, so the gap to the
+    # line is set here and does not depend on the font's space width.
+    for xpos, txt, col in ((REL_SLOPE_MAX, 'tight 0.2', '#2e6b4a'),
+                           (REL_SLOPE_LOOSE, 'loose 0.6', '#8a6a1f'),
+                           (CLIFF_MIN, 'cliff 1.0', CLIFF)):
+        ax.annotate(txt, xy=(xpos, ax.get_ylim()[1]),
+                    xytext=(2.5, 0), textcoords='offset points',
+                    fontsize=8.5, color=col, va='top', rotation=90,
+                    ha='left')
     ax.text(ax.get_xlim()[0], REL_NOISE_MAX, ' quiet enough, 0.006',
             fontsize=8.5, color='#b3402f', va='bottom', ha='left')
     if clamped.any():

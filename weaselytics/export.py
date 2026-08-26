@@ -1,6 +1,23 @@
 # coding: utf-8
 """
 Functions to export data to various file formats.
+
+Three writers, each producing a different quantity: `export_txt` the
+corrected signal, `export_csv` the raw signal for plotting outside the
+package, and `export_dist` the parameters of the fitted peak models.
+All three place their output under a subdirectory named after the
+parent directory of the source file.
+
+References
+----------
+.. [1] Navarro-Huerta, J. A. et al. Assisted baseline subtraction in
+   complex chromatograms using the BEADS algorithm. J. Chromatogr. A
+   1507, 1-10 (2017). doi:10.1016/j.chroma.2017.05.057
+.. [2] Liland, K. H. et al. Customized baseline correction. Chemom.
+   Intell. Lab. Syst. 109(1), 51-56 (2011).
+   doi:10.1016/j.chemolab.2011.07.005
+.. [3] Azzalini, A. A class of distributions which includes the normal
+   ones. Scand. J. Statist. 12(2), 171-178 (1985).
 """
 
 import os
@@ -29,6 +46,18 @@ def export_txt(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
     Returns
     -------
     None
+
+    Notes
+    -----
+    Writes ``<stem>_bl.txt`` under a subdirectory named after the
+    parent directory of `path`, tab separated, behind a header of the
+    file stem and six blank lines.
+
+    What `y` holds is the caller's choice. The CLI passes
+    ``params["signal"]``, the denoised peak component BEADS returns,
+    where Navarro-Huerta et al. and Liland et al. subtract the
+    baseline and keep the noise, so the exported signal is not
+    ``y - baseline``.
 
     """
     line = "Baseline corrected chromatogram of: "
@@ -64,6 +93,15 @@ def export_csv(x: np.ndarray, y: np.ndarray, path: str = "./file.txt",
     Returns
     -------
     None
+
+    Notes
+    -----
+    Writes ``<stem>.csv`` under a subdirectory named after the parent
+    directory of `path`, with columns ``time`` and ``potential``.
+
+    This is the raw signal, exported so it can be plotted from the csv
+    by a script outside the package. `export_txt` beside it writes the
+    corrected signal.
 
     """
     header = ["time","potential"]
@@ -105,7 +143,7 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
         defined:
 
         amp : float
-            The maximum height of the distribution.
+            Scales the area of a normalised density, not the height.
         loc : float
             The location parameter of the distribution.
         scale : float
@@ -127,13 +165,30 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
         `peakfitting.PEARSON7_M_BOUNDS`: the Gaussian is only reached in
         the limit, so a genuinely Gaussian peak drives ``m`` to the rail
         and the value there means "Gaussian" rather than a fitted
-        number. It occurs on about 10% of real analyte peaks. ``m`` and
-        ``E`` are left empty on the Gaussian and Skew-Normal rows --
-        not applicable, which is not the same as zero.
+        number. ``m`` and ``E`` are left empty on the Gaussian and
+        Skew-Normal rows, not applicable being different from zero.
 
     Returns
     -------
     None
+
+    Notes
+    -----
+    Writes ``<stem>_<mol>.csv`` under a subdirectory named after the
+    parent directory of `path`, one row per distribution.
+
+    **The ``A``, ``x0`` and ``sigma`` columns do not mean the same
+    thing on every row.** On the Gaussian and Pearson VII rows they are
+    the peak height, the apex and a width. On the Skew-Normal row they
+    are Azzalini's amplitude, location and scale, none of which is a
+    moment: the mean sits at ``x0 + sigma * b * d`` and the standard
+    deviation is ``sigma * sqrt(1 - (b d)**2)``, with
+    ``b = sqrt(2/pi)`` and ``d = alpha / sqrt(1 + alpha**2)``. See
+    `peakfitting.skew_norm`.
+
+    The solvent is recovered from the file name by matching
+    ``(^.+)__LPYE``, and any name not carrying that literal yields
+    "unknown". See the README TO DO.
 
     """
     solv_pattern = r"(^.+)__LPYE"   # not general...

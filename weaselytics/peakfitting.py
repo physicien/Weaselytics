@@ -1,6 +1,23 @@
 # coding: utf-8
 """
 Functions to perform Peak fitting.
+
+Three peak models fitted by robust least squares: a Gaussian, Azzalini's
+skew-normal, and the modified Pearson VII that two independent
+comparisons rank first for chromatographic peaks.
+
+References
+----------
+.. [1] Azzalini, A. A class of distributions which includes the normal
+   ones. Scand. J. Statist. 12(2), 171-178 (1985).
+.. [2] Niezen, L. E., Schoenmakers, P. J. and Pirok, B. W. J. Critical
+   comparison of background correction algorithms used in
+   chromatography. Anal. Chim. Acta 1201, 339605 (2022).
+   doi:10.1016/j.aca.2022.339605
+.. [3] Milani, N. B. L. et al. Generating realistic data through
+   modeling and parametric probability for the numerical evaluation of
+   data processing algorithms in two-dimensional chromatography.
+   Anal. Chim. Acta 1312, 342724 (2024). doi:10.1016/j.aca.2024.342724
 """
 import logging
 from collections.abc import Callable
@@ -43,6 +60,12 @@ def gauss(x: np.ndarray, params: np.ndarray) -> np.ndarray:
     ValueError
         Raised if `sigma` is not greater than 0.
 
+    Notes
+    -----
+    Written in un-normalised form, so ``amp`` is the height of the peak
+    and does not depend on ``sigma``. `skew_norm` in this module
+    normalises instead, and its ``amp`` scales the area.
+
     """
     amp, x0, sigma = params
 
@@ -64,18 +87,43 @@ def skew_norm(x: np.ndarray, params: np.ndarray) -> np.ndarray:
         `params` with the following fields defined:
 
         amp : float
-            The maximum height of the distribution.
+            Scales the area. The density is normalised, so at
+            ``alpha = 0`` the peak reaches
+            ``amp / sqrt(2 pi scale**2)`` and falls as `scale` grows.
         loc :  float
             The location parameter of the distribution.
         scale : float
             The scale parameter of the distribution.
         alpha : float
-            The shape parameter of the distribution.
+            The shape parameter of the distribution. Zero gives a
+            Gaussian; the sign sets which tail is drawn out.
 
     Returns
     -------
     dist : numpy.ndarray
         The Skew normal distribution evaluated with x.
+
+    Notes
+    -----
+    These are the location, scale and shape parameters of Azzalini's
+    skew-normal [1]_ §2.1 Eq. (3), under a location-scale extension.
+    Neither `loc` nor `scale` is a moment: his §2.3 Eq. (5) gives
+    ``E(Z) = b d`` and ``var(Z) = 1 - (b d)**2`` with
+    ``b = sqrt(2/pi)`` and ``d = alpha / sqrt(1 + alpha**2)``, so the
+    mean sits at ``loc + scale * b * d`` and the standard deviation is
+    ``scale * sqrt(1 - (b d)**2)``, below `scale`. His Fig. 1 shows the
+    mode displaced from the location as well. The three coincide only
+    at ``alpha = 0``, where his Property A returns the normal density.
+
+    **A non-positive `scale` is not caught here**, where `gauss` guards
+    ``sigma``: it divides through and returns NaN with a runtime
+    warning.
+
+    References
+    ----------
+    .. [1] Azzalini, A. A class of distributions which includes the
+       normal ones. *Scandinavian Journal of Statistics* **12**(2),
+       171-178 (1985), §2.1 and §2.3.
 
     """
     amp, loc, scale, alpha = params
@@ -119,13 +167,12 @@ def pearson7(x: np.ndarray, params: np.ndarray) -> np.ndarray:
 
     The shape interpolates between a Lorentzian (``m`` near 1) and a
     Gaussian (``m`` large), with ``E`` producing tailing (positive) or
-    fronting (negative). Three independent selections favour it over the
+    fronting (negative). Two independent selections favour it over the
     Gaussian and the exponentially-modified Gaussian for chromatographic
     peaks: Niezen et al. compared fifteen distributions by the Akaike
-    information criterion and ranked it first (Table 1); Milani et al.
-    measured a lower RMSE over 458 fitted peaks; and on 60 randomly
-    chosen peaks of this project's own dataset it won on 29, against 20
-    for the EMG and 11 for the Gaussian.
+    information criterion and ranked it first (Table 1), and Milani et
+    al. measured a lower RMSE over 458 fitted peaks. The comparison run
+    for this project is in ``tools/synthetic_data.md``.
 
     Parameters
     ----------
@@ -209,8 +256,9 @@ def _lsq_eq(
 
     Returns
     -------
-    callable
-        A function to feed to the `scipy.optimize.least_squares` method.
+    residuals : numpy.ndarray
+        ``func(x, p) - y``, the residual vector
+        `scipy.optimize.least_squares` minimises.
 
     """
     return func(x,p) - y
@@ -237,7 +285,7 @@ def _lsq_fit(
         Number of parameters (3 for Gaussian, 4 for Skew-Normal, 5 for
         modified Pearson VII). Must equal ``3 + len(extra)``.
     tau_offset : callable or float
-        How far from ``tau0`` to set the ``x0`` bounds.  If callable it
+        How far from ``tau0`` to set the ``x0`` bounds. If callable it
         receives ``sigma0`` (computed from the main peak width).
     extra : sequence of (float, float, float), optional
         Initial value and bounds ``(p0, lower, upper)`` for each
@@ -249,6 +297,33 @@ def _lsq_fit(
     -------
     s : numpy.ndarray
         Optimised parameters.
+
+    Raises
+    ------
+    ValueError
+        If `n_params` does not equal ``3 + len(extra)``. Also from
+        numpy when `y` carries no detectable peak, since the main peak
+        is chosen by ``argmax`` over an empty array, reporting
+        "attempt to get argmax of an empty sequence".
+
+    Notes
+    -----
+    Peaks are found with `peaks_params` at its own defaults, so the
+    adaptive prominence ladder is off and the bar is a plain fraction
+    of the largest prominence. The negative-peak behaviour documented
+    there applies: on a signal with no genuine negative excursion a
+    noise dip is admitted, and since the main peak is the largest
+    ``|y|`` among those found, the sign of the fit follows it. The
+    amplitude bounds open downward when the main peak is negative.
+
+    ``sigma0`` is the half-width of the main peak in `x` units, which
+    is not a standard deviation: for a Gaussian the half-prominence
+    half-width is about 1.18 sigma. It seeds the optimiser.
+
+    The index ``peak + widths // 2`` used for ``sigma0`` is not bounded
+    against the end of `x`. A peak close to the end has its measured
+    width truncated as well, which works against the overflow.
+
     """
     if n_params != 3 + len(extra):
         raise ValueError("n_params must equal 3 + len(extra)")
@@ -299,8 +374,8 @@ def _lsq_pearson7_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Fit a modified Pearson VII distribution via robust least-squares.
 
     The shape bounds are `PEARSON7_M_BOUNDS` and `PEARSON7_E_BOUNDS`,
-    both from Milani et al. (2024) §3.1.1. The starting values -- m = 10
-    and a symmetric E = 0 -- are optimiser seeds only, chosen inside the
+    both from Milani et al. (2024) §3.1.1. The starting values, m = 10
+    and a symmetric E = 0, are optimiser seeds only, chosen inside the
     published range rather than fitted to any dataset.
 
     See `_lsq_fit` for details.
@@ -319,8 +394,8 @@ def fit_peak(
     output_dir: str = "results",
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Fit robustly the most prominent peak on `x` with both Gaussian and
-    Skew-Normal distributions.
+    Fit robustly the most prominent peak on `x` with a Gaussian, a
+    Skew-Normal and a modified Pearson VII distribution.
 
     Parameters
     ----------
@@ -339,6 +414,9 @@ def fit_peak(
         `None` (default), will not export the data.
     path: str, optional
         Path of the data file. If `None` (default), will not export the data.
+    output_dir : str, optional
+        Directory the exported table is written to. Default is
+        "results". Used only when both `mol` and `path` are given.
 
     Returns
     -------
@@ -352,6 +430,16 @@ def fit_peak(
         The y-values of the modified Pearson VII distribution. Of the
         three this is the shape best supported for chromatographic
         peaks; see `pearson7` for the evidence.
+
+    Notes
+    -----
+    The three fits are independent, each seeded from the same main
+    peak by `_lsq_fit`, so they can disagree on which feature they
+    settle on and none is chosen over the others here.
+
+    The logged "center" and "sigma" of the Skew-Normal fit are its
+    location and scale parameters, neither the apex nor the standard
+    deviation; see `skew_norm`.
 
     """
     if x0 is not None:

@@ -214,7 +214,7 @@ def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
 
     Uses ``segmentation.trim_plateaus`` (the same trimming as the
     diagnostic overlay) so the gallery and the diagnostic cannot drift.
-    The collapse exclusion needs the signal-to-noise ratio, hence ``s``.
+    The past-drop exclusion needs the signal-to-noise ratio, hence ``s``.
 
     Returns
     -------
@@ -560,12 +560,12 @@ def main() -> None:
                         help="restrict the sampling to the regions "
                              "surviving the stage-1 trimming (sub-"
                              "fundamental clip, the SNR-gated "
-                             "collapse exclusion and the "
+                             "past-drop exclusion and the "
                              "stiff-side instability exclusion), via "
                              "segmentation.trim_plateaus, and draw them "
                              "on 00_r2.png")
     parser.add_argument("--snr-threshold", type=float, default=25.0,
-                        help="SNR above which the collapse exclusion is "
+                        help="SNR above which the past-drop exclusion is "
                              "applied under --survive (default: 25)")
     parser.add_argument("--c1", type=float, default=1.0,
                         help="sub-fundamental clip factor for --survive: "

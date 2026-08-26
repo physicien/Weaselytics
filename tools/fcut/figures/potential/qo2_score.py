@@ -9,7 +9,7 @@ reach the optimum at all.
 
 That is NOT the harness's `in_candidates`, which comes from
 `trim_candidates(fcut_range, segments, n_used)` with defaults: the
-sub-fundamental clip and bridging only, no collapse exclusion, no
+sub-fundamental clip and bridging only, no past-drop exclusion, no
 instability trim, no dip fallback. Production selects from
 `trim_plateaus(...)['surviving']`, which is narrower, so containment
 there has to be computed rather than read off the summary.

@@ -566,7 +566,7 @@ class TestDipCurve:
 
 
 class TestCollapseFallback:
-    """The collapse exclusion narrows the choice; it is not a veto.
+    """The past-drop exclusion narrows the choice; it is not a veto.
 
     When the sub-fundamental clip, the frozen tail and the instability
     boundary have already removed everything outside the collapse,

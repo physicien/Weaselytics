@@ -208,7 +208,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
         stage-1 trimming, drawn as a red fill. Default is None, which
         disables the overlay.
     cp_snr_removed : array-like, shape (N,), dtype bool, optional
-        Mask of the additional regions the SNR-gated collapse exclusion
+        Mask of the additional regions the SNR-gated past-drop exclusion
         would remove (beyond ``cp_removed``), drawn as a dark-red
         cross-hatch. A preview only; it does not affect the selection.
         Default is None, which disables the overlay.
@@ -265,7 +265,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
                             color='red', alpha=0.15,
                             label='trimmed',
                             transform=axs[0].get_xaxis_transform())
-    # Dark-red cross-hatch: what the SNR-gated collapse exclusion (#3)
+    # Dark-red cross-hatch: what the SNR-gated past-drop exclusion (#3)
     # would additionally remove. A preview; it does not affect selection.
     # Only drawn (and labelled) when it actually removes something, so
     # a signal it never fires on carries no phantom legend entry.

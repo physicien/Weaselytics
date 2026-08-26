@@ -685,14 +685,14 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       baseline has absorbed the analyte-correlated content and r2
       climbing back towards Nyquist reports on the noise it is now
       fitting, not on the quality of the fit. No property of the signal
-      makes a cutoff there admissible, so unlike the collapse exclusion
+      makes a cutoff there admissible, so unlike the past-drop exclusion
       below this clip is unconditional.
     - **bridging** (optional): a non-flat segment sandwiched between
       candidate regions is absorbed when it is not a cliff
       (``rel_slope < cliff_min``), so drifting connectors do not split
       one plateau into several displayed pieces while genuine staircase
       steps still separate regions.
-    - **collapse exclusion** (optional): when ``exclude_past_drop`` is
+    - **past-drop exclusion** (optional): when ``exclude_past_drop`` is
       set, flat segments lying below ``drop_level`` of the way up
       the total r2 drop are removed. Approaching the collapse the
       baseline has begun absorbing the analyte-correlated content, so
@@ -928,7 +928,7 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
     n_used : int
         Number of signal points used for the autocorrelation sweep.
     exclude_past_drop : bool
-        Whether to apply the collapse exclusion.
+        Whether to apply the past-drop exclusion.
     c1 : float
         Safety factor of the sub-fundamental clip.
     drop_level : float
@@ -1001,7 +1001,7 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
         return kept, snr_rm, instab_rm
 
     surviving, snr_removed, instab_removed = _with_past_drop(exclude_past_drop)
-    # The collapse exclusion narrows the choice among surviving regions;
+    # The past-drop exclusion narrows the choice among surviving regions;
     # it is not a veto on selecting at all. When the sub-fundamental
     # clip and the instability boundary have already removed
     # everything outside it, applying it as well leaves nothing
@@ -1032,7 +1032,7 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     flat test misses). This applies the a-priori exclusions to it:
 
     - the sub-fundamental clip, always;
-    - the SNR-gated collapse exclusion, only when ``exclude_past_drop``.
+    - the SNR-gated past-drop exclusion, only when ``exclude_past_drop``.
       Past the collapse a cutoff destroys analyte peak area
       (Navarro-Huerta et al. 2017 §3.4), so on a signal carrying analyte
       the plateaus below ``drop_level`` of the drop are removed,
@@ -1049,7 +1049,7 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     of magnitude steeper than a plateau. The rule keeps the dips only
     for signals with no flat region, and drops them everywhere else.
 
-    Applying the collapse exclusion never leaves the caller with nothing:
+    Applying the past-drop exclusion never leaves the caller with nothing:
     if it would empty the surviving set, the set without it is used
     instead. No cutoff at all is a worse answer than a poor one.
 
@@ -1067,7 +1067,7 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     n_used : int
         Number of signal points used for the autocorrelation sweep.
     exclude_past_drop : bool, optional
-        If True, apply the SNR-gated collapse exclusion. Default False.
+        If True, apply the SNR-gated past-drop exclusion. Default False.
     c1 : float, optional
         Safety factor of the sub-fundamental clip. Default is 1.0 (the
         fundamental itself); see ``trim_candidates``.
@@ -1093,7 +1093,7 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
 
     Notes
     -----
-    The collapse exclusion is gated on the signal-to-noise ratio, and
+    The past-drop exclusion is gated on the signal-to-noise ratio, and
     that gate discriminates only where the population straddles the
     threshold. On data whose values sit far above it the exclusion is
     applied to everything and the gate is a constant, which also means

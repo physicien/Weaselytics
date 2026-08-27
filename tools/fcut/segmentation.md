@@ -209,9 +209,6 @@ the order the chain runs. The **Basis** column carries one of five verdicts:
 - **Frozen** nothing fixes the value. The question is parked until further
   investigation, and the row names what was tried and what would settle it.
 
-The audit behind these verdicts, with the measurements and the approaches it
-ruled out, is in [`parameter_audit.md`](./parameter_audit.md).
-
 Two things the grouping makes visible. The constants under **Preparing the data**
 never appear in the selection, yet they change its answer: they move `scut` and
 `n_used`, hence the signal's fundamental and the sub-fundamental clip that

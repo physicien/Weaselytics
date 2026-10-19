@@ -118,6 +118,12 @@ echo "repo=$REPO"
 echo "data=$DATADIR"
 echo "out =$OUTROOT"
 python -c "import weaselytics.baseline as b; print('channel:', b._R2_CHANNEL)"
+# numba silently picks the beads solver (banded if it imports, sparse
+# if not), so record it with the versions that produced the curves.
+python -c "import numpy, scipy, pybaselines as p
+from pybaselines._compat import _HAS_NUMBA
+print('numpy', numpy.__version__, 'scipy', scipy.__version__,
+      'pybaselines', p.__version__, 'numba', _HAS_NUMBA)"
 
 case "$MODE" in
 prod)

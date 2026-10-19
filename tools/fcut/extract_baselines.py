@@ -76,7 +76,7 @@ def one(job: tuple) -> dict:
         x, y = ParsedData(path).data
         row['n_points'] = len(y)
         # `weaselytics.py` smooths only when -sm is passed, and it is
-        # not passed by `tools/slurm_script`, so the default here is the
+        # not passed by `tools/loop_bl.sbatch`, so the default here is the
         # unsmoothed trace production actually corrects.
         ys = smooth_SG(y, 9, 0) if smooth else y
         with contextlib.redirect_stdout(io.StringIO()):

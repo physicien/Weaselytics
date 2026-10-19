@@ -2,7 +2,7 @@
 Every generated signal, drawn once and filed under both classifications.
 
 Renders the production merged figure for all 432 signals of
-SYNTH_ERB_2026-08-18 against runs/SYNTH_2026-08-24, then files each
+SYNTH_ERB_2026-08-18 against runs/SYNTH_2026-10-19_23559214, then files each
 image twice:
 
   by_rmse/    Emmanuel's edges on `e_min`, the RMSE between the baseline
@@ -52,7 +52,7 @@ from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.plot import plot, r2_plots  # noqa: E402
 
 ROOT = '/home/esteban/Simulation/DFT/separation_part2'
-RUN = os.path.join(ROOT, 'runs/SYNTH_2026-08-24')
+RUN = os.path.join(ROOT, 'runs/SYNTH_2026-10-19_23559214')
 DS = os.path.join(ROOT, 'SYNTH_ERB_2026-08-18')
 OUT = os.path.join(ROOT, 'MERGED/QUASIOPT_2026-08-24')
 SCRATCH = os.path.dirname(os.path.abspath(__file__))

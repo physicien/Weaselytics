@@ -23,7 +23,7 @@ taking it over the whole support scores the trimming instead.
 A null drawn uniformly in log over the same region is reported, without
 which none of the ratios can be read.
 
-Run: runs/SYNTH_2026-08-24, generated at parabola_len=3 (commit 1cd50fe).
+Run: runs/SYNTH_2026-10-19_23559214, generated at parabola_len=3.
 """
 
 import csv
@@ -42,7 +42,7 @@ from weaselytics.baseline import _snr  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 
 ROOT = '/home/esteban/Simulation/DFT/separation_part2'
-RUN = os.path.join(ROOT, 'runs/SYNTH_2026-08-24')
+RUN = os.path.join(ROOT, 'runs/SYNTH_2026-10-19_23559214')
 DS = os.path.join(ROOT, 'SYNTH_ERB_2026-08-18')
 OUT = os.path.dirname(os.path.abspath(__file__))
 RMSE_MAX = 0.05

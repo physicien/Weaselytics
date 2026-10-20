@@ -6,6 +6,7 @@ prose. `plot.r2_plots` writes PNG, so `plt.savefig` is wrapped to emit a
 vector copy of the same figure.
 """
 
+import argparse
 import glob
 import os
 
@@ -16,21 +17,15 @@ matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
 import matplotlib.pyplot as plt  # noqa: E402
 
-import weaselytics  # noqa: E402
 from weaselytics.baseline import auto_beads  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 
-# data/, runs/ and the datasets sit beside the checkout.
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(weaselytics.__file__))))
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
-CACHE = os.path.join(ROOT, 'runs', 'PROD_2026-10-19_23559213',
-                     'r2_cache')
 
 
-def main():
-    src = glob.glob(os.path.join(ROOT, 'data', '*', f'{STEM}.txt'))[0]
+def main(data, cache):
+    src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
     d = ParsedData(src).data
     x, y = np.asarray(d[0], float), np.asarray(d[1], float)
 
@@ -50,7 +45,7 @@ def main():
         import shutil
         work = os.path.join(OUT, 'diag_cache')
         if not os.path.isdir(work):
-            shutil.copytree(CACHE, work)
+            shutil.copytree(cache, work)
         auto_beads(y, x, print_plot=True, path=src, output_dir=OUT,
                    cache_dir=work)
     finally:
@@ -58,4 +53,12 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--data', required=True,
+                        help='raw data directory, holding '
+                             '<Molecule>/<stem>.txt')
+    parser.add_argument('--cache', required=True,
+                        help='r2_cache directory of a production run, '
+                             'e.g. runs/PROD_<date>_<job>/r2_cache')
+    args = parser.parse_args()
+    main(args.data, args.cache)

@@ -2,14 +2,13 @@
 """
 Render the per-signal review figures of a synthetic dataset.
 
-Two figures per signal, for every signal rather than only the ones that
-select a cutoff:
+Two figures for every signal:
 
 ``r2_plots/<stem>_r2.png``
     The production autocorrelation figure of ``plot.r2_plots``, with the
     **true optimum** added as a green dashed line across every panel.
-    Production has no slot for that marker and should not have one: the
-    true optimum exists only where the baseline is known.
+    The true optimum exists only where the baseline is known, so
+    production has no slot for that marker.
 
 ``images/<stem>.png``
     The chromatogram with the known baseline, the baseline the pipeline
@@ -191,7 +190,7 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
 
     # A signal that selects nothing has no row in the summary, but its
     # optimum does not depend on the selection: fill green from the
-    # curve already fitted here rather than leaving it blank.
+    # curve already fitted here.
     if not np.isfinite(stats['t_rms']):
         stats = dict(stats)
         for k, v in _stats(bl_best).items():

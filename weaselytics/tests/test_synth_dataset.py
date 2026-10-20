@@ -1,9 +1,9 @@
 """Tests for the synthetic-benchmark generator in ``tools/``.
 
-``tools/`` is not a package, so the module is loaded by path. These
-tests exist because the generator defines what "correct baseline" means
-for every constant grounded against it: an error here does not produce a
-wrong answer, it produces a wrong *target*.
+The module is loaded by path from ``tools/synthetic/``. These tests
+exist because the generator defines what "correct baseline" means for
+every constant grounded against it: an error here makes a wrong
+*target*.
 """
 
 import importlib.util
@@ -34,7 +34,7 @@ class TestQuantise:
         assert err.max() <= synth.ADC_STEP_MV / 2 + 1e-12
 
     def test_reproduces_the_real_lattice_signature(self):
-        # Quantised white noise at the real amplitude must show the same
+        # Quantized white noise at the real amplitude must show the same
         # signature as the instrument: consecutive differences that are
         # exact multiples of the step, and many exact ties.
         rng = np.random.default_rng(6)
@@ -246,7 +246,7 @@ class TestErbBaselines:
             synth.erb_baseline(np.linspace(0., 1., 10), 7)
 
     def test_bare_cumsum_scales_with_sampling_density(self):
-        # The transcribed expression is a Riemann sum missing its dx, so
+        # Erb's expression is a Riemann sum missing its dx, so
         # at fixed span its amplitude grows with the point count. This
         # is why the population uses exact_integral instead; the test
         # pins the defect so it cannot be "fixed" silently in the fixed
@@ -367,8 +367,8 @@ class TestErbNativeSignal:
         np.testing.assert_array_equal(a['y'], b['y'])
 
     def test_peak_component_matches_the_native_family_exactly(self):
-        # The whole point of the hybrid is that the peaks are native's,
-        # not a second implementation of them. Same seed, same draws.
+        # The peaks of `erb_native` are native's own: same seed, same
+        # draws.
         n, case = 1800, 'multi_mixed'
         t1, sig1, pk1, t01 = synth.native_peak_component(
             n, case, np.random.default_rng(11))
@@ -386,13 +386,13 @@ class TestErbNativeSignal:
         u = np.linspace(0., 1000., n)
         np.testing.assert_array_equal(
             d['baseline'], synth.erb_baseline(u, 3, exact_integral=True))
-        # the injection artefact is in the signal, never in the truth
+        # the injection artifact is in the signal, never in the truth
         art = [p for p in d['peaks'] if p.get('artifact')]
         assert art, "the injection artefact must be present"
         assert d['signal'].min() < 0, "its negative lobe must survive"
 
     def test_baseline_shape_does_not_depend_on_record_length(self):
-        # erb_baseline is evaluated on a normalised abscissa, so the
+        # erb_baseline is evaluated on a normalized abscissa, so the
         # four types stay comparable across the record lengths.
         rngs = [np.random.default_rng(1) for _ in range(2)]
         a = synth.erb_native_signal(900, 'blank', 2, 0.019, rngs[0])

@@ -9,10 +9,8 @@ accuracy of the current selector, containment of the true optimum, the
 stiff-side instability trim with and without, and the candidate features
 for stage 3.
 
-It measures and plots. It fits nothing, and it proposes no constant: a
-ratio refitted to this population would be exactly the kind of tuned
-number the project rejects. Where a correlation is found it is reported
-as a correlation.
+It measures and plots, and fits nothing: a correlation found here is
+reported as a correlation.
 
 Usage
 -----
@@ -34,7 +32,7 @@ import numpy as np  # noqa: E402
 from scipy.signal import find_peaks  # noqa: E402
 from scipy.stats import spearmanr  # noqa: E402
 
-# Detector quantisation step, mV. The truth baseline is not quantised
+# Detector quantization step, mV. The truth baseline is not quantized
 # while the signal is, so no estimator can score below roughly this.
 ADC_STEP_MV = 0.008996
 
@@ -115,8 +113,8 @@ def local_minima(values: np.ndarray, prominence_frac: float = 0.0,
        surviving region at the median and up to 107. At that density a
        random cutoff is within 0.005 decade of some minimum and the
        question "is the optimum at a minimum?" is meaningless. A
-       *visible* minimum -- the thing a person reads off the middle
-       panel -- needs a prominence. No single value is adopted here;
+       *visible* minimum, the thing a person reads off the middle
+       panel, needs a prominence. No single value is adopted here;
        the caller sweeps it and the answer is reported as a function of
        it.
 
@@ -231,7 +229,7 @@ def section_a(rows: list[dict], out: list[str]) -> None:
                                  move, '.1f'))
     out.append(f'A3  signals with e_med/e_min > 2     '
                f'{int((move > 2).sum())}/{n}')
-    out.append('A4  ' + describe('    e_min, mV (quantisation floor)',
+    out.append('A4  ' + describe('    e_min, mV (quantization floor)',
                                  e_min, '.5f'))
     out.append(f'A4  ADC step is {ADC_STEP_MV:.6f} mV; '
                f'{int((e_min < ADC_STEP_MV).sum())}/{n} signals reach '
@@ -385,13 +383,12 @@ def section_e0(diag_dir: str, rows: list[dict], out: list[str],
 
     A local minimum of the sensitivity curve is a cutoff where the
     baseline is least sensitive to the cutoff, i.e. where the fit is
-    most determined by the data. That is a mechanism rather than a
-    ratio, which is what stage 3 needs.
+    most determined by the data.
 
-    The null control is not optional: if the curve carries many minima,
-    "the optimum is near a minimum" can be true by construction. The
-    hypothesis is supported only if the observed distance is clearly
-    below the distance from a random cutoff in the same region.
+    If the curve carries many minima, "the optimum is near a minimum"
+    can be true by construction. The hypothesis is supported only if the
+    observed distance is clearly below the distance from a random cutoff
+    in the same region.
 
     Parameters
     ----------
@@ -407,16 +404,15 @@ def section_e0(diag_dir: str, rows: list[dict], out: list[str],
     """
     out.append('\n=== E0. OPTIMUM AT A LOCAL MINIMUM OF SENSITIVITY? ===')
     out.append('Hypothesis (Emmanuel, 2026-08-16): the optimal cutoff sits')
-    out.append('at a local minimum of the sensitivity curve -- the middle')
+    out.append('at a local minimum of the sensitivity curve, the middle')
     out.append('panel of the r2 diagnostic. A minimum there is a cutoff')
     out.append('where the baseline is least sensitive to the cutoff, i.e.')
-    out.append('most determined by the data. That is a mechanism, not a')
-    out.append('ratio.')
+    out.append('most determined by the data.')
     out.append('')
-    out.append('Prominence is SWEPT, not chosen: at zero prominence every')
+    out.append('Prominence is SWEPT: at zero prominence every')
     out.append('numerical wiggle counts as a minimum, the region holds')
     out.append('tens of them, and a random cutoff is within 0.005 dec of')
-    out.append('one -- the question would answer itself. A visible')
+    out.append('one, so the question would answer itself. A visible')
     out.append('minimum, the thing a person reads off the panel, needs a')
     out.append('prominence. No single value is adopted.')
     out.append('')
@@ -548,9 +544,8 @@ def section_e1(rows: list[dict], out: list[str], outdir: str) -> None:
     out.append('\n=== E1. POSITION IN THE REGION, AND FEATURES ===')
     p = col(rows, 'rel_pos')
     out.append(describe('rel_pos of the true optimum', p))
-    out.append('  the shipped placeholder is 0.5; donnie measured '
+    out.append('  the shipped placeholder is 0.5; measured on Erb\'s signals: '
                '0.65-0.74')
-    out.append('  THIS IS A VALIDATION TARGET, NOT A RULE TO FIT.')
 
     feats = ('n_used', 'snr', 'region_width_dec', 'r2_at_best',
              'e_min', 'n_points')
@@ -566,8 +561,8 @@ def section_e1(rows: list[dict], out: list[str], outdir: str) -> None:
     fig, ax = plt.subplots(2, 3, figsize=(14, 7))
     ax = ax.ravel()
     ax[0].hist(p[np.isfinite(p)], bins=30, color='tab:blue')
-    for v, c, lab in ((0.5, 'k', 'placeholder'), (0.65, 'r', 'donnie lo'),
-                      (0.74, 'r', 'donnie hi')):
+    for v, c, lab in ((0.5, 'k', 'placeholder'), (0.65, 'r', 'Erb lo'),
+                      (0.74, 'r', 'Erb hi')):
         ax[0].axvline(v, color=c, lw=1.2, ls='--', label=lab)
     ax[0].legend(fontsize=7)
     ax[0].set_xlabel('rel_pos of the true optimum')
@@ -640,7 +635,7 @@ def section_fgh(diag_dir: str, rows: list[dict], out: list[str],
     out.append('  (the standing claim: r2 moves ~0.003 while the error '
                'moves 10-13%, so r2 level cannot be the deciding feature)')
 
-    out.append('\n=== H. _snr ON QUANTISED SYNTHETIC DATA ===')
+    out.append('\n=== H. _snr ON QUANTIZED SYNTHETIC DATA ===')
     snr = col(rows, 'snr')
     out.append(describe('_snr', snr, '.1f'))
     fin = np.isfinite(snr)

@@ -2,13 +2,6 @@
 
 This document specifies the synthetic benchmark: what each component of a
 generated signal is, **where it comes from**, and what may be cited for it.
-It is written so that a number produced by scoring against this benchmark can
-be traced back to a published source or to a stated measurement.
-
-The rule followed throughout is the one the project applies to production
-code: *a choice that changes a reported value needs a citation or an explicit
-statement that it is unresolved*. Where a value is adopted rather than
-grounded, it says so.
 
 Generator: [`tools/synthetic/synth_dataset.py`](./synth_dataset.py).
 Tests: [`weaselytics/tests/test_synth_dataset.py`](../weaselytics/tests/test_synth_dataset.py).
@@ -34,7 +27,7 @@ peak-free-stretch selection and its modified Pearson VII peaks are in commit
 `efc7aa7`, with their design in that commit's
 `tools/synthetic/synthetic_data.md` §2 to §8.
 
-## 2. The injection / dead-time artefact
+## 2. The injection / dead-time artifact
 
 Real LPYE runs carry a bipolar excursion at the dead time: a positive spike
 followed by a negative undershoot, which on many blanks is the largest
@@ -56,37 +49,34 @@ exercised while the baseline is scored only on the drift.
 
 **Its position is a declared variable, not a constant.** The dead time of the
 LPYE setup is ~4.5 min and near-invariant, but that is a property of one
-column and flow rate. Pinning it would build an instrument constant into a
-benchmark, which is precisely the objection that has been raised against
-fitted heuristics elsewhere in this project. The position is drawn from a
-wide range and recorded per signal, so that any dependence of a constant on
-it is measurable.
+column and flow rate. Pinning it would build an instrument constant into the
+benchmark. The position is drawn from a wide range and recorded per signal, so
+that any dependence of a constant on it is measurable.
 
 ## 3. Noise
 
 White Gaussian noise is **added** at a known level, so the noise component is
 known exactly rather than inferred (Niezen 2022, §4.1.1, step ii).
 
-## 4. Quantisation
+## 4. Quantization
 
-The LPYE detector output is digitised at
+The LPYE detector output is digitized at
 
 ```
 q = 0.008996 mV
 ```
 
-Measured, not taken from a datasheet: in all 339 reference signals every
-consecutive difference is an exact integer multiple of `q` to within 1e-9, a
-~900-point record holds only 45–60 distinct values, and ~25% of consecutive
-samples are identical.
+Measured: in all 339 reference signals every consecutive difference is an
+exact integer multiple of `q` to within 1e-9, a ~900-point record holds only
+45–60 distinct values, and ~25% of consecutive samples are identical.
 
 Assembled signals are **rounded to multiples of `q`**. This matters beyond
 realism: `baseline._snr` divides by a MAD of consecutive differences, which on
-quantised data is pinned to the lattice and takes only five distinct values
+quantized data is pinned to the lattice and takes only five distinct values
 across the whole reference set. On continuous synthetic data the same function
-returns a true signal-to-noise ratio. Without quantisation the benchmark would
-exercise a different quantity under the same name — which has already happened
-once, and is recorded as a TO DO in the README.
+returns a true signal-to-noise ratio. Without quantization the benchmark would
+exercise a different quantity under the same name. That has happened once
+already; see the README TO DO.
 
 ## 5. Scoring
 
@@ -100,40 +90,38 @@ wins (§4.3.2 against §4.3.3):
 
 Niezen found that the combination giving the lowest background RMSE was *not*
 the one giving the smallest peak-area errors. Since the deliverable of this
-project is peak areas, both are reported; optimising on RMSE alone would risk
+project is peak areas, both are reported; optimizing on RMSE alone would risk
 grounding a constant against the wrong quantity.
 
-## 6. The `pyb` family — idealised signals from the pybaselines docs
+## 6. The `pyb` family: idealized signals from the pybaselines docs
 
 ### 6.1 Why `make_data` is not called
 
-`pybaselines.utils.make_data` is **not called**. Its docstring states the
-output "may change without notice to meet the needs of the examples in the
-pybaselines documentation, so outside users are advised not to rely on the
-exact output". This project has already been bitten once by an undocumented
-pybaselines change — the `beads` `lam_0/1/2` defaults moved from `1.0` to
-auto-scaled with no changelog entry, shifting r² from 0.885 to 0.950 at a
-fixed cutoff — so a benchmark that imported it would silently depend on the
-install date.
+The docstring of `pybaselines.utils.make_data` states the output "may change
+without notice to meet the needs of the examples in the pybaselines
+documentation, so outside users are advised not to rely on the exact output".
+An undocumented pybaselines change has already moved this project's results
+once: the `beads` `lam_0/1/2` defaults went from `1.0` to auto-scaled with no
+changelog entry, shifting r² from 0.885 to 0.950 at a fixed cutoff. A
+benchmark that imported `make_data` would likewise depend on the install date.
 
 The signals are therefore generated here from the examples of the
 documentation as it stood at commit `c36ce6128`, and covered by tests,
 including one asserting **bit-for-bit** equality with
-`pybaselines.utils.gaussian`. Note the code evaluates `h·exp(-0.5(x-c)²/σ²)` rather than
-`h·exp(-0.5((x-c)/σ)²)`: algebraically identical, different in the last bits,
-and the first is what the source computes.
+`pybaselines.utils.gaussian`. Note the code evaluates `h·exp(-0.5(x-c)²/σ²)`
+rather than `h·exp(-0.5((x-c)/σ)²)`: algebraically identical, different in the
+last bits, and the first is what the source computes.
 
 ### 6.2 The two sources and what each contributes
 
-**[A] `docs/examples/misc/plot_beads_preprocessing.py`** — three baselines
-that form a deliberate ladder of violation of the BEADS periodicity
-requirement, which is the whole reason that example exists. Its own comments
-name them: ends at zero on *both* ends, on *one*, on *neither*. That is the
-failure mode Navarro-Huerta 2017 §3.3.1 addresses with the parabola
-pre-treatment, which production enables via `fit_parabola=True`, so this axis
-tests a preprocessing step nothing else in the benchmark exercises.
+**[A] `docs/examples/misc/plot_beads_preprocessing.py`**: three baselines that
+violate the BEADS periodicity requirement by degrees, which is what that
+example exists to show. Its own comments name them: ends at zero on *both*
+ends, on *one*, on *neither*. Navarro-Huerta 2017 §3.3.1 addresses that
+failure with the parabola pre-treatment, which production enables with
+`fit_parabola=True`. No other axis of the benchmark exercises it.
 
-**[B] `docs/algorithms/algorithms_1d/misc.rst`, `create_data()`** — five
+**[B] `docs/algorithms/algorithms_1d/misc.rst`, `create_data()`**: five
 datasets varying peak density (4 / 15 / 8 / 8 / 8 peaks), noise level
 (×5, ×1, ×0.5 of σ=0.2) and baseline shape, one of which carries **negative
 peaks** (`signal*2 - signal_2`).
@@ -149,18 +137,17 @@ datasets with these BEADS parameters:
 | y4 | positive | 0.2 | 6 | 0.04 |
 | **y5** | **negative present** | 100 | **1** | 0.01 |
 
-`asymmetry = 1` is used on exactly the dataset with negative peaks, and 6–8
-on the others. Production uses `asymmetry = 1` because of the bipolar
-dead-time undershoot (§2); until now that rested on local observation, and
-this is the library author's demonstrated usage of the same parameter for
-the same reason. It is evidence of practice, not a citable value.
+`asymmetry = 1` is used on exactly the dataset with negative peaks, and 6–8 on
+the others. Production uses `asymmetry = 1` because of the bipolar dead-time
+undershoot (§2), and the library author uses the same value for the same
+reason.
 
-Second, `freq_cutoff` spans **0.01 to 0.08** across five datasets from one
-generator — an 8× range, which is Navarro-Huerta §3.1(iv)'s "the optimal
-cutoff is sample-specific" shown concretely, and a sanity bound on the span
-any selector must cover.
+Second, `freq_cutoff` spans **0.01 to 0.08** across the five datasets of one
+generator, an 8× range. That is Navarro-Huerta §3.1(iv)'s "the optimal cutoff
+is sample-specific" made concrete, and a sanity bound on the span any selector
+must cover.
 
-**Caveat:** those `fit_params` are chosen for illustration, not optimised, so
+**Caveat:** those `fit_params` are chosen for illustration, not optimized, so
 they are *not* ground truth for the optimum. The **baselines** are exact,
 which is what the benchmark needs.
 
@@ -174,12 +161,12 @@ the same signal and baseline but fresh noise.
 
 ### 6.4 From eight cases to a population
 
-Eight signals cannot separate a real effect from a coincidence — the
-donnie exercise showed three signals already producing a monotone
-trade-off that no single threshold resolves. `pyb_random_signal(seed)`
-therefore turns the fixed vocabulary into a population: Gaussian peaks on a
-composed analytic baseline with white noise, every parameter drawn from a
-declared range, and the signal a pure function of the seed.
+Eight signals cannot separate a real effect from a coincidence: three of Erb's
+signals already produced a monotone trade-off that no single threshold
+resolves. `pyb_random_signal(seed)` therefore turns the fixed vocabulary into
+a population: Gaussian peaks on a composed analytic baseline with white noise,
+every parameter drawn from a declared range, and the signal a pure function of
+the seed.
 
 **Every range is the span of values actually used across the pybaselines
 documentation** at the pinned commit, collected from `docs/examples/*/*.py`,
@@ -204,7 +191,7 @@ on it, and the real LPYE records span 473–39,129 points.
 **Baseline components.** One or two are summed, as the documentation itself
 does (`10 - 0.005x + gaussian(x, 5, 850, 200)`): `linear`, `exponential`,
 `gaussian_bump`, `sine`, `parabola`, `logistic`. Coefficient ranges come from
-the collected published values — including the *signs* that appear there, so
+the collected published values, signs included, so
 `exponential` can rise or decay and `gaussian_bump` can be a bump or a dip
 (`gaussian(x, -6, 700, 500)` appears in the classification example).
 
@@ -216,13 +203,13 @@ purely-synthetic analogue of the LPYE dead-time undershoot, and the reason
 **The endpoint condition is recorded, not forced.** How close the baseline
 sits to its own minimum at each end is measured and stored in
 `meta['end_offsets']` rather than imposed. The periodicity axis is thus
-measurable across the population without being a design variable — the fixed
+measurable across the population without being a design variable: the fixed
 `A0/A1/A2` cases cover it deliberately, and the random population covers it
-incidentally, which is the more honest test.
+incidentally.
 
 **Metadata.** Every drawn parameter is stored in `meta`, including the
 per-peak list, so any dependence of a constant on any generator parameter can
-be measured after the fact rather than guessed.
+be measured after the fact.
 
 ## 7. What this benchmark does not establish
 
@@ -231,7 +218,7 @@ be measured after the fact rather than guessed.
   frequency grid reaches 5.6e-2 of `r²` near `fcut` 1e-4, and 6 of 339
   signals select a cutoff more than 0.1 decade apart across a numpy/scipy
   version change. No constant should be grounded to a precision finer than
-  ~1e-3 near the fundamental — below that the benchmark is measuring the
+  ~1e-3 near the fundamental; below that, the benchmark measures the
   machine. See the README TO DO.
 
 ## 8. What BEADS assumes, and where this benchmark violates it
@@ -271,7 +258,7 @@ quantification error after subtraction, not baseline correctness.
 
 **Both papers are silent on overlap, resolution and peak density.** The
 split below is therefore a finding outside what either author
-addressed, not a documented violation.
+addressed.
 
 ### 8.2 Failure by peak case and baseline
 
@@ -289,7 +276,7 @@ baseline:
 | **all** | 233 | 76 | 54 | 69 | **28.5%** |
 
 By baseline: `erb0` 18.1%, `erb1` 18.8%, **`erb2` 48.6%**. By noise,
-31.0% high against 25.9% typical -- noise barely matters.
+31.0% high against 25.9% typical, so noise barely matters.
 
 The cross-tab, bad over 24 per cell:
 
@@ -321,8 +308,8 @@ t1) / (w1 + w2)` on FWHM, computed from the truth parameters over the
     failure rate, any adjacent pair below Rs = 1.5 :  46.0%  (252 signals)
     failure rate, all pairs resolved               :  13.9%  ( 36 signals)
 
-Within `multi_narrow x erb0` alone -- same baseline, same peak case --
-the 12 passing have Rs_min 0.71 and 8.1% coverage, the 12 failing have
+Within `multi_narrow x erb0` alone, where baseline and peak case are the
+same, the 12 passing have Rs_min 0.71 and 8.1% coverage, the 12 failing have
 0.12 and 14.5%. A sixfold difference in resolution inside one cell.
 
 **It does not explain everything.** `multi_wide x erb0` inverts:
@@ -359,7 +346,7 @@ Plotted on a shared axis with their signals, the real baselines read as
 flat with a slight tilt, or a single shallow bend; the few with real
 range are monotone (`Cyclohexane C60C70C90 6`, 7.8 mV over 650 min,
 zero direction changes). The only visibly structured ones are the
-gradient runs where the baseline is following analyte, which is a
+runs where the baseline is following analyte, which is a
 selection fault rather than a drift characteristic.
 
 Do **not** read the direction-change counts from a plot that puts the
@@ -376,5 +363,5 @@ drift, and the statistic is meaningless at that amplitude.
   **1507**, 1–10. doi:10.1016/j.chroma.2017.05.057
 - Niezen, L.E., Schoenmakers, P.J., Pirok, B.W.J. (2022). Critical comparison
   of background correction algorithms used in chromatography. *Anal. Chim.
-  Acta* **1201**, 339605. doi:10.1016/j.aca.2022.339605 —
+  Acta* **1201**, 339605. doi:10.1016/j.aca.2022.339605;
   tool: Zenodo doi:10.5281/zenodo.6969547 (CC BY 4.0)

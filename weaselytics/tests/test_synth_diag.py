@@ -1,9 +1,9 @@
 """Tests for the synthetic-truth diagnostics in ``tools/``.
 
-``tools/`` is not a package, so the modules are loaded by path. These
-tests exist because the harness defines what "the optimal cutoff" means:
-an error here does not produce a wrong answer, it produces a wrong
-*answer key*, and every constant grounded against it inherits the fault.
+The modules are loaded by path from ``tools/synthetic/``. These tests
+exist because the harness defines what "the optimal cutoff" means:
+an error here makes a wrong *answer key*, and every constant grounded
+against it inherits the fault.
 """
 
 import importlib.util
@@ -113,9 +113,9 @@ class TestLocalMinima:
 
     def test_the_null_control_is_not_degenerate(self):
         # If a curve is dense in minima, a random cutoff is also close to
-        # one. This pins that the null control can detect that case --
+        # one. This pins that the null control can detect that case;
         # without it, "the optimum is near a minimum" is true by
-        # construction and means nothing.
+        # construction.
         rng = np.random.default_rng(1)
         fr = np.geomspace(1e-5, 0.5, 1000)
         noisy = rng.normal(0., 1., 1000)        # minima everywhere
@@ -154,10 +154,9 @@ class TestHarnessMatchesProduction:
     """The harness must call the pipeline the way auto_beads does.
 
     Calling `_fcutoff` with its own defaults runs plain ``beads`` with
-    no peak regions instead of ``custom_beads`` with them -- a different
-    algorithm on a different signal. That mistake produced a 15% crash
-    rate and 54% containment before it was caught, and nothing about it
-    is visible in the output: the run simply reports worse numbers.
+    no peak regions instead of ``custom_beads`` with them, a different
+    algorithm on a different signal, and nothing in the output shows it:
+    the run simply reports worse numbers.
     """
 
     def test_mirrors_auto_beads_defaults(self):

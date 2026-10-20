@@ -16,8 +16,8 @@ For every signal of a dataset produced by
   ``auto_beads`` and the known true baseline, on a subsampled fcut grid.
 
 The minimum of ``E`` is the objective optimal cutoff frequency. It is
-defined by baseline fit alone -- peak-area error is deliberately not
-computed and enters no decision here.
+defined by baseline fit alone: peak-area error is not computed and
+enters no decision here.
 
 Accuracy is reported in units of the record's own noise, which is the
 scale on which a difference in the corrected chromatogram is visible:
@@ -37,8 +37,7 @@ These replace ``d_decades`` and ``penalty`` as the reported figures.
 the corrected signal, and two cutoffs two decades apart can move the
 baseline by a few percent of the noise; ``penalty`` is a ratio that
 diverges as ``e_min`` approaches zero, when both fits are far below the
-noise. Both columns are still written, since the report battery reads
-them, but neither should be quoted as accuracy.
+noise. Both columns are still written, for the report battery.
 
 ``sigma`` is the generator's own noise array, so these figures exist on
 synthetic data only.
@@ -119,11 +118,11 @@ def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     a fallback, not the production setting.
 
     The error is the RMSE against the known baseline on the **original**
-    scale, which is Niezen et al. (2022) Eq. (15). Note the production
-    sweep instead fits on ``_log_transform(s[:scut])``: the error curve
+    scale, which is Niezen et al. (2022) Eq. (15). The production sweep
+    instead fits on ``_log_transform(s[:scut])``: the error curve
     and the r2 curve are therefore computed on different signals over
-    the same grid, which is intended -- the baseline is a physical
-    quantity in mV, while the log scale is an artefact of the method.
+    the same grid, which is intended: the baseline is a physical
+    quantity in mV, while the log scale is an artifact of the method.
 
     Parameters
     ----------
@@ -169,7 +168,7 @@ def _err_key(s: np.ndarray, x: np.ndarray, b_true: np.ndarray,
     Key identifying an error curve, for reuse across runs.
 
     The curve depends on the signal, the true baseline, the grid, and
-    the fit configuration `error_curve` uses -- which includes
+    the fit configuration `error_curve` uses, which includes
     `_relevant_regions`, so a change there must invalidate it. It does
     NOT depend on the trimming, the selection or the reported metrics,
     which is what makes reuse worth having: those are what change from
@@ -241,8 +240,7 @@ def _err_stats(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     """
     Departure of one fitted baseline from the true one, five ways.
 
-    No source in the literature argues for a normalization; each simply
-    picks one, so all of them are reported and the choice is left to the
+    All five normalizations are reported, and the choice is left to the
     reader.
 
     ``rms``
@@ -375,16 +373,15 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     b_true = truth['baseline']
 
     # THE PRODUCTION PATH. `_fcutoff` holds the whole selection, so
-    # reading its plot_data is the only way to score what ships --
-    # but it must be called the way `auto_beads` calls it.
+    # reading its plot_data is the only way to score what ships, but it
+    # must be called the way `auto_beads` calls it.
     #
     # MIRRORS baseline.auto_beads (the `method_kwargs` block and the
-    # `_fcutoff` call). Getting this wrong is not a small error: the
-    # defaults run plain `beads` with no peak regions instead of
-    # `custom_beads` with them, which is a different algorithm on a
-    # different signal, and it silently produced a 15% crash rate and
-    # 54% containment on the first pilot. `test_synth_diag.py` pins
-    # these against auto_beads' own signature so they cannot drift.
+    # `_fcutoff` call). Called with its own defaults, `_fcutoff` runs
+    # plain `beads` with no peak regions instead of `custom_beads` with
+    # them, a different algorithm on a different signal.
+    # `test_synth_diag.py` pins these against auto_beads' own signature
+    # so they cannot drift.
     peak_regions, sampling, scut = _relevant_regions(s, x)
     method_kwargs = {
         'asymmetry': 1.0,
@@ -429,7 +426,7 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     fcut_on = select_center(fcut_range, trim_on['surviving'])
     fcut_off = select_center(fcut_range, trim_off['surviving'])
     # If the re-derivation disagrees with production the harness is
-    # wrong, not the pipeline; recorded rather than silently trusted.
+    # wrong, and the disagreement is recorded.
     consistent = bool(fcut_on is not None
                       and np.isclose(fcut_on, fcut_sel, rtol=0, atol=0))
 
@@ -455,27 +452,7 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     e_sel = _err_at(x, s, b_true, fcut_sel)
     e_off = _err_at(x, s, b_true, fcut_off)
 
-    # Both accuracy figures are expressed in units of the record's own
-    # noise, which is the scale on which a difference in the corrected
-    # chromatogram is visible at all.
-    #
-    # `target_noise` is how far the BEST fit on the grid sits from the
-    # true baseline. Near 1 the grid contains a fit indistinguishable
-    # from the truth, and `fc_best` is a target worth aiming at. Large,
-    # and no cutoff recovers this baseline, so there is no optimum to
-    # find and every accuracy figure below it measures the benchmark
-    # rather than the method.
-    #
-    # `excess_noise` is what the selection costs over that best fit.
-    # It replaces `d_decades`, which measures a distance along the
-    # parameter rather than in the corrected signal: two cutoffs two
-    # decades apart can move the baseline by a few percent of the
-    # noise, and `d_decades` cannot tell that from a real miss. It also
-    # replaces `penalty`, a ratio that diverges when `e_min` approaches
-    # zero even though both fits are then far below the noise.
-    #
-    # The noise is the generator's own array, known exactly, so this is
-    # available on synthetic data only.
+    # See the module docstring for `target_noise` and `excess_noise`.
     sigma = float(np.std(truth['noise']))
     sig_true = truth['signal']
     tg = _err_stats(x, s, b_true, sig_true, fc_best)
@@ -653,8 +630,7 @@ def main() -> None:
 
     # Beside the diagnostics, never inside the dataset: a run that
     # writes into its own input overwrites the summary of whatever
-    # produced it. `--diag-dir` defaults to <dataset>/diag, so the
-    # unsharded path is unchanged for anyone not passing it.
+    # produced it. `--diag-dir` defaults to <dataset>/diag.
     if args.nshards > 1:
         out = os.path.join(diag_dir,
                            f'diag_summary.shard{args.shard:03d}.csv')
@@ -674,9 +650,6 @@ def main() -> None:
         print(f'\n{len(rows)} scored, {len(failures)} failed -> {out}')
         print(f'  true optimum inside candidates: {n_cand}/{len(rows)}')
         print(f'  optimum inside the surviving region: {n_in}/{len(rows)}')
-        # How far the best fit on the grid sits from the true baseline.
-        # Where this is large the signal has no optimum to find, and the
-        # accuracy line below it is measuring the benchmark.
         print('  green vs true, in noise units:')
         for key, lab in (('target_rms_noise', 'rms'),
                          ('target_max_noise', 'max')):

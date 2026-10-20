@@ -8,9 +8,9 @@ record length) and *only* the peak width varies, over a decade. For
 each signal the true error curve against the known baseline gives an
 objective optimum, and ``log fcut*`` is regressed on
 
-* the **true** width — the exponent of the scaling law;
+* the **true** width, which gives the exponent of the scaling law;
 * the **measured** width (the production recipe of
-  ``weaselytics.baseline._relevant_regions``) — which tells whether
+  ``weaselytics.baseline._relevant_regions``), which tells whether
   measurement error in the predictor biases the exponent, the
   regression-dilution effect that would flatten it toward zero.
 
@@ -19,7 +19,7 @@ true width (R2 0.857), -0.810 on the measured width, with the two
 widths correlated at 0.998, so no dilution on clean synthetic peaks.
 The exponent differs from the -0.88 of the full benchmark and the
 -0.50 of the real dataset, i.e. it is a property of the signal
-population and not a transferable constant.
+population.
 
 The measured-width figures predate the removal of the coarse detrend
 and of the absolute negative-depth gate from ``_relevant_regions`` and

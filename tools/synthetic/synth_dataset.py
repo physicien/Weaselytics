@@ -5,16 +5,16 @@ Generate synthetic chromatograms with known ground truth.
 Two families are produced, so the algorithm can be tested both on this
 instrument and more generally:
 
-* **native** — calibrated to the LPYE dataset. Exponentially-modified
+* **native**: calibrated to the LPYE dataset. Exponentially-modified
   Gaussian peaks; a bipolar dead-time artifact (positive spike + a
   negative undershoot, the dominant feature of the real blanks, and the
   reason a symmetric BEADS cost is needed); a small baseline (real blank
   baseline structure is 0.33 mV median) built from a solvent-front
-  decay, a gradient hump, a drift, a level step across the dead time and
+  decay, a broad hump, a drift, a level step across the dead time and
   a mid-frequency wander; near-constant detector noise (~0.019 mV);
   120 points/min.
 
-* **lit** — generic, not tied to this experiment, following the BEADS
+* **lit**: generic, not tied to this experiment, following the BEADS
   benchmark of Ning, Selesnick & Duval (2014), §5: superpositions of
   Gaussian peaks (including a dense, overlapping case) on a large
   Type-1 (polynomial + sinusoid) or Type-2 (low-pass-filtered noise)
@@ -61,7 +61,7 @@ BASELINE_CASES = ['exp', 'hump', 'exp_hump_drift']
 # consecutive differences): the noise is nearly constant in absolute
 # terms at ~0.019 mV regardless of amplitude or blank/non-blank, with a
 # maximum of 0.047. These two cases bracket the measured median and the
-# upper tail rather than the library-default 0.01/0.06 guesses.
+# upper tail.
 NOISE_CASES = {'typ': 0.019, 'high': 0.038}
 # Record lengths for the native family. Real n_points spans 473-39000
 # (median 1180). The dead time is absolute at ~4.5 min and analytes
@@ -72,36 +72,36 @@ NOISE_CASES = {'typ': 0.019, 'high': 0.038}
 N_CASES = [900, 1800, 4000]
 
 # Points per minute. Real dt has median 0.00833 min, i.e. 120 pts/min
-# (two samples per second), not the 60 the first version assumed.
+# (two samples per second).
 PTS_PER_MIN = 120
 
 _FWHM_PER_SIGMA = 2.3548
 
-# Quantisation step of the LPYE detector, in mV. MEASURED, not taken from
-# a datasheet: in all 339 reference signals every consecutive difference
-# is an exact integer multiple of it to within 1e-9, a ~900-point record
-# holds only 45-60 distinct values, and ~25% of consecutive samples are
-# identical. See tools/synthetic/synthetic_data.md §4.
+# Quantization step of the LPYE detector, in mV. MEASURED: in all 339
+# reference signals every consecutive difference is an exact integer
+# multiple of it to within 1e-9, a ~900-point record holds only 45-60
+# distinct values, and ~25% of consecutive samples are identical. See
+# tools/synthetic/synthetic_data.md §4.
 ADC_STEP_MV = 0.008996
 
 def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
     """
-    Round a trace onto the detector's quantisation lattice.
+    Round a trace onto the detector's quantization lattice.
 
-    The LPYE detector digitises at `ADC_STEP_MV`; synthetic signals are
+    The LPYE detector digitizes at `ADC_STEP_MV`; synthetic signals are
     rounded likewise so the benchmark exercises the same code paths as
-    real data. This is not cosmetic: `baseline._snr` divides by a MAD of
-    consecutive differences, which on quantised data is pinned to the
-    lattice and on continuous data is a true noise estimate, so an
-    unquantised benchmark measures a different quantity under the same
-    name. See tools/synthetic/synthetic_data.md §4.
+    real data. `baseline._snr` divides by a MAD of consecutive
+    differences, which on quantized data is pinned to the lattice and on
+    continuous data is a true noise estimate, so an unquantized benchmark
+    measures a different quantity under the same name. See
+    tools/synthetic/synthetic_data.md §4.
 
     Parameters
     ----------
     y : array-like, shape (N,)
         The trace, in mV.
     step : float, optional
-        Quantisation step in mV. Default `ADC_STEP_MV`.
+        Quantization step in mV. Default `ADC_STEP_MV`.
 
     Returns
     -------
@@ -154,7 +154,7 @@ def broadening_factor(tc: float, t0: float, t_end: float,
     At a constant plate number the peak standard deviation grows with
     the retention time (time since injection at ``t0``): plate theory
     gives sigma = tR / sqrt(N), so a late eluter is several times
-    broader than an early one. Parametrised here as ``1 + g * r`` with
+    broader than an early one. Parametrized here as ``1 + g * r`` with
     ``r`` the retention fraction from the dead time to the run end, so
     the factor is 1 at ``t0`` and ``1 + g`` at ``t_end``.
 
@@ -193,7 +193,7 @@ def gauss_peak(t: np.ndarray, tc: float, sigma: float,
 
 
 # --------------------------------------------------------------------
-# The `pyb` family: idealised signals built on the examples of the
+# The `pyb` family: idealized signals built on the examples of the
 # pybaselines documentation. See tools/synthetic/synthetic_data.md §6.
 #
 # NOT IMPORTED. `pybaselines.utils.make_data` states that
@@ -206,12 +206,12 @@ def gauss_peak(t: np.ndarray, tc: float, sigma: float,
 # Sources, both read at pybaselines commit c36ce6128 and unchanged
 # since:
 #   [A] docs/examples/misc/plot_beads_preprocessing.py, make_data()
-#       -- three baselines forming a deliberate ladder of violation of
-#          the BEADS periodicity requirement (Navarro-Huerta 2017
-#          §3.3.1): ends at zero on both / one / neither end.
+#       three baselines that violate the BEADS periodicity requirement
+#       by degrees (Navarro-Huerta 2017 §3.3.1): ends at zero on both /
+#       one / neither end.
 #   [B] docs/algorithms/algorithms_1d/misc.rst, create_data()
-#       -- five datasets varying peak density, noise level and baseline
-#          shape, one of which carries NEGATIVE peaks.
+#       five datasets varying peak density, noise level and baseline
+#       shape, one of which carries NEGATIVE peaks.
 
 def _g(x: np.ndarray, height: float, center: float,
        sigma: float) -> np.ndarray:
@@ -316,7 +316,7 @@ def pyb_baseline(x: np.ndarray, kind: str) -> np.ndarray:
 #:   published_seed, source)``. The five from [B] reproduce y1..y5 of
 #: that figure exactly, including its documented BEADS parameters; the
 #: three from [A] reproduce its endpoint ladder. `neg` marks the case
-#: carrying negative peaks -- the published analogue of the LPYE
+#: carrying negative peaks: the published analogue of the LPYE
 #: dead-time undershoot, and the one for which the pybaselines
 #: documentation itself uses ``asymmetry=1`` while using 6-8 elsewhere.
 PYB_CASES = {
@@ -345,13 +345,12 @@ PYB_NOISE_STD = 0.2
 
 
 # --------------------------------------------------------------------
-# Randomised `pyb` generation.
+# Randomized `pyb` generation.
 #
-# The eight fixed cases above are a vocabulary, not a benchmark: eight
-# signals cannot separate a real effect from a coincidence. The ranges
-# below turn that vocabulary into a population, and every one of them is
-# the span of values actually used across the pybaselines documentation
-# at the pinned commit -- collected from docs/examples/*/*.py,
+# Eight signals cannot separate a real effect from a coincidence, so the
+# ranges below turn the fixed cases above into a population. Every one of
+# them is the span of values actually used across the pybaselines
+# documentation at the pinned commit, collected from docs/examples/*/*.py,
 # docs/algorithms/algorithms_1d/*.rst and utils.make_data. Where a range
 # is WIDER than the published span, it says so and why.
 #
@@ -368,10 +367,10 @@ PYB_PEAK_SIGMA_FRAC = (0.005, 0.020)    # of the abscissa span
 PYB_NOISE_STD_RANGE = (0.025, 1.0)
 
 # Record length: the documentation uses 500 and 1000 points. WIDENED to
-# 300-4000 deliberately -- the real LPYE records span 473-39129 points,
-# and record length changes the fundamental (1/n_used), which is what
-# the instability trim keys on. A benchmark fixed at two lengths could
-# not detect a constant that depends on it.
+# 300-4000: the real LPYE records span 473-39129 points, and record
+# length changes the fundamental (1/n_used), which is what the
+# instability trim keys on. A benchmark fixed at two lengths could not
+# detect a constant that depends on it.
 PYB_N_POINTS = (300, 4000)
 
 #: Baseline component vocabulary. Each entry is a builder taking
@@ -423,8 +422,7 @@ def _bc_parabola(x, rng):
 
 def _bc_logistic(x, rng):
     # The 'ends_neither' shape: a logistic approximated by integrating a
-    # gaussian, which is the hardest published case for BEADS because it
-    # is near zero at neither end.
+    # gaussian, which is near zero at neither end.
     span = x[-1] - x[0]
     h = rng.uniform(0.02, 0.08)
     c = x[0] + rng.uniform(0.25, 0.6) * span
@@ -448,13 +446,13 @@ def pyb_random_signal(seed: int, n_points: int | None = None,
                       negative_fraction: float = 0.2,
                       max_components: int = 2) -> dict:
     """
-    Generate one randomised ``pyb`` signal with exact ground truth.
+    Generate one randomized ``pyb`` signal with exact ground truth.
 
-    Built from the same vocabulary as `PYB_CASES` -- Gaussian peaks on a
-    composed analytic baseline with white noise -- but with every
+    Built from the same vocabulary as `PYB_CASES` (Gaussian peaks on a
+    composed analytic baseline with white noise), but with every
     parameter drawn from the ranges observed across the pybaselines
-    documentation, so the family becomes a population rather than eight
-    points. See tools/synthetic/synthetic_data.md §6.4.
+    documentation, so the family becomes a population. See
+    tools/synthetic/synthetic_data.md §6.4.
 
     The baseline is the sum of one or two components, as the
     documentation itself does (``10 - 0.005x + gaussian(x, 5, 850,
@@ -619,7 +617,7 @@ ERB_CASES = {
 # (100-880) while the span moves, so the peaks occupy 10-88% of the
 # record in the first case, 2.5-22% in the second and 82-98% in the
 # third. The population therefore varies that window directly, and the
-# ranges below are exactly the values his three cases take -- nothing
+# ranges below are exactly the values his three cases take, and none
 # is widened.
 ERB_PEAK_WINDOW_START = (0.025, 0.82)
 ERB_PEAK_WINDOW_WIDTH = (0.16, 0.78)
@@ -660,12 +658,11 @@ def erb_baseline(x: np.ndarray, kind: int,
         expression exactly, a bare ``cumsum`` of the Gaussian. True
         multiplies by the sample spacing, making it the actual integral.
 
-        The distinction is not cosmetic. A bare ``cumsum`` is a Riemann
-        sum missing its ``dx``, so the baseline's amplitude scales with
-        the sampling density: at fixed span, doubling the point count
-        doubles the drift. That is harmless for his three fixed cases,
-        which all use 1000 points, and wrong for a population that
-        varies the record length. Set True there.
+        A bare ``cumsum`` is a Riemann sum missing its ``dx``, so the
+        baseline's amplitude scales with the sampling density: at fixed
+        span, doubling the point count doubles the drift. That is harmless
+        for his three fixed cases, which all use 1000 points, and wrong
+        for a population that varies the record length. Set True there.
 
     Returns
     -------
@@ -700,14 +697,13 @@ def erb_signal(case: str, baseline_type: int = 2,
     abscissa, which is what makes the three cases differ.
 
     .. warning::
-       The plateau counts in `ERB_CASES` are **his annotations, not
-       measurements**. Checked through the production path on
-       2026-08-16, ``one_plateau`` and ``three_plateaus`` reproduce
-       while ``two_plateaus`` yields one detected region, not two --
-       there the peaks fall in the first quarter of the record, so
+       The plateau counts in `ERB_CASES` are **his annotations**.
+       Checked through the production path on 2026-08-16,
+       ``one_plateau`` and ``three_plateaus`` reproduce while
+       ``two_plateaus`` yields one detected region, not two: there the
+       peaks fall in the first quarter of the record, so
        ``baseline._relevant_regions`` truncates the sweep to 235 of
-       1000 points and the fundamental moves with it. Treat the counts
-       as labels to be verified, never as ground truth.
+       1000 points and the fundamental moves with it.
 
     Parameters
     ----------
@@ -758,11 +754,11 @@ def erb_random_signal(seed: int, n_points: int | None = None,
                       baseline_type: int | None = None,
 ) -> dict:
     """
-    Generate one randomised ``erb`` signal with exact ground truth.
+    Generate one randomized ``erb`` signal with exact ground truth.
 
     Turns Erb's three fixed cases into a population. The variable his
-    x-range knob actually moves is the **peak window** -- what fraction
-    of the record the peaks occupy -- so that is what is drawn here,
+    x-range knob actually moves is the **peak window**, the fraction of
+    the record the peaks occupy, so that is what is drawn here,
     from the span his own three cases cover. The abscissa is held at a
     fixed 0-1000 instead, which removes the confound: in his cases the
     window and the record length move together, so a constant that
@@ -770,7 +766,7 @@ def erb_random_signal(seed: int, n_points: int | None = None,
 
     Every range is taken from values his script contains; none is
     widened, except the record length, which comes from `PYB_N_POINTS`
-    and is justified there -- length sets the fundamental, ``1/n_used``,
+    and is justified there: length sets the fundamental, ``1/n_used``,
     which is what `instability_boundary` keys on.
 
     Parameters
@@ -902,7 +898,7 @@ def make_baseline(t: np.ndarray, kind: str,
     baseline + noise + artifact) have a smoothed peak-to-peak baseline
     structure of only **0.33 mV median, 0.75 mV maximum** over the 67
     blanks: this detector's baseline is nearly flat, and the large
-    excursions in the real chromatograms are peaks, not baseline. The
+    excursions in the real chromatograms are peaks. The
     component amplitudes below are scaled to that measurement, an order
     of magnitude smaller than a generic literature baseline (for which
     see ``lit_baseline``).
@@ -912,8 +908,8 @@ def make_baseline(t: np.ndarray, kind: str,
     t : array-like, shape (N,)
         Time axis.
     kind : str
-        One of ``exp`` (solvent-front decay), ``hump`` (broad gradient
-        hump) or ``exp_hump_drift`` (both plus a linear drift).
+        One of ``exp`` (solvent-front decay), ``hump`` (broad hump) or
+        ``exp_hump_drift`` (both plus a linear drift).
     rng : numpy.random.Generator
         Source of randomness for the component parameters.
     t0 : float, optional
@@ -921,10 +917,9 @@ def make_baseline(t: np.ndarray, kind: str,
         placed across it, as the real blanks show (the baseline settles
         at a different level after the injection).
     is_blank : bool, optional
-        If True, the large gradient hump is omitted and the exp/drift
-        amplitudes are reduced: the real blanks are nearly flat (smoothed
-        baseline p2p 0.33 mV median, 0.75 max), whereas gradient runs
-        with analytes may carry a larger solvent-programme baseline.
+        If True, the large hump is omitted and the exp/drift amplitudes
+        are reduced: the real blanks are nearly flat (smoothed baseline
+        p2p 0.33 mV median, 0.75 max).
 
     Returns
     -------
@@ -945,8 +940,8 @@ def make_baseline(t: np.ndarray, kind: str,
         tau = rng.uniform(0.10, 0.30) * span
         exp_amp = rng.uniform(0.1, 0.4) if is_blank else rng.uniform(0.3, 1.5)
         b += exp_amp * np.exp(-(t - t[0]) / tau)
-    # The gradient hump is a solvent-programme feature: blanks do not
-    # carry it (their baseline is flat plus drift plus the wander below).
+    # Blanks do not carry the hump (their baseline is flat plus drift
+    # plus the wander below).
     if kind in ('hump', 'exp_hump_drift') and not is_blank:
         center = t[0] + rng.uniform(0.35, 0.70) * span
         width = rng.uniform(0.15, 0.30) * span
@@ -1006,7 +1001,7 @@ def lit_baseline(t: np.ndarray, kind: str,
 
     """
     n = len(t)
-    u = (t - t[0]) / (t[-1] - t[0])         # normalised abscissa in [0, 1]
+    u = (t - t[0]) / (t[-1] - t[0])         # normalized abscissa in [0, 1]
     if kind == 'poly_sine':
         order = rng.integers(2, 6)
         coeffs = rng.uniform(-1., 1., order + 1)
@@ -1018,7 +1013,7 @@ def lit_baseline(t: np.ndarray, kind: str,
     else:                                    # lowpass
         corr = rng.uniform(0.08, 0.20) * n
         b = gaussian_filter1d(rng.normal(size=n), corr)
-    # Normalise to a random peak-to-peak amplitude comparable to the
+    # Normalize to a random peak-to-peak amplitude comparable to the
     # peaks (set by the caller's height scale, ~1-30).
     span = b.max() - b.min()
     if span > 0:
@@ -1032,17 +1027,16 @@ def native_peak_component(n: int, peak_case: str,
                           ) -> tuple[np.ndarray, np.ndarray, list[dict],
                                      float]:
     """
-    Build the LPYE peak component: analytes, artefact and time axis.
+    Build the LPYE peak component: analytes, artifact and time axis.
 
     Everything a `native` chromatogram contains except its baseline and
-    its noise. Factored out of `make_signal` verbatim -- the draws
-    happen in the same order, so `make_signal` is unchanged -- so that
-    the peak model Emmanuel reviewed on 2026-07-22 can be placed on a
-    different baseline without being written a second time.
+    its noise. Factored out of `make_signal`, with the draws in the same
+    order, so that the reviewed peak model can be placed on a different
+    baseline without being written a second time.
 
     The component is calibrated to the LPYE instrument: 120 points per
     minute, an absolute dead time near 4.5 min carrying the bipolar
-    injection artefact, exponentially-modified Gaussian analytes
+    injection artifact, exponentially-modified Gaussian analytes
     eluting after it, and widths growing with retention time.
 
     Parameters
@@ -1064,7 +1058,7 @@ def native_peak_component(n: int, peak_case: str,
     t : numpy.ndarray, shape (N,)
         Time axis, minutes.
     signal : numpy.ndarray, shape (N,)
-        Analytes plus the injection artefact.
+        Analytes plus the injection artifact.
     peaks : list of dict
         Per-peak parameters; entries with ``artifact=True`` are the
         injection lobes and the blank ghosts, not analytes.
@@ -1126,10 +1120,10 @@ def native_peak_component(n: int, peak_case: str,
                           'artifact': True})
 
     # An analyte has eluted when its trailing edge is back in the noise.
-    # A record that stops before that is not a short run, it is an
-    # impossible one: the trace ends part-way down a peak, which is the
-    # endpoint mismatch BEADS' periodicity requirement forbids and which
-    # no parabola correction repairs. Redraw the analyte set until it
+    # A record that stops before that is impossible: the trace ends
+    # part-way down a peak, which is the endpoint mismatch BEADS'
+    # periodicity requirement forbids and which no parabola correction
+    # repairs. Redraw the analyte set until it
     # has decayed at the last sample, pulling the elution window in when
     # redrawing alone does not get there, so the loop always terminates.
     for _ in range(_ELUTION_ATTEMPTS):
@@ -1269,14 +1263,14 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
 # generated distribution reproduces the real one by construction rather
 # than approximating it with a ladder of fixed values.
 #
-# Why a distribution and not levels: record length sets the fundamental
-# frequency 1/n_used, which is exactly what `instability_boundary` keys
-# on, so length must vary -- but a balanced ladder misrepresents how
-# often each length actually occurs. The real set is strongly skewed:
-# the median record is 1176 points while the longest is 39129, and only
-# 4.7% exceed 10000. A six-level geometric ladder puts 33% of the
-# benchmark above 10000, over-weighting the most expensive signals by
-# sevenfold and implying the instrument produces long runs routinely.
+# Record length sets the fundamental frequency 1/n_used, which is exactly
+# what `instability_boundary` keys on, so length must vary, but a balanced
+# ladder misrepresents how often each length actually occurs. The real set
+# is strongly skewed: the median record is 1176 points while the longest
+# is 39129, and only 4.7% exceed 10000. A six-level geometric ladder puts
+# 33% of the benchmark above 10000, over-weighting the most expensive
+# signals by sevenfold and implying the instrument produces long runs
+# routinely.
 ERB_NATIVE_N_QUANTILES = (473, 732, 780, 819, 846, 853, 868, 893, 924,
                           994, 1176, 1259, 1400, 1546, 1707, 2062, 2857,
                           3495, 5399, 9251, 39129)
@@ -1287,15 +1281,14 @@ ERB_NATIVE_N_QUANTILES = (473, 732, 780, 819, 846, 853, 868, 893, 924,
 # against it measures the method on drift it will never meet.
 #
 # It also does not provide a usable target. On the wide and mixed peak
-# cases, the cutoff minimising the RMSE against it recovers the
+# cases, the cutoff minimizing the RMSE against it recovers the
 # baseline *worse than a horizontal line* (median ratio 1.19 on
 # ``multi_wide``, 1.15 on ``multi_mixed``), so the "true optimum" there
-# is the least bad of a grid of bad fits, not an optimum.
+# is the least bad of a grid of bad fits.
 EXCLUDED_ERB_BASELINES = ('erb3',)
 
 # Redraws allowed before the elution window is pulled in, and the factor
-# it shrinks by. Both are loop controls rather than model parameters:
-# they change how long the rejection takes, not what it accepts.
+# it shrinks by. Both control how long the rejection takes.
 _ELUTION_ATTEMPTS = 12
 _ELUTION_SHRINK = 0.85
 
@@ -1307,7 +1300,7 @@ def draw_record_length(rng: np.random.Generator) -> int:
     Inverse-CDF sampling on `ERB_NATIVE_N_QUANTILES`: a uniform draw is
     mapped through the measured quantile function, so the generated
     lengths follow the real distribution, span its full range, and take
-    arbitrary values rather than a handful of fixed ones.
+    arbitrary values.
 
     Parameters
     ----------
@@ -1332,31 +1325,29 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
     """
     Assemble a chromatogram: LPYE peak component on an Erb baseline.
 
-    The hybrid of the two families that each hold one half of what the
+    It combines the two families that each hold one half of what the
     benchmark needs.
 
-    From `native`, by way of `native_peak_component`: the peak model
-    calibrated to the LPYE instrument and reviewed on 2026-07-22 --
-    120 points per minute, the bipolar injection artefact at an
-    absolute dead time near 4.5 min, exponentially-modified Gaussian
-    analytes eluting after it, widths growing with retention time, and
-    detector noise at the measured level.
+    From `native`, by way of `native_peak_component`, the reviewed peak
+    model calibrated to the LPYE instrument: 120 points per minute, the
+    bipolar injection artifact at an absolute dead time near 4.5 min,
+    exponentially-modified Gaussian analytes eluting after it, widths
+    growing with retention time, and detector noise at the measured
+    level.
 
     From `erb`, by way of `erb_baseline`: a baseline that is an exact
     analytic function rather than a sum of drawn components, written by
     the pybaselines author to exercise cutoff selection. That is what
-    `native`'s own baseline cannot offer -- and Erb's three fixed
-    x-ranges additionally dial in how many plateaus the r2 curve shows,
-    which is the property issue #4 needs and which nothing else in the
-    benchmark provides.
+    `native`'s own baseline cannot offer. Erb's three fixed x-ranges also
+    set how many plateaus the r2 curve shows, which no other family
+    provides.
 
-    **Scales.** The baseline is evaluated on a normalised 0-1000
+    **Scales.** The baseline is evaluated on a normalized 0-1000
     abscissa spanning the record, because `erb_baseline`'s coefficients
-    are written for that range; its output is then read as mV. That is
-    legitimate rather than a fudge: Erb's baselines span roughly 2-12 in
-    his units, and the drift measured on the real records spans
-    0.08-12.5 mV, so the two scales coincide to within the spread of the
-    real data. It is recorded here rather than assumed silently.
+    are written for that range; its output is then read as mV. Erb's
+    baselines span roughly 2-12 in his units, and the drift measured on
+    the real records spans 0.08-12.5 mV, so the two scales coincide to
+    within the spread of the real data.
 
     Parameters
     ----------
@@ -1372,10 +1363,10 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
         Source of randomness.
     quantise_output : bool, optional
         Round the assembled signal onto the detector lattice. Default
-        True. This is not cosmetic: `baseline._snr` divides by a MAD of
-        consecutive differences, which on quantised data is pinned to
-        the lattice and on continuous data is a true noise estimate, so
-        an unquantised benchmark exercises a different quantity under
+        True. `baseline._snr` divides by a MAD of consecutive
+        differences, which on quantized data is pinned to the lattice
+        and on continuous data is a true noise estimate, so an
+        unquantized benchmark exercises a different quantity under
         the same name. See tools/synthetic/synthetic_data.md §4.
 
     Returns
@@ -1385,7 +1376,7 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
         ``peaks`` and ``meta``.
 
         ``baseline`` alone is the truth a baseline estimator is scored
-        against. The injection artefact is inside ``signal``, not inside
+        against. The injection artifact is inside ``signal``, not inside
         ``baseline``: it is a sharp bipolar excursion that a low-pass
         baseline model is not meant to reproduce, and scoring on it
         would let one feature dominate the error. Entries of ``peaks``
@@ -1446,9 +1437,8 @@ def lit_signal(n: int, peak_case: str, baseline_case: str,
     amplitude/width/position on a large structured baseline, with the
     noise set by a target signal-to-noise ratio rather than an absolute
     detector floor. Follows the BEADS benchmark of Ning, Selesnick &
-    Duval (2014), §5, so the algorithm is tested on the conditions the
-    method was originally validated against, not only on this
-    experiment.
+    Duval (2014), §5, so the algorithm is also tested on the conditions
+    the method was originally validated against.
 
     Parameters
     ----------

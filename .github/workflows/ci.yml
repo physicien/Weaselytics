@@ -16,8 +16,20 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - run: pip install -e ".[dev]"
+      # numba caps numpy, so it is installed first and removed after:
+      # both test runs then use the same numpy.
+      - run: pip install -e ".[dev,numba]"
 
       - run: ruff check weaselytics/
 
-      - run: pytest -v weaselytics/tests/
+      - name: Test with numba (banded BEADS solver)
+        run: |
+          python -c "from pybaselines._compat import _HAS_NUMBA; assert _HAS_NUMBA"
+          pytest -v weaselytics/tests/
+
+      - run: pip uninstall -y numba
+
+      - name: Test without numba (sparse BEADS solver)
+        run: |
+          python -c "from pybaselines._compat import _HAS_NUMBA; assert not _HAS_NUMBA"
+          pytest -v weaselytics/tests/

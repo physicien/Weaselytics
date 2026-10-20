@@ -22,7 +22,7 @@ discussed/finalized before a pull request is created.-->
 
 To run tests locally, type the following command: pytest weaselytics/tests/
 
-To lint files using ruff: ruff check weaselytics/
+To lint files using ruff: ruff check .
 -->
 
 - [ ] New code and/or documentation is valid for use with the BSD 3-Clause license.
@@ -31,4 +31,4 @@ To lint files using ruff: ruff check weaselytics/
 - [ ] New code follows package conventions (max 80 chars per line, etc.),
       if applicable.
 - [ ] Added/updated tests and ensured they pass locally, if applicable.
-- [ ] Verified that `ruff check weaselytics/` passes, if applicable.
+- [ ] Verified that `ruff check .` passes, if applicable.

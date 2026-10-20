@@ -78,6 +78,12 @@ With test dependencies:
 pip install -e ".[test]"
 ```
 
+With numba, which makes BEADS use its banded solver:
+
+```console
+pip install -e ".[numba]"
+```
+
 ## Tests
 
 ```console

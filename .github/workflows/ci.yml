@@ -3,11 +3,24 @@ name: CI
 on: [push, pull_request]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - run: pip install ruff
+
+      - run: ruff check .
+
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v7
@@ -16,8 +29,81 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - run: pip install -e ".[dev]"
+      # numba caps numpy, so it is installed first and removed after:
+      # both test runs then use the same numpy.
+      - run: pip install -e ".[test,numba]"
 
-      - run: ruff check weaselytics/
+      - name: Test with numba (banded BEADS solver)
+        run: |
+          python -c "from pybaselines._compat import _HAS_NUMBA; assert _HAS_NUMBA"
+          pytest -v weaselytics/tests/
+
+      - run: pip uninstall -y numba
+
+      - name: Test without numba (sparse BEADS solver)
+        run: |
+          python -c "from pybaselines._compat import _HAS_NUMBA; assert not _HAS_NUMBA"
+          pytest -v weaselytics/tests/
+
+  test-min-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      # Turn every ">=" floor in pyproject.toml into "==", so the run
+      # installs exactly the declared minimum versions.
+      - name: Install the minimum versions
+        run: |
+          python - > min-constraints.txt <<'EOF'
+          import tomllib
+          deps = tomllib.load(open("pyproject.toml", "rb"))["project"]["dependencies"]
+          print("\n".join(d.replace(">=", "==") for d in deps if ">=" in d))
+          EOF
+          cat min-constraints.txt
+          pip install -e ".[test]" -c min-constraints.txt
+
+      - run: pytest -v weaselytics/tests/
+
+  # Warns early when the next pybaselines pin move would break the tests.
+  # Allowed to fail: the pin in pyproject.toml is what users get.
+  test-latest-pybaselines:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install, then replace pybaselines with its development head
+        run: |
+          pip install -e ".[test]"
+          pip install --force-reinstall --no-deps "pybaselines @ git+https://github.com/derb12/pybaselines@development"
+          python -c "import pybaselines; print(pybaselines.__version__)"
+
+      - run: pytest -v weaselytics/tests/
+
+  # Warns early when the next numpy or scipy release would break the
+  # tests. Allowed to fail. Runs without numba, which caps numpy.
+  test-nightly-numpy-scipy:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install, then replace numpy and scipy with their nightly builds
+        run: |
+          pip install -e ".[test]"
+          pip install --pre --upgrade -i https://pypi.anaconda.org/scientific-python-nightly-wheels/simple numpy scipy
+          python -c "import numpy, scipy; print(numpy.__version__, scipy.__version__)"
 
       - run: pytest -v weaselytics/tests/

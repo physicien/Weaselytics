@@ -730,20 +730,9 @@ def pyb_signal(case: str, seed: int | None = None) -> dict:
 
 
 ###############################################################################
-# The `erb` family: the pybaselines author's own BEADS test signals.
-#
-# Source: `donnie/test_donnie.py`, a script written by Donald Erb, the
-# pybaselines author, to exercise cutoff-frequency selection on this
-# project's problem. It is correspondence, not a publication, so under
-# the project's evidence rule it earns a test rather than a citation --
-# but as a *generator* it defines the truth rather than processing it,
-# and its provenance is recorded here.
-#
-# It is transcribed, not imported, for the same reason as the `pyb`
-# family (§9.1) and one more: the script carries `np.log` for the
-# transform, which was a MISTAKE, since corrected upstream. Production
-# uses log10, matching Navarro-Huerta Eqs. (8)/(11). Do not carry that
-# line across. Only `make_data` is transcribed here.
+# The `erb` family: the BEADS test signals of Donald Erb, author of
+# pybaselines, from the `make_data` function of a script he wrote to test
+# the cutoff-frequency selection of this project.
 ###############################################################################
 
 # The seven Gaussian peaks of Erb's `make_data`, as (height, centre,
@@ -795,8 +784,6 @@ def erb_baseline(x: np.ndarray, kind: int,
     """
     Evaluate one of Erb's four test baselines.
 
-    Transcribed from `make_data` in ``donnie/test_donnie.py``:
-
     =====  ==================================================
     kind   baseline
     =====  ==================================================
@@ -807,8 +794,7 @@ def erb_baseline(x: np.ndarray, kind: int,
     3      sinusoidal
     =====  ==================================================
 
-    Kind 2 is the one his three plateau-count cases use, and the one
-    behind the ``runs/DONNIE_2026-07-27`` signals.
+    Kind 2 is the one his three plateau-count cases use.
 
     Parameters
     ----------
@@ -905,7 +891,7 @@ def erb_signal(case: str, baseline_type: int = 2,
     return {'x': x, 'y': signal + baseline + noise, 'signal': signal,
             'baseline': baseline, 'noise': noise,
             'meta': {'family': 'erb', 'case': case,
-                     'source': 'donnie/test_donnie.py, make_data',
+                     'source': 'Donald Erb, make_data',
                      'baseline_type': baseline_type, 'seed': rng_seed,
                      'n_points': n, 'x_range': [float(x0), float(x1)],
                      'claimed_plateaus': claimed,

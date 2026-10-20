@@ -1,6 +1,19 @@
 #!/usr/bin/python3
+"""
+Command-line entry point for the Weaselytics workflow.
+
+Parses the arguments, reads the file through `parsers.ParsedData`, and
+runs the stages. Baseline correction through `baseline.auto_beads` and
+peak fitting through `peakfitting.fit_peak` run by default and are
+turned off with ``--nobaseline`` and ``--nofit``; smoothing, plotting
+and the exports stay off until their flags are given.
+
+The library emits its progress through the ``logging`` module and is
+silent on import; this module is where that output is turned on.
+"""
 
 import argparse
+import logging
 import os
 import sys
 
@@ -12,6 +25,35 @@ from weaselytics.parsers import ParsedData
 from weaselytics.peakfitting import fit_peak
 from weaselytics.plot import plot
 from weaselytics.utils import smooth_SG
+
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """
+    Send the package's progress messages to stdout.
+
+    Configures the ``weaselytics`` logger rather than the root logger:
+    ``logging.basicConfig`` is a no-op once the root logger has any
+    handler, so it silently produces no output when the CLI runs inside
+    a host that has already configured logging (pytest, for one). Owning
+    a single package-level handler also means importing the library
+    never installs one, which is what keeps library use quiet.
+
+    Returns
+    -------
+    None
+
+    """
+    pkg_logger = logging.getLogger("weaselytics")
+    pkg_logger.handlers.clear()
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    pkg_logger.addHandler(handler)
+    pkg_logger.setLevel(logging.INFO)
+    # The messages are the CLI's own output; do not hand them to the
+    # root logger as well, or a configured host prints them twice.
+    pkg_logger.propagate = False
 
 
 def main() -> None:
@@ -25,7 +67,15 @@ def main() -> None:
     ValueError
         Raised if ``--start-x`` and ``--end-x`` are equal, reversed order, or
         negative.
+
+    Notes
+    -----
+    Progress messages are emitted through the ``logging`` module by the
+    library code, and are silent on import. This entry point is what
+    turns them on, so running the CLI prints what it always printed
+    while ``import weaselytics`` stays quiet.
     """
+    _configure_logging()
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog='weaselytics',
         description='Parse and analyse chromatographic data from .txt file'
@@ -57,6 +107,31 @@ def main() -> None:
                         help='end fitting the gaussian at x min')
     parser.add_argument('-od', '--output-dir', default='results',
                         help='output directory (default: results)')
+    parser.add_argument('-cd', '--cache-dir', default=None,
+                        help=(
+                            'directory where the autocorrelation curves are'
+                            ' cached (default: no caching)'
+                        ))
+    parser.add_argument('-w', '--workers', type=int, default=1,
+                        help=(
+                            'number of worker processes for the'
+                            ' autocorrelation sweep (default: 1, serial)'
+                        ))
+    parser.add_argument('-fc', '--freq-cutoff', type=float, default=None,
+                        help=(
+                            'bypass the automatic selection and use this'
+                            ' cutoff frequency, 0 < freq_cutoff < 0.5'
+                            ' (default: automatic selection)'
+                        ))
+    parser.add_argument('-snr', '--snr-threshold', type=float, default=10.0,
+                        help=(
+                            'signal-to-noise ratio above which the'
+                            ' plateaus past the drop are excluded'
+                            ' from the candidate cutoff regions: a high-SNR'
+                            ' signal has analyte whose area a cutoff there'
+                            ' would destroy. Below it they are'
+                            ' kept. Default: 10, the limit of quantitation'
+                        ))
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -79,7 +154,7 @@ def main() -> None:
     path: str = args.path
     if not os.path.isfile(path):
         raise FileNotFoundError(f"file not found: {path}")
-    print(path)
+    logger.info(path)
     parsed: ParsedData = ParsedData(path)
     xdata: np.ndarray
     ydata: np.ndarray
@@ -94,11 +169,14 @@ def main() -> None:
         mod_ydata = ydata
 
     if do_bl:
-        baseline, params, case = auto_beads(
-            mod_ydata, xdata, freq_cutoff=None,
+        baseline, params = auto_beads(
+            mod_ydata, xdata, freq_cutoff=args.freq_cutoff,
             show_plot=args.show, print_plot=args.print, path=path,
             output_dir=output_dir,
-            method="custom_beads"
+            method="custom_beads",
+            cache_dir=args.cache_dir,
+            workers=args.workers,
+            snr_threshold=args.snr_threshold
         )
         signal = params["signal"]
         mod_ydata = signal
@@ -110,7 +188,7 @@ def main() -> None:
         export_csv(xdata, ydata, path=path, output_dir=output_dir)
 
     if fit_data:
-        x_robust, y_robust_g, y_robust_sn = fit_peak(
+        x_robust, y_robust_g, y_robust_sn, y_robust_p7 = fit_peak(
             mod_ydata, xdata,
             x0=args.start_x, x1=args.end_x,
             mol=args.output_stats, path=path,
@@ -127,10 +205,11 @@ def main() -> None:
         if do_sm:
             plot_kwargs["y_sm"] = ydata_sm
         if do_bl:
-            plot_kwargs.update(bl=baseline, case=case, s=signal)
+            plot_kwargs.update(bl=baseline, s=signal)
         if fit_data:
             plot_kwargs.update(
-                x_fit=x_robust, y_fit_g=y_robust_g, y_fit_sn=y_robust_sn,
+                x_fit=x_robust, y_fit_g=y_robust_g,
+                y_fit_sn=y_robust_sn, y_fit_p7=y_robust_p7,
             )
         plot(xdata, ydata, **plot_kwargs)
 
@@ -139,5 +218,5 @@ if __name__ == "__main__":
     try:
         main()
     except ValueError as e:
-        print(f"Error: {e}")
+        logger.error("Error: %s", e)
         sys.exit(1)

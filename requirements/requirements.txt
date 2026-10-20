@@ -1,8 +1,20 @@
-numpy>=1.22
-scipy>=1.8
+# The r2 curve amplifies one-ulp differences at low cutoffs, so
+# numpy and scipy versions other than these floors give other curves
+# there and can move the selected cutoff.
+#
+# After changing numpy, scipy, numba or pybaselines, rebuild the r2
+# cache from empty: its key ignores library versions, so old curves
+# are served silently.
+numpy>=2.4.2
+scipy>=1.17.0
 matplotlib>=3.5
 seaborn>=0.13.0
 pandas>=2.0
-pybaselines @ git+https://github.com/derb12/pybaselines@development
-scikit-image>=0.19.0
-diptest>=0.11.0
+# Pinned to a commit: `@development` moves, and its beads defaults
+# have changed on it without a changelog entry. Pin forward only:
+# older commits use lam=1.0 instead of the L1-norm scaling of
+# Ning et al. (2014).
+#
+# When numba imports, beads uses its banded solver, which rounds
+# differently. numba does not import beside numpy > 2.4.
+pybaselines @ git+https://github.com/derb12/pybaselines@4e21860b9b1fac90b5e1dad4dd4629355f231afb

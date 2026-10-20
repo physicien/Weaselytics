@@ -14,12 +14,18 @@ except PackageNotFoundError:
 from weaselytics.baseline import auto_beads
 from weaselytics.export import export_csv, export_dist, export_txt
 from weaselytics.parsers import ParsedData
-from weaselytics.peakfitting import fit_peak, gauss, skew_norm
+from weaselytics.peakfitting import (
+    fit_peak,
+    gauss,
+    pearson7,
+    skew_norm,
+)
 from weaselytics.plot import plot, r2_plots
 from weaselytics.utils import smooth_SG
 
 
 def main() -> None:
+    """Defer to `weaselytics.weaselytics.main`, imported on call."""
     from weaselytics.weaselytics import main as _main
     _main()
 
@@ -29,6 +35,7 @@ __all__ = [
     "auto_beads",
     "fit_peak",
     "gauss",
+    "pearson7",
     "main",
     "skew_norm",
     "smooth_SG",

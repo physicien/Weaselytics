@@ -2,6 +2,7 @@
 Remaining figures for segmentation.md: the fallback channel, the stage 2
 exclusions, and the stage 3 pick. One worked example throughout.
 """
+import argparse
 import glob
 import os
 
@@ -11,7 +12,6 @@ import numpy as np
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-import weaselytics  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
     _rolling_std,
     classify_segments,
@@ -23,11 +23,6 @@ from weaselytics.segmentation import (  # noqa: E402
     trim_plateaus,
 )
 
-# data/, runs/ and the datasets sit beside the checkout.
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(weaselytics.__file__))))
-CACHE = os.path.join(ROOT, 'runs', 'PROD_2026-10-19_23559213',
-                     'r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 N_USED, DPI = 400, 200
@@ -44,8 +39,8 @@ def shade(ax, fr, mask, color, label, alpha=.30):
                    label=label if k == 0 else None, zorder=1)
 
 
-def main():
-    f = glob.glob(os.path.join(CACHE, f'{STEM}__r2__*.npz'))[0]
+def main(cache):
+    f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     fr, r2, sens = d['fcut_range'], d['r2_val'], d['sensitivity']
     segs = classify_segments(segment_features(fr, r2, pelt_linear(r2)))
@@ -158,4 +153,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cache', required=True,
+                        help='r2_cache directory of a production run, '
+                             'e.g. runs/PROD_<date>_<job>/r2_cache')
+    main(parser.parse_args().cache)

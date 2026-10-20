@@ -9,7 +9,10 @@
 # interpreter. The worktrees are created here if absent and left in place;
 # `git worktree prune` after deleting them clears the registrations.
 #
-# Usage:  ./render_all.sh [method|stages|hist|all]     (default: all)
+# Usage:  ./render_all.sh --data DIR --cache DIR [method|stages|hist|all]
+#   --data   raw data directory, holding <Molecule>/<stem>.txt
+#   --cache  r2_cache directory of a production run
+#   The last argument picks the figures to render (default: all).
 set -u
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -18,11 +21,21 @@ IMG=$REPO/tools/fcut/images
 WORK=${WEASELYTICS_FIGURE_WORK:-$HERE/.work}
 PY=${WEASELYTICS_PY:-$HOME/virtualenv/DEV_WEASELYTICS_ENV/bin/python}
 HPY=${WEASELYTICS_HIST_PY:-$HOME/virtualenv/WEASELYTICS_HIST_ENV/bin/python}
-DATA=${WEASELYTICS_DATA:-$REPO/../data}
-WHAT=${1:-all}
+DATA= CACHE= WHAT=all
+while [ $# -gt 0 ]; do
+  case $1 in
+    --data)  DATA=$2;  shift 2 ;;
+    --cache) CACHE=$2; shift 2 ;;
+    *)       WHAT=$1;  shift ;;
+  esac
+done
+[ -n "$DATA" ] && [ -n "$CACHE" ] || {
+  echo "usage: $0 --data DIR --cache DIR [method|stages|hist|all]" >&2
+  exit 1
+}
 
 mkdir -p "$IMG" "$WORK"
-for p in "$PY" "$DATA"; do
+for p in "$PY" "$DATA" "$CACHE"; do
   [ -e "$p" ] || { echo "missing: $p" >&2; exit 1; }
 done
 
@@ -36,8 +49,8 @@ print(f"    {sys.argv[2].split('/')[-1]}  {im.size[0]}x{im.size[1]}")
 PYX
 }
 
-run_py () {  # run_py <script>
-  ( cd "$WORK" && "$PY" "$WORK/$1" >/dev/null 2>&1 )
+run_py () {  # run_py <script> [args...]
+  ( cd "$WORK" && "$PY" "$WORK/$1" "${@:2}" >/dev/null 2>&1 )
 }
 
 # The figure scripts resolve their output directory from __file__, so they
@@ -50,15 +63,15 @@ sync_scripts () {
 if [ "$WHAT" = all ] || [ "$WHAT" = method ]; then
   echo "=== the four method figures ==="
   sync_scripts
-  ( cd "$WORK" && "$PY" fig_vocab.py  >/dev/null 2>&1 ) && conv "$WORK/fig_vocab.png"  method_vocabulary
-  ( cd "$WORK" && "$PY" fig_stages.py >/dev/null 2>&1 ) && conv "$WORK/fig_stages.png" method_three_stages
-  ( cd "$WORK" && "$PY" fig_scut.py   >/dev/null 2>&1 ) && conv "$WORK/fig_scut.png"   method_scut
+  ( cd "$WORK" && "$PY" fig_vocab.py  --cache "$CACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_vocab.png"  method_vocabulary
+  ( cd "$WORK" && "$PY" fig_stages.py --cache "$CACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_stages.png" method_three_stages
+  ( cd "$WORK" && "$PY" fig_scut.py   --data "$DATA" >/dev/null 2>&1 ) && conv "$WORK/fig_scut.png"   method_scut
   # fig_diag drives auto_beads, which writes the diagnostic itself under
   # its own output_dir, so the newest PNG there is the one wanted.
   rm -rf "$WORK/diagout" && mkdir -p "$WORK/diagout"
   sed "s|output_dir=OUT|output_dir='$WORK/diagout'|" "$HERE/fig_diag.py" \
       > "$WORK/fig_diag_run.py"
-  ( cd "$WORK" && "$PY" fig_diag_run.py >/dev/null 2>&1 )
+  ( cd "$WORK" && "$PY" fig_diag_run.py --data "$DATA" --cache "$CACHE" >/dev/null 2>&1 )
   P=$(find "$WORK/diagout" -name '*.png' -printf '%T@ %p\n' 2>/dev/null \
       | sort -rn | head -1 | cut -d' ' -f2)
   [ -n "$P" ] && conv "$P" method_diagnostic \
@@ -68,8 +81,8 @@ fi
 if [ "$WHAT" = all ] || [ "$WHAT" = stages ]; then
   echo "=== the five stage figures ==="
   sync_scripts
-  run_py fig_stage1.py
-  run_py fig_stage23.py
+  run_py fig_stage1.py --cache "$CACHE"
+  run_py fig_stage23.py --cache "$CACHE"
   for n in stage1_segments stage1_features stage1_fallback \
            stage2_exclusions stage3_select; do
     [ -f "$WORK/$n.png" ] && conv "$WORK/$n.png" "$n" \

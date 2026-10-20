@@ -6,6 +6,7 @@ already know. Top: what stage 1 detects. Middle: what stage 2 leaves.
 Bottom: where stage 3 commits.
 """
 
+import argparse
 import glob
 import os
 
@@ -16,7 +17,6 @@ matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
 import matplotlib.pyplot as plt  # noqa: E402
 
-import weaselytics  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
     classify_segments,
     detect_dips,
@@ -26,11 +26,6 @@ from weaselytics.segmentation import (  # noqa: E402
     trim_plateaus,
 )
 
-# data/, runs/ and the datasets sit beside the checkout.
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(weaselytics.__file__))))
-CACHE = os.path.join(ROOT, 'runs', 'PROD_2026-10-19_23559213',
-                     'r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 N_USED = 400
@@ -59,8 +54,8 @@ def shade(ax, fr, mask, color, label, alpha=.30):
                    label=label if k == 0 else None, zorder=1)
 
 
-def main():
-    f = glob.glob(os.path.join(CACHE, f'{STEM}__r2__*.npz'))[0]
+def main(cache):
+    f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     fr, r2, sens = d['fcut_range'], d['r2_val'], d['sensitivity']
 
@@ -120,4 +115,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cache', required=True,
+                        help='r2_cache directory of a production run, '
+                             'e.g. runs/PROD_<date>_<job>/r2_cache')
+    main(parser.parse_args().cache)

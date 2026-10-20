@@ -23,7 +23,7 @@ pytest weaselytics/tests/
 - Run Ruff before submitting:
 
 ```
-ruff check weaselytics/
+ruff check .
 ```
 
 ## Code style

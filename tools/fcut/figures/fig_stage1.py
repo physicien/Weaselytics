@@ -13,19 +13,25 @@ Two panels of one worked example, on the curve of Figures 1 and 3.
 """
 import glob
 import os
-import sys
 
-import numpy as np
 import matplotlib
+import numpy as np
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, '/home/esteban/Simulation/DFT/separation_part2/Weaselytics')
+import weaselytics  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
-    classify_segments, pelt_linear, segment_features)
+    classify_segments,
+    pelt_linear,
+    segment_features,
+)
 
-CACHE = ('/home/esteban/Simulation/DFT/separation_part2/runs/'
-         'PROD_2026-10-19_23559213/r2_cache')
+# data/, runs/ and the datasets sit beside the checkout.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(weaselytics.__file__))))
+CACHE = os.path.join(ROOT, 'runs', 'PROD_2026-10-19_23559213',
+                     'r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 DPI = 200
@@ -99,8 +105,9 @@ def fig_segments(fr, r2, segs):
     ax.set_ylabel(r'$rel\_noise$')
     ax.grid(alpha=.2, which='both')
     ax.set_title('residual noise of each segment: across the initial '
-                 'plateau the slope stays at zero while this climbs more than three '
-                 'orders of magnitude', fontsize=9.5, loc='left', pad=6)
+                 'plateau the slope stays at zero while this climbs more '
+                 'than three orders of magnitude', fontsize=9.5, loc='left',
+                 pad=6)
 
     fig.tight_layout()
     p = os.path.join(OUT, 'stage1_segments.png')

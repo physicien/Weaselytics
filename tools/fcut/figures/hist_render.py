@@ -15,11 +15,12 @@ import os
 import sys
 
 import matplotlib
+
 matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.axes import Axes
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+from matplotlib.axes import Axes  # noqa: E402
 
 
 def main():
@@ -66,8 +67,8 @@ def main():
 
     plt.savefig = savefig
 
-    from parsers import ParsedData      # noqa: E402
-    from baseline import auto_beads     # noqa: E402
+    from baseline import auto_beads  # noqa: E402
+    from parsers import ParsedData  # noqa: E402
 
     d = ParsedData(signal).data
     x, y = np.asarray(d[0], float), np.asarray(d[1], float)

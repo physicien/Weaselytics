@@ -8,28 +8,29 @@ vector copy of the same figure.
 
 import glob
 import os
-import sys
 
-import numpy as np
 import matplotlib
+import numpy as np
+
 matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # noqa: E402
 
-sys.path.insert(0, '/home/esteban/Simulation/DFT/separation_part2/'
-                   'Weaselytics')
+import weaselytics  # noqa: E402
 from weaselytics.baseline import auto_beads  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 
+# data/, runs/ and the datasets sit beside the checkout.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(weaselytics.__file__))))
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
-CACHE = ('/home/esteban/Simulation/DFT/separation_part2/runs/'
-         'PROD_2026-10-19_23559213/r2_cache')
+CACHE = os.path.join(ROOT, 'runs', 'PROD_2026-10-19_23559213',
+                     'r2_cache')
 
 
 def main():
-    src = glob.glob('/home/esteban/Simulation/DFT/separation_part2/data/'
-                    f'*/{STEM}.txt')[0]
+    src = glob.glob(os.path.join(ROOT, 'data', '*', f'{STEM}.txt'))[0]
     d = ParsedData(src).data
     x, y = np.asarray(d[0], float), np.asarray(d[1], float)
 

@@ -180,7 +180,7 @@ class TestQuantise:
 
 class TestPybFamily:
     def test_gaussian_matches_pybaselines_bit_for_bit(self):
-        # The transcribed formulas use _g in pybaselines' argument
+        # The pyb formulas use _g in pybaselines' argument
         # order; it must agree with pybaselines.utils.gaussian EXACTLY,
         # otherwise every pyb signal silently differs from the source.
         from pybaselines.utils import gaussian
@@ -200,7 +200,7 @@ class TestPybFamily:
                                    rtol=1e-12, atol=1e-300)
 
     def test_reproduces_the_documented_datasets(self):
-        # Transcription check against the source: rebuild y1..y5 of
+        # Check against the documentation: rebuild y1..y5 of
         # docs/algorithms/algorithms_1d/misc.rst here and compare.
         from pybaselines.utils import gaussian
         x = np.linspace(1, 1000, 500)

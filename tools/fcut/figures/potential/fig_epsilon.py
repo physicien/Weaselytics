@@ -29,7 +29,6 @@ than one of the fcut selection figures.
 
 import glob  # noqa: I001
 import os
-import sys
 
 import matplotlib
 import numpy as np
@@ -37,11 +36,13 @@ matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
 import matplotlib.pyplot as plt  # noqa: E402
 
-sys.path.insert(0, '/home/esteban/Simulation/DFT/separation_part2/'
-                   'Weaselytics')
+import weaselytics  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 
-DATA = '/home/esteban/Simulation/DFT/separation_part2/data'
+# data/, runs/ and the datasets sit beside the checkout.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(weaselytics.__file__))))
+DATA = os.path.join(ROOT, 'data')
 OUT = os.path.dirname(os.path.abspath(__file__))
 EPS = 1.0
 CNH, COUR = '#c2521f', '#1f4e79'

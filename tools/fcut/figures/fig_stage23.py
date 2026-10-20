@@ -4,20 +4,30 @@ exclusions, and the stage 3 pick. One worked example throughout.
 """
 import glob
 import os
-import sys
 
-import numpy as np
 import matplotlib
+import numpy as np
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, '/home/esteban/Simulation/DFT/separation_part2/Weaselytics')
+import weaselytics  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
-    _rolling_std, classify_segments, detect_dips, dip_curve, pelt_linear,
-    segment_features, select_center, trim_plateaus)
+    _rolling_std,
+    classify_segments,
+    detect_dips,
+    dip_curve,
+    pelt_linear,
+    segment_features,
+    select_center,
+    trim_plateaus,
+)
 
-CACHE = ('/home/esteban/Simulation/DFT/separation_part2/runs/'
-         'PROD_2026-10-19_23559213/r2_cache')
+# data/, runs/ and the datasets sit beside the checkout.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(weaselytics.__file__))))
+CACHE = os.path.join(ROOT, 'runs', 'PROD_2026-10-19_23559213',
+                     'r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 N_USED, DPI = 400, 200

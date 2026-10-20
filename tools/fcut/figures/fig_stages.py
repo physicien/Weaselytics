@@ -8,16 +8,15 @@ Bottom: where stage 3 commits.
 
 import glob
 import os
-import sys
 
-import numpy as np
 import matplotlib
+import numpy as np
+
 matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # noqa: E402
 
-sys.path.insert(0, '/home/esteban/Simulation/DFT/separation_part2/'
-                   'Weaselytics')
+import weaselytics  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
     classify_segments,
     detect_dips,
@@ -27,8 +26,11 @@ from weaselytics.segmentation import (  # noqa: E402
     trim_plateaus,
 )
 
-CACHE = ('/home/esteban/Simulation/DFT/separation_part2/runs/'
-         'PROD_2026-10-19_23559213/r2_cache')
+# data/, runs/ and the datasets sit beside the checkout.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(weaselytics.__file__))))
+CACHE = os.path.join(ROOT, 'runs', 'PROD_2026-10-19_23559213',
+                     'r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 N_USED = 400

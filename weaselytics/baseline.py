@@ -264,9 +264,10 @@ def _snr(s: np.ndarray) -> float:
     the noise estimated from the median absolute deviation of the
     consecutive differences, so peaks do not inflate it.
 
-    ``auto_beads`` uses it for one decision: whether the optimum may lie
-    past the drop of the r2 curve, which is allowed on a weak signal
-    and not on one carrying substantial analyte.
+    ``auto_beads`` uses it for one decision: whether the plateaus past
+    the drop of the r2 curve stay candidates, which they do on a signal
+    whose structure is mostly baseline. See `auto_beads` for why that
+    branch is untested.
 
     Parameters
     ----------

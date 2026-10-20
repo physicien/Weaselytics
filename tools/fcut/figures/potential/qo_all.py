@@ -34,24 +34,28 @@ import glob
 import os
 import shutil
 import subprocess
-import sys
 
 import matplotlib
 import numpy as np
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
-
-sys.path.insert(0, '/home/esteban/Simulation/DFT/separation_part2/'
-                   'Weaselytics')
-import weaselytics.segmentation as S  # noqa: E402,I001
 from pybaselines import Baseline  # noqa: E402
 from scipy.ndimage import median_filter  # noqa: E402
+
+import weaselytics  # noqa: E402
+import weaselytics.segmentation as S  # noqa: E402,I001
 from weaselytics.baseline import (  # noqa: E402
-    _custom_beads, _log_transform, _relevant_regions, _snr)
+    _custom_beads,
+    _log_transform,
+    _relevant_regions,
+    _snr,
+)
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.plot import plot, r2_plots  # noqa: E402
 
-ROOT = '/home/esteban/Simulation/DFT/separation_part2'
+# data/, runs/ and the datasets sit beside the checkout.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(weaselytics.__file__))))
 RUN = os.path.join(ROOT, 'runs/SYNTH_2026-10-19_23559214')
 DS = os.path.join(ROOT, 'SYNTH_ERB_2026-08-18')
 OUT = os.path.join(ROOT, 'MERGED/QUASIOPT_2026-08-24')

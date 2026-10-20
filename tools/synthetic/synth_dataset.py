@@ -340,16 +340,15 @@ PEARSON7_ASYMMETRY = (min(PEARSON7_ASYMMETRY_NIEZEN[0],
 
 
 # --------------------------------------------------------------------
-# The `pyb` family: idealised signals transcribed from the pybaselines
-# documentation. See tools/synthetic/synthetic_data.md §10.
+# The `pyb` family: idealised signals built on the examples of the
+# pybaselines documentation. See tools/synthetic/synthetic_data.md §10.
 #
-# TRANSCRIBED, NOT IMPORTED. `pybaselines.utils.make_data` states that
+# NOT IMPORTED. `pybaselines.utils.make_data` states that
 # its output "may change without notice ... outside users are advised
 # not to rely on the exact output", and this project has already been
 # bitten once by an undocumented pybaselines change (the beads lam_0/1/2
 # defaults). Calling it would make every score depend on the install
-# date. The formulas below are copied verbatim from the documentation at
-# the pinned commit and are covered by tests.
+# date.
 #
 # Sources, both read at pybaselines commit c36ce6128 and unchanged
 # since:
@@ -366,8 +365,8 @@ def _g(x: np.ndarray, height: float, center: float,
     """
     ``pybaselines.utils.gaussian`` in its own argument order.
 
-    Defined here so the transcribed formulas below read exactly as they
-    do in the documentation, and evaluated with pybaselines' own
+    Defined here so the formulas below keep the documentation's argument
+    order, and evaluated with pybaselines' own
     expression, ``h * exp(-0.5 * (x - c)**2 / s**2)``, rather than with
     `gauss_peak`'s ``h * exp(-0.5 * ((x - c) / s)**2)``. The two are
     algebraically identical but differ in the last bits, and the point

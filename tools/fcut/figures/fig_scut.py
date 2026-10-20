@@ -15,17 +15,16 @@ of it.
 
 import glob
 import os
-import sys
 
-import numpy as np
 import matplotlib
+import numpy as np
+
 matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
-import matplotlib.pyplot as plt
-from pybaselines import Baseline
+import matplotlib.pyplot as plt  # noqa: E402
+from pybaselines import Baseline  # noqa: E402
 
-sys.path.insert(0, '/home/esteban/Simulation/DFT/separation_part2/'
-                   'Weaselytics')
+import weaselytics  # noqa: E402
 from weaselytics.baseline import (  # noqa: E402
     _custom_beads,
     _log_transform,
@@ -34,6 +33,9 @@ from weaselytics.baseline import (  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.utils import r2_dw  # noqa: E402
 
+# data/, runs/ and the datasets sit beside the checkout.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(weaselytics.__file__))))
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEMS = ['2-Xylene__LPYE__CS2__15', '2-Xylene__LPYE__90-96-100__2']
 TAGS = ['(a)', '(b)']
@@ -61,8 +63,7 @@ def main():
     fig, axes = plt.subplots(2, 2, figsize=(12.4, 6.6),
                              gridspec_kw={'width_ratios': [1, 1.25]})
     for row, (stem, tag) in enumerate(zip(STEMS, TAGS)):
-        src = glob.glob('/home/esteban/Simulation/DFT/separation_part2/'
-                        f'data/*/{stem}.txt')[0]
+        src = glob.glob(os.path.join(ROOT, 'data', '*', f'{stem}.txt'))[0]
         d = ParsedData(src).data
         x, y = np.asarray(d[0], float), np.asarray(d[1], float)
         regions, sampling, scut = _relevant_regions(y, x)

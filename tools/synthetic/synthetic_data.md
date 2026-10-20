@@ -314,7 +314,7 @@ There are three families, with deliberately different provenance:
 | **`pyb`** | Gaussians | eight cases, below | pybaselines docs |
 | `hybrid` | modified Pearson VII | real peak-free drift | Niezen 2022, Milani 2024 |
 
-### 9.1 Transcribed, not imported
+### 9.1 Why `make_data` is not called
 
 `pybaselines.utils.make_data` is **not called**. Its docstring states the
 output "may change without notice to meet the needs of the examples in the
@@ -325,10 +325,10 @@ auto-scaled with no changelog entry, shifting r² from 0.885 to 0.950 at a
 fixed cutoff — so a benchmark that imported it would silently depend on the
 install date.
 
-The formulas are therefore copied from the documentation as it stood at
-commit `c36ce6128` and covered by tests, including one asserting
-**bit-for-bit** equality with `pybaselines.utils.gaussian`. Note the
-transcription evaluates `h·exp(-0.5(x-c)²/σ²)` rather than
+The signals are therefore generated here from the examples of the
+documentation as it stood at commit `c36ce6128`, and covered by tests,
+including one asserting **bit-for-bit** equality with
+`pybaselines.utils.gaussian`. Note the code evaluates `h·exp(-0.5(x-c)²/σ²)` rather than
 `h·exp(-0.5((x-c)/σ)²)`: algebraically identical, different in the last bits,
 and the first is what the source computes.
 

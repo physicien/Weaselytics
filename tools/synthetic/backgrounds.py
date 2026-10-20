@@ -76,13 +76,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(
 
 from weaselytics.parsers import ParsedData  # noqa: E402
 
-# Default locations, as siblings of the repository. Both are read-only.
-_HERE = os.path.dirname(os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__))))
-DEFAULT_DATA = os.path.join(os.path.dirname(_HERE), 'data')
-DEFAULT_EXTERNAL = os.path.join(os.path.dirname(_HERE),
-                                'backgrounds_external')
-
 # Shortest LPYE peak-free stretch admitted to the pool, in minutes.
 # NOT GROUNDED: like the `8 sigma` criterion it selects which real data
 # enters the pool and never enters a reported number. This value is the
@@ -353,7 +346,7 @@ def describe(x: np.ndarray, y: np.ndarray) -> dict:
             'drift_over_sigma': float(p2p / sigma) if sigma > 0 else 0.}
 
 
-def collect_lpye(data_dir: str = DEFAULT_DATA,
+def collect_lpye(data_dir: str,
                  min_minutes: float = LPYE_MIN_MINUTES) -> list[dict]:
     """
     Extract every admissible background from the LPYE dataset.
@@ -365,7 +358,7 @@ def collect_lpye(data_dir: str = DEFAULT_DATA,
 
     Parameters
     ----------
-    data_dir : str, optional
+    data_dir : str
         Directory holding ``Molecule/stem.txt``. Read-only.
     min_minutes : float, optional
         Shortest stretch admitted. See `LPYE_MIN_MINUTES`.
@@ -401,7 +394,7 @@ def collect_lpye(data_dir: str = DEFAULT_DATA,
     return entries
 
 
-def collect_external(external_dir: str = DEFAULT_EXTERNAL,
+def collect_external(external_dir: str,
                      wavelength: float = DAD_WAVELENGTH_NM
                      ) -> list[dict]:
     """
@@ -413,7 +406,7 @@ def collect_external(external_dir: str = DEFAULT_EXTERNAL,
 
     Parameters
     ----------
-    external_dir : str, optional
+    external_dir : str
         Directory holding ``niezen_FILTER/`` and ``mocca2/``.
     wavelength : float, optional
         Target wavelength for the two-dimensional sources, nm.
@@ -501,8 +494,7 @@ def plot_background(entry: dict, out_path: str) -> None:
     plt.close(fig)
 
 
-def build_pool(pool_dir: str, data_dir: str = DEFAULT_DATA,
-               external_dir: str = DEFAULT_EXTERNAL,
+def build_pool(pool_dir: str, data_dir: str, external_dir: str,
                wavelength: float = DAD_WAVELENGTH_NM,
                min_minutes: float = LPYE_MIN_MINUTES,
                plot: bool = True) -> list[dict]:
@@ -516,7 +508,7 @@ def build_pool(pool_dir: str, data_dir: str = DEFAULT_DATA,
     ----------
     pool_dir : str
         Destination directory.
-    data_dir, external_dir : str, optional
+    data_dir, external_dir : str
         Sources. Both are read-only and are only read.
     wavelength : float, optional
         Target wavelength for the two-dimensional sources, nm.
@@ -600,9 +592,9 @@ def main() -> None:
         prog='backgrounds',
         description='build the pool of real chromatographic backgrounds')
     parser.add_argument('pool', help='output pool directory')
-    parser.add_argument('--data', default=DEFAULT_DATA,
+    parser.add_argument('--data', required=True,
                         help='LPYE raw data directory (read-only)')
-    parser.add_argument('--external', default=DEFAULT_EXTERNAL,
+    parser.add_argument('--external', required=True,
                         help='published-background directory (read-only)')
     parser.add_argument('--wavelength', type=float,
                         default=DAD_WAVELENGTH_NM,

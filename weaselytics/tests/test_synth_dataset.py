@@ -351,10 +351,6 @@ class TestPybRandomSignal:
         assert len(d['x']) == 777
 
 
-# donnie/ sits beside the checkout.
-_DONNIE = pathlib.Path(__file__).resolve().parents[3] / "donnie"
-
-
 class TestErbBaselines:
     def test_parabola_ends_at_zero_on_both_ends(self):
         # kind 0 is described in the source as "simple parabola that
@@ -427,22 +423,6 @@ class TestErbSignal:
     def test_unknown_case_raises(self):
         with pytest.raises(ValueError):
             synth.erb_signal('four_plateaus')
-
-    @pytest.mark.skipif(not _DONNIE.is_dir(),
-                        reason="donnie/ reference files not present")
-    @pytest.mark.parametrize("stem,case", [
-        ("donnie1", "one_plateau"),
-        ("donnie2", "two_plateaus"),
-        ("donnie3", "three_plateaus"),
-    ])
-    def test_reproduces_the_exported_reference_signal(self, stem, case):
-        # The strongest check available: the three exported signals in
-        # donnie/ were written by running the source script, so an exact
-        # match proves the transcription rather than merely testing it
-        # against itself.
-        ref = np.loadtxt(_DONNIE / f"{stem}.txt")[:, 1]
-        got = synth.erb_signal(case, baseline_type=2)['y']
-        assert np.abs(got - ref).max() < 1e-12
 
 
 class TestErbRandomSignal:

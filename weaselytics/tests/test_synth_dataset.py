@@ -351,8 +351,8 @@ class TestPybRandomSignal:
         assert len(d['x']) == 777
 
 
-_DONNIE = (pathlib.Path("/home/esteban/Simulation/DFT/separation_part2")
-           / "donnie")
+# donnie/ sits beside the checkout.
+_DONNIE = pathlib.Path(__file__).resolve().parents[3] / "donnie"
 
 
 class TestErbBaselines:

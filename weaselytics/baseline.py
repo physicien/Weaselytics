@@ -40,7 +40,7 @@ import numpy as np
 from pybaselines import Baseline
 from scipy.ndimage import gaussian_filter1d
 
-from weaselytics.plot import r2_plots
+from weaselytics.plot import plot, r2_plots
 from weaselytics.segmentation import (
     classify_segments,
     detect_dips,
@@ -72,6 +72,29 @@ _R2_CHANNEL = "y-baseline-dw"
 # curve and its stored array were renamed from `stability`: the values
 # are unchanged, but the npz key is not, so pre-rename caches must miss.
 _SENSITIVITY_VERSION = "sens-1"
+
+
+class NoSurvivingRegionError(ValueError):
+    """
+    Stage 2 removed every detected region, so no cutoff can be selected.
+
+    Raised by `_fcutoff`. A subclass of `ValueError`. It carries the
+    sweep's diagnostic data, so the figures can still be drawn for the
+    signal that failed.
+
+    Parameters
+    ----------
+    message : str
+        The error message.
+    plot_data : dict
+        The same dictionary `_fcutoff` returns on success, with
+        ``fcut`` and ``fi_r2_val`` set to None.
+
+    """
+
+    def __init__(self, message: str, plot_data: dict) -> None:
+        super().__init__(message)
+        self.plot_data = plot_data
 
 
 def _relevant_regions(
@@ -1157,16 +1180,18 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         The cutoff frequency of the high pass filter, normalized such that
         0 < `freq_cutoff` < 0.5.
     plot_data : dict
-        Dictionary of internal variables needed to produce the r2 diagnostic
-        plot. Empty dict if no plotting was requested.
+        The internal variables the r2 diagnostic plot is drawn from.
 
     Raises
     ------
     ValueError
-        If `method` is not one of the allowed methods, or if stage-2
-        trimming removes every candidate, leaving no plateau to select
-        from. Failing is deliberate: substituting a cutoff would bias
-        every area derived from it.
+        If `method` is not one of the allowed methods.
+    NoSurvivingRegionError
+        If stage-2 trimming removes every candidate, leaving no plateau
+        to select from. Failing is deliberate: substituting a cutoff
+        would bias every area derived from it. The error carries
+        `plot_data`, with ``fcut`` and ``fi_r2_val`` set to None, so the
+        diagnostic can still be drawn.
 
     References
     ----------
@@ -1227,31 +1252,9 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     cp_instab_removed = cp_trim['instab_removed']
 
     # Stage 3, PRELIMINARY: the cutoff is the centre of the surviving
-    # plateau. This supersedes the legacy derivative route below, which
-    # is kept only because the diagnostic overlay is built from its
-    # intermediates. `None` means stage 2 left nothing, and the legacy
-    # value is used as a fallback.
-    fcut_center = select_center(fcut_range, cp_surviving)
+    # plateau. `None` means stage 2 left nothing to select from.
+    fcut = select_center(fcut_range, cp_surviving)
     #####
-
-    if fcut_center is None:
-        raise ValueError(
-            "no surviving plateau: stage-2 trimming removed every "
-            "detected region, so there is no cutoff frequency to "
-            "select. Pass an explicit cutoff with freq_cutoff=... to "
-            "bypass the automatic selection."
-        )
-    fcut = fcut_center
-    logger.info(f"{'fcut route:':<20}centre of the surviving plateau")
-
-    toc = time.perf_counter()
-    logger.info(f"Autocorrelation in {toc-tic:0.4f} seconds")
-    # `select_center` returns a grid point, so the r2 there is already
-    # in the swept curve: reading it saves a full baseline fit on every
-    # run, and reports exactly the value the diagnostic draws rather
-    # than a re-fit that can differ at low frequencies.
-    fi_r2_val = float(r2_val[int(np.argmin(np.abs(fcut_range - fcut)))])
-    logger.info(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
 
     plot_data = {
         "fcut_range": fcut_range,
@@ -1259,7 +1262,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         "sensitivity_val": sensitivity_val,
         "dip_curve": dip_curve(r2_val),
         "fcut": fcut,
-        "fi_r2_val": fi_r2_val,
+        "fi_r2_val": None,
         "cp_flat": cp_flat,
         "cp_dips": cp_dips,
         "cp_surviving": cp_surviving,
@@ -1271,7 +1274,54 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         # data can constrain.
         "n_used": len(z),
     }
+    if fcut is None:
+        raise NoSurvivingRegionError(
+            "no surviving plateau: stage-2 trimming removed every "
+            "detected region, so there is no cutoff frequency to "
+            "select. Pass an explicit cutoff with freq_cutoff=... to "
+            "bypass the automatic selection.", plot_data)
+    logger.info(f"{'fcut route:':<20}centre of the surviving plateau")
+
+    toc = time.perf_counter()
+    logger.info(f"Autocorrelation in {toc-tic:0.4f} seconds")
+    # `select_center` returns a grid point, so the r2 there is already
+    # in the swept curve: reading it saves a full baseline fit on every
+    # run, and reports exactly the value the diagnostic draws rather
+    # than a re-fit that can differ at low frequencies.
+    fi_r2_val = float(r2_val[int(np.argmin(np.abs(fcut_range - fcut)))])
+    logger.info(f"{'r2 value:':<20}{fi_r2_val:0.4f}")
+    plot_data["fi_r2_val"] = fi_r2_val
     return fcut, plot_data
+
+def _draw_r2(plot_data: dict, show_plot: bool, print_plot: bool,
+             path: str, output_dir: str) -> None:
+    """
+    Draw the r2 diagnostic from the dictionary `_fcutoff` produces.
+
+    Parameters
+    ----------
+    plot_data : dict
+        As returned by `_fcutoff`, or carried by a
+        `NoSurvivingRegionError`, in which case ``fcut`` is None and no
+        cutoff is drawn.
+    show_plot, print_plot, path, output_dir
+        As in `auto_beads`.
+
+    """
+    r2_plots(
+        plot_data["fcut_range"], plot_data["r2_val"],
+        plot_data["dip_curve"],
+        plot_data["fcut"], plot_data["fi_r2_val"],
+        cp_flat=plot_data["cp_flat"],
+        cp_dips=plot_data["cp_dips"],
+        cp_removed=plot_data["cp_removed"],
+        cp_snr_removed=plot_data["cp_snr_removed"],
+        cp_instab_removed=plot_data["cp_instab_removed"],
+        sensitivity=plot_data["sensitivity_val"],
+        n_used=plot_data["n_used"],
+        show_plot=show_plot, print_plot=print_plot,
+        path=path, output_dir=output_dir,
+    )
 
 ###############################################################################
 #BEADS baseline correction
@@ -1412,9 +1462,13 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     ------
     ValueError
         Raised if `asymmetry` is not greater than 0, if `method` is not
-        one of the allowed methods, if `freq_cutoff` is not in (0, 0.5),
-        or, when the cutoff is being selected, if stage-2 trimming leaves
-        no plateau to select from.
+        one of the allowed methods, or if `freq_cutoff` is not in
+        (0, 0.5).
+    NoSurvivingRegionError
+        Raised when the cutoff is being selected and stage-2 trimming
+        leaves no plateau. A subclass of `ValueError`. When
+        `show_plot` or `print_plot` is set, the r2 diagnostic and the input
+        signal are drawn first, with no cutoff and no baseline.
 
     References
     ----------
@@ -1468,9 +1522,21 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
 
     # Cutoff frequency
     if freq_cutoff is None:
-        fcut, plot_data = _fcutoff(
-            s, x, scut, method=method, cache_dir=cache_dir, path=path,
-            workers=workers, snr_threshold=snr_threshold, **method_kwargs)
+        try:
+            fcut, plot_data = _fcutoff(
+                s, x, scut, method=method, cache_dir=cache_dir, path=path,
+                workers=workers, snr_threshold=snr_threshold,
+                **method_kwargs)
+        except NoSurvivingRegionError as err:
+            # No cutoff, hence no baseline, but the sweep did run: draw
+            # its diagnostic and the input signal, so the signal
+            # that failed has its figures like every other one.
+            if show_plot or print_plot:
+                _draw_r2(err.plot_data, show_plot, print_plot, path,
+                         output_dir)
+                plot(x, s, show_plot=show_plot, print_plot=print_plot,
+                     path=path, output_dir=output_dir)
+            raise
     else:
         if ((freq_cutoff <= 0) or (freq_cutoff >= 0.5)):
             raise ValueError("cutoff frequency must be 0 < freq_cutoff < 0.5")
@@ -1479,20 +1545,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     # plot_data is empty when freq_cutoff is user-provided: there is no
     # autocorrelation sweep, hence no r2 diagnostic plot to draw.
     if (show_plot or print_plot) and plot_data:
-        r2_plots(
-            plot_data["fcut_range"], plot_data["r2_val"],
-            plot_data["dip_curve"],
-            plot_data["fcut"], plot_data["fi_r2_val"],
-            cp_flat=plot_data["cp_flat"],
-            cp_dips=plot_data["cp_dips"],
-            cp_removed=plot_data["cp_removed"],
-            cp_snr_removed=plot_data["cp_snr_removed"],
-            cp_instab_removed=plot_data["cp_instab_removed"],
-            sensitivity=plot_data["sensitivity_val"],
-            n_used=plot_data["n_used"],
-            show_plot=show_plot, print_plot=print_plot,
-            path=path, output_dir=output_dir,
-        )
+        _draw_r2(plot_data, show_plot, print_plot, path, output_dir)
     method_kwargs = {**method_kwargs, "freq_cutoff": fcut}
 
     # Change alpha for the final baseline correction

@@ -157,7 +157,7 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
     return None
 
 def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
-             freq_cutoff: float, fcut_r2: float,
+             freq_cutoff: float | None, fcut_r2: float | None,
              cp_flat: np.ndarray | None = None,
              cp_dips: np.ndarray | None = None,
              cp_removed: np.ndarray | None = None,
@@ -188,10 +188,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
         `r2`, Gaussian-smoothed and normalised to its own maximum.
         ``detect_dips`` marks proto-plateaus at its local minima, so the
         orange basins above line up with the dips of this panel.
-    freq_cutoff : float
-        Frequency cutoff.
-    fcut_r2 : float
-        Value of `r2` at `freq_cutoff`.
+    freq_cutoff : float or None
+        Frequency cutoff. None when stage 2 left no region to select
+        from: no cutoff line is drawn, and "no surviving region" is
+        written where its `r2` value would be.
+    fcut_r2 : float or None
+        Value of `r2` at `freq_cutoff`. None when `freq_cutoff` is.
     cp_flat : array-like, shape (N,), dtype bool, optional
         Mask of the full flat set from ``segmentation.classify_segments``
         (before any trimming), drawn as a light solid blue fill beneath
@@ -363,14 +365,23 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     axs[2].semilogx(x, dip_curve, ls='-', lw=0.9, color='tab:orange')
 
     for ax in axs.flat:
-        ax.axvline(x=freq_cutoff, c='tab:red', ls='dashed')
+        if freq_cutoff is not None:
+            ax.axvline(x=freq_cutoff, c='tab:red', ls='dashed')
         ax.label_outer()
-    axs[0].annotate(f'{fcut_r2:0.4f}',
-                    xy=(freq_cutoff,1.01),
-                    xycoords=("data","axes fraction"),
-                    ha='center',
-                    color='tab:red'
-                    )
+    if freq_cutoff is not None:
+        axs[0].annotate(f'{fcut_r2:0.4f}',
+                        xy=(freq_cutoff,1.01),
+                        xycoords=("data","axes fraction"),
+                        ha='center',
+                        color='tab:red'
+                        )
+    else:
+        axs[0].annotate('no surviving region',
+                        xy=(0.5, 1.01),
+                        xycoords="axes fraction",
+                        ha='center',
+                        color='tab:red'
+                        )
 #    axs[2].set_xlabel('Cutoff frequency')
     axs[0].set_ylabel(r'$r^2_{y-b}$')
     # rms change of the fitted baseline between adjacent cutoffs, as a

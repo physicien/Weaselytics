@@ -157,6 +157,43 @@ class TestFcutoffSelection:
         with pytest.raises(ValueError, match="no surviving plateau"):
             self._drive(0.999 - 0.9 * t)
 
+    def test_no_surviving_plateau_still_prints_both_figures(self, tmp_path):
+        # The signal that fails gets its r2 diagnostic and its input
+        # signal drawn like every other one, and the error is unchanged.
+        t = np.linspace(0, 1, self._N)
+        r2 = 0.999 - 0.9 * t
+        x = np.linspace(0, 10, 4000)
+        s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
+        path = str(tmp_path / "sig.txt")
+        with mock.patch.object(
+                baseline_module, "_r2_array_cached",
+                return_value=(r2, np.full_like(r2, 2.0),
+                              np.zeros_like(r2))):
+            with pytest.raises(baseline_module.NoSurvivingRegionError,
+                               match="no surviving plateau") as err:
+                auto_beads(s, x, method="beads", print_plot=True,
+                           path=path, output_dir=str(tmp_path))
+        assert isinstance(err.value, ValueError)
+        assert err.value.plot_data["fcut"] is None
+        assert (tmp_path / "r2_plots" / "sig_r2.png").is_file()
+        assert (tmp_path / "images" / "sig.png").is_file()
+
+    def test_no_surviving_plateau_without_plots_writes_nothing(
+            self, tmp_path):
+        t = np.linspace(0, 1, self._N)
+        r2 = 0.999 - 0.9 * t
+        x = np.linspace(0, 10, 4000)
+        s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
+        with mock.patch.object(
+                baseline_module, "_r2_array_cached",
+                return_value=(r2, np.full_like(r2, 2.0),
+                              np.zeros_like(r2))):
+            with pytest.raises(baseline_module.NoSurvivingRegionError):
+                auto_beads(s, x, method="beads",
+                           path=str(tmp_path / "sig.txt"),
+                           output_dir=str(tmp_path))
+        assert not any(tmp_path.iterdir())
+
 
 class TestBeads:
     def test_beads_returns_baseline_and_params(self):

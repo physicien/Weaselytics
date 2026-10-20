@@ -2,8 +2,9 @@
 """
 Aggregate and plot the synthetic diagnostics of ``synth_diag.py``.
 
-Reads ``diag_summary.csv`` and the per-signal ``diag/*__diag.npz`` of a
-dataset directory and answers the test battery: harness validity, the
+Reads ``diag_summary.csv`` and the per-signal ``*__diag.npz`` from the
+diagnostics directory ``synth_diag`` wrote, by default ``DATASET/diag``,
+and answers the test battery: harness validity, the
 accuracy of the current selector, containment of the true optimum, the
 stiff-side instability trim with and without, and the candidate features
 for stage 3.
@@ -16,6 +17,7 @@ as a correlation.
 Usage
 -----
 python tools/synthetic/synth_report.py DATASET_DIR [-o OUT_DIR]
+    [--diag-dir DIR]
 """
 
 import argparse
@@ -38,16 +40,19 @@ ADC_STEP_MV = 0.008996
 
 # Draws per signal for the null control of the local-minimum hypothesis.
 NULL_DRAWS = 200
+# Gate of the past-drop exclusion, as production sets it
+# (`auto_beads`, `snr_threshold`).
+SNR_GATE = 10.0
 
 
-def load_summary(dataset: str) -> list[dict]:
+def load_summary(diag_dir: str) -> list[dict]:
     """
     Read ``diag_summary.csv``, coercing numeric columns.
 
     Parameters
     ----------
-    dataset : str
-        The dataset directory.
+    diag_dir : str
+        The diagnostics directory.
 
     Returns
     -------
@@ -55,7 +60,7 @@ def load_summary(dataset: str) -> list[dict]:
         One row per scored signal.
 
     """
-    path = os.path.join(dataset, 'diag_summary.csv')
+    path = os.path.join(diag_dir, 'diag_summary.csv')
     rows = []
     with open(path) as f:
         for r in csv.DictReader(f):
@@ -372,7 +377,7 @@ def section_d(rows: list[dict], out: list[str], outdir: str) -> None:
     plt.close(fig)
 
 
-def section_e0(dataset: str, rows: list[dict], out: list[str],
+def section_e0(diag_dir: str, rows: list[dict], out: list[str],
                outdir: str) -> None:
     """
     Emmanuel's hypothesis: the optimum sits at a local minimum of the
@@ -390,8 +395,8 @@ def section_e0(dataset: str, rows: list[dict], out: list[str],
 
     Parameters
     ----------
-    dataset : str
-        The dataset directory, for the per-signal npz files.
+    diag_dir : str
+        The diagnostics directory, for the per-signal npz files.
     rows : list of dict
         Summary rows.
     out : list of str
@@ -418,7 +423,7 @@ def section_e0(dataset: str, rows: list[dict], out: list[str],
     rng = np.random.default_rng(0)
     cache = []
     for r in rows:
-        f = os.path.join(dataset, 'diag', f"{r['stem']}__diag.npz")
+        f = os.path.join(diag_dir, f"{r['stem']}__diag.npz")
         if not os.path.exists(f):
             continue
         with np.load(f) as z:
@@ -579,15 +584,15 @@ def section_e1(rows: list[dict], out: list[str], outdir: str) -> None:
     plt.close(fig)
 
 
-def section_fgh(dataset: str, rows: list[dict], out: list[str],
+def section_fgh(diag_dir: str, rows: list[dict], out: list[str],
                 outdir: str) -> None:
     """
     Valley asymmetry, r2 at the optimum, and the SNR distribution.
 
     Parameters
     ----------
-    dataset : str
-        The dataset directory.
+    diag_dir : str
+        The diagnostics directory.
     rows : list of dict
         Summary rows.
     out : list of str
@@ -600,7 +605,7 @@ def section_fgh(dataset: str, rows: list[dict], out: list[str],
     offsets = (-0.6, -0.3, -0.1, 0.1, 0.3, 0.6)
     acc = {o: [] for o in offsets}
     for r in rows:
-        f = os.path.join(dataset, 'diag', f"{r['stem']}__diag.npz")
+        f = os.path.join(diag_dir, f"{r['stem']}__diag.npz")
         if not os.path.exists(f):
             continue
         with np.load(f) as z:
@@ -640,9 +645,8 @@ def section_fgh(dataset: str, rows: list[dict], out: list[str],
     out.append(describe('_snr', snr, '.1f'))
     fin = np.isfinite(snr)
     out.append(f'  non-finite: {int((~fin).sum())}/{len(snr)}')
-    out.append(f'  gate _snr >= 25 fires on '
-               f'{int((snr[fin] >= 25).sum())}/{int(fin.sum())}'
-               f'  (real data: 336/339)')
+    out.append(f'  gate _snr >= {SNR_GATE:g} fires on '
+               f'{int((snr[fin] >= SNR_GATE).sum())}/{int(fin.sum())}')
 
     fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
     xs = [o for o in offsets if acc[o]]
@@ -653,7 +657,7 @@ def section_fgh(dataset: str, rows: list[dict], out: list[str],
     ax[0].set_ylabel('median penalty')
     ax[0].set_title('F: err rigid or flexible?', fontsize=9)
     ax[1].hist(snr[fin], bins=40, color='tab:red')
-    ax[1].axvline(25, color='k', lw=1.2, ls='--', label='gate')
+    ax[1].axvline(SNR_GATE, color='k', lw=1.2, ls='--', label='gate')
     ax[1].set_xlabel('_snr')
     ax[1].legend(fontsize=8)
     ax[1].set_title('H: _snr distribution', fontsize=9)
@@ -664,7 +668,7 @@ def section_fgh(dataset: str, rows: list[dict], out: list[str],
     plt.close(fig)
 
 
-def plot_valleys(dataset: str, rows: list[dict], outdir: str,
+def plot_valleys(diag_dir: str, rows: list[dict], outdir: str,
                  n: int = 12) -> None:
     """
     Draw the error curve of a sample of signals.
@@ -675,8 +679,8 @@ def plot_valleys(dataset: str, rows: list[dict], outdir: str,
 
     Parameters
     ----------
-    dataset : str
-        The dataset directory.
+    diag_dir : str
+        The diagnostics directory.
     rows : list of dict
         Summary rows.
     outdir : str
@@ -690,7 +694,7 @@ def plot_valleys(dataset: str, rows: list[dict], outdir: str,
     nrow = (len(sel) + ncol - 1) // ncol
     fig, axes = plt.subplots(nrow, ncol, figsize=(15, 2.6 * nrow))
     for ax, r in zip(np.atleast_1d(axes).ravel(), sel):
-        f = os.path.join(dataset, 'diag', f"{r['stem']}__diag.npz")
+        f = os.path.join(diag_dir, f"{r['stem']}__diag.npz")
         with np.load(f) as z:
             fcuts, err = z['fcuts'], z['err']
         ax.loglog(fcuts, err, lw=.9, color='0.3')
@@ -728,12 +732,16 @@ def main() -> None:
     parser.add_argument('dataset', help='directory scored by synth_diag')
     parser.add_argument('-o', '--out', default=None,
                         help='output directory (default: DATASET/report)')
+    parser.add_argument('--diag-dir', default=None,
+                        help='diagnostics written by synth_diag (default: '
+                             'DATASET/diag)')
     args = parser.parse_args()
+    diag_dir = args.diag_dir or os.path.join(args.dataset, 'diag')
     outdir = args.out or os.path.join(args.dataset, 'report')
     os.makedirs(outdir, exist_ok=True)
 
-    rows = load_summary(args.dataset)
-    n_npz = len(glob(os.path.join(args.dataset, 'diag', '*__diag.npz')))
+    rows = load_summary(diag_dir)
+    n_npz = len(glob(os.path.join(diag_dir, '*__diag.npz')))
     out = ['Synthetic diagnostics report',
            f'dataset : {args.dataset}',
            f'signals : {len(rows)} scored, {n_npz} diag files']
@@ -742,10 +750,10 @@ def main() -> None:
     section_b(rows, out, outdir)
     section_c(rows, out)
     section_d(rows, out, outdir)
-    section_e0(args.dataset, rows, out, outdir)
+    section_e0(diag_dir, rows, out, outdir)
     section_e1(rows, out, outdir)
-    section_fgh(args.dataset, rows, out, outdir)
-    plot_valleys(args.dataset, rows, outdir)
+    section_fgh(diag_dir, rows, out, outdir)
+    plot_valleys(diag_dir, rows, outdir)
 
     text = '\n'.join(out)
     print(text)

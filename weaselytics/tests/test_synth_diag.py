@@ -174,6 +174,26 @@ class TestHarnessMatchesProduction:
         assert "'alpha': 1.0" in src
         assert "'parabola_len': 3" in src
 
+    def test_past_drop_gate_matches_production(self):
+        # The synthetic tools hold three copies of production's gate.
+        # synth_figs is parsed rather than imported, since it imports
+        # synth_diag by module name.
+        import ast
+
+        from weaselytics.baseline import auto_beads
+
+        gate = inspect.signature(auto_beads).parameters[
+            'snr_threshold'].default
+        assert inspect.signature(diag.diag_one).parameters[
+            'snr_threshold'].default == gate
+        assert report.SNR_GATE == gate
+        tree = ast.parse((_TOOLS / "synth_figs.py").read_text())
+        figs = [node.value.value for node in tree.body
+                if isinstance(node, ast.Assign)
+                and any(getattr(t, 'id', None) == 'SNR_THRESHOLD'
+                        for t in node.targets)]
+        assert figs == [gate]
+
     def test_uses_custom_beads_with_regions(self):
         src = inspect.getsource(diag.diag_one)
         assert "method='custom_beads'" in src, (

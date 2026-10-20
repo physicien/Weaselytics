@@ -19,20 +19,22 @@ select a cutoff:
     optimum is still drawn, so a failure can be read against what the
     method could have achieved.
 
-Both are rebuilt from ``diag/<stem>__diag.npz`` and the ``r2_cache`` of
-the same directory, so neither the autocorrelation sweep nor the error
+Both are rebuilt from ``<stem>__diag.npz`` in the diagnostics directory
+and from the r2 cache, by default ``DATASET/diag`` and
+``DATASET/r2_cache``, so neither the autocorrelation sweep nor the error
 curve is recomputed. Only the two final BEADS corrections are run per
 signal, which are milliseconds. Signals with no diagnostic file (those
 whose selection raised) have their curve read from the cache and their
 error curve recomputed, which is the expensive path.
 
-The cache directory is used as given and is expected to be the dataset's
-own: on a miss ``_r2_array_cached`` deletes every entry sharing the stem
-before writing.
+The cache directory is used as given and is expected to be the one
+`synth_diag` filled: on a miss ``_r2_array_cached`` deletes every entry
+sharing the stem before writing.
 
 Usage
 -----
 python tools/synthetic/synth_figs.py DATASET_DIR [--workers 8] [--pattern GLOB]
+    [--diag-dir DIR] [--cache-dir DIR] [--out-dir DIR]
 """
 
 import argparse
@@ -72,7 +74,7 @@ from weaselytics.segmentation import (  # noqa: E402
     trim_plateaus,
 )
 
-SNR_THRESHOLD = 25.0
+SNR_THRESHOLD = 10.0
 # Stride of the error-curve grid, matching `synth_diag` so a recomputed
 # optimum is the one that function would have recorded.
 STRIDE = 4
@@ -234,15 +236,14 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
 
 def one(job):
     """Render both figures for a single signal."""
-    stem, path, dataset, stats = job
+    stem, path, dataset, diag_dir, cache_dir, out_dir, stats = job
     try:
         x, s = ParsedData(path).data
         b_true = np.load(os.path.join(dataset, 'truth',
                                       f'{stem}__truth.npz'))['baseline']
         regions, sampling, scut = _relevant_regions(s, x)
         fcut_range, r2_val, sens, n_used, fc_best = _curve(
-            stem, path, os.path.join(dataset, 'diag'),
-            os.path.join(dataset, 'r2_cache'), x, s, b_true, regions,
+            stem, path, diag_dir, cache_dir, x, s, b_true, regions,
             sampling, scut)
 
         segments = classify_segments(
@@ -253,7 +254,7 @@ def one(job):
                 flat[seg['start']:seg['end']] = True
         dips = detect_dips(fcut_range, r2_val)
         trim = trim_plateaus(fcut_range, segments, dips, n_used,
-                             exclude_collapse=_snr(s) >= SNR_THRESHOLD,
+                             exclude_past_drop=_snr(s) >= SNR_THRESHOLD,
                              sensitivity=sens)
         fcut = select_center(fcut_range, trim['surviving'])
         selected = np.nan if fcut is None else float(fcut)
@@ -284,7 +285,7 @@ def one(job):
                          cp_snr_removed=trim['snr_removed'],
                          cp_instab_removed=trim['instab_removed'],
                          sensitivity=sens, n_used=n_used,
-                         print_plot=True, path=path, output_dir=dataset)
+                         print_plot=True, path=path, output_dir=out_dir)
         finally:
             plt.savefig = real_savefig
 
@@ -298,7 +299,7 @@ def one(job):
         _chromatogram(x, s, b_true,
                       _beads_at(x, s, selected, regions, sampling, plen),
                       _beads_at(x, s, fc_best, regions, sampling, plen),
-                      selected, fc_best, scut, stem, dataset, stats,
+                      selected, fc_best, scut, stem, out_dir, stats,
                       float(np.std(truth['noise'])), truth['signal'])
         return stem, (fcut is None), ''
     except Exception as exc:
@@ -313,12 +314,23 @@ def main() -> None:
     p.add_argument('dataset')
     p.add_argument('--workers', type=int, default=8)
     p.add_argument('--pattern', default='*', help='glob on the stem')
+    p.add_argument('--diag-dir', default=None,
+                   help='diagnostics written by synth_diag (default: '
+                        'DATASET/diag)')
+    p.add_argument('--cache-dir', default=None,
+                   help='r2 cache filled by synth_diag (default: '
+                        'DATASET/r2_cache)')
+    p.add_argument('--out-dir', default=None,
+                   help='where r2_plots/ and images/ go (default: DATASET)')
     a = p.parse_args()
+    diag_dir = a.diag_dir or os.path.join(a.dataset, 'diag')
+    cache_dir = a.cache_dir or os.path.join(a.dataset, 'r2_cache')
+    out_dir = a.out_dir or a.dataset
 
     # The figures quote the summary's own numbers rather than
     # recomputing them, so a plot can never disagree with the table.
     summary = {}
-    spath = os.path.join(a.dataset, 'diag_summary.csv')
+    spath = os.path.join(diag_dir, 'diag_summary.csv')
     if os.path.isfile(spath):
         import csv
         summary = {r['stem']: r for r in csv.DictReader(open(spath))}
@@ -334,7 +346,7 @@ def main() -> None:
     for q in sorted(glob(os.path.join(a.dataset, 'signals', '*.txt'))):
         stem = os.path.splitext(os.path.basename(q))[0]
         if fnmatch.fnmatch(stem, a.pattern):
-            jobs.append((stem, q, a.dataset, {
+            jobs.append((stem, q, a.dataset, diag_dir, cache_dir, out_dir, {
                 't_rms': _num(stem, 'target_rms_noise'),
                 't_max': _num(stem, 'target_max_noise'),
                 't_rmse': _num(stem, 'target_rmse'),
@@ -365,7 +377,7 @@ def main() -> None:
           f'no surviving plateau, {len(errs)} errored')
     for stem, err in errs:
         print(f'  {stem}: {err}')
-    print(f'figures -> {a.dataset}/r2_plots and {a.dataset}/images')
+    print(f'figures -> {out_dir}/r2_plots and {out_dir}/images')
 
 
 if __name__ == '__main__':

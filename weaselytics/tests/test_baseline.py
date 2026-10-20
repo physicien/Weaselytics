@@ -32,18 +32,67 @@ class TestRelevantRegions:
         assert scut <= len(s)
 
 
+class TestSmoothSigma:
+    """The pre-smoothing width is an argument, and it is a sigma.
+
+    Exposing it changed no result. Checked by running the previous
+    revision and this one over the 339 LPYE records and comparing all
+    three outputs: `peak_regions`, `sampling` and `scut` agree on every
+    record. That comparison needs two revisions of the module and so
+    cannot live here; what is asserted below is that the default is
+    still 3 and that the argument reaches the filter.
+
+    It is not a window length, so a small value does not clean the
+    trace, it stops cleaning it.
+    """
+
+    @staticmethod
+    def _noisy_peak():
+        x = np.arange(2000) / 60.
+        rng = np.random.default_rng(11)
+        s = 5. * np.exp(-0.5 * ((x - 12.) / 0.2) ** 2)
+        s += 0.05 * rng.normal(size=len(x))
+        return x, s
+
+    def test_default_is_three(self):
+        import inspect
+
+        sig = inspect.signature(_relevant_regions)
+        assert sig.parameters['smooth_sigma'].default == 3.
+
+    def test_passing_the_default_explicitly_is_a_no_op(self):
+        x, s = self._noisy_peak()
+        assert (_relevant_regions(s, x)[2]
+                == _relevant_regions(s, x, smooth_sigma=3.)[2])
+
+    def test_a_small_sigma_admits_the_noise(self):
+        # At a spike-removal scale the detection reads the noise floor
+        # as peaks; measured over the 339 LPYE records, the relevance
+        # filter returns 2092 against 1294.
+        x, s = self._noisy_peak()
+        wide = _relevant_regions(s, x, smooth_sigma=3.)
+        narrow = _relevant_regions(s, x, smooth_sigma=0.5)
+        assert narrow[2] > wide[2]
+
+
 class TestSnr:
     def test_high_for_analyte_low_for_blank(self):
         # A tall peak on light noise is well above the gate; a flat
-        # trace of the same noise is well below it. The ~25 split must
-        # sit cleanly between them.
+        # trace of the same noise is well below it. These score 437.6
+        # and 4.0. The gate is read from the production default rather
+        # than written here, so moving it cannot leave this test
+        # asserting a value the package no longer uses.
+        import inspect
+
+        gate = (inspect.signature(auto_beads)
+                .parameters['snr_threshold'].default)
         x = np.linspace(0, 10, 1000)
         rng = np.random.default_rng(3)
         peak = 5. * np.exp(-0.5 * ((x - 5.) / 0.1) ** 2)
         peak += 0.01 * rng.normal(size=1000)
         blank = 0.01 * rng.normal(size=1000)
-        assert _snr(peak) >= 25.
-        assert _snr(blank) < 25.
+        assert _snr(peak) >= gate
+        assert _snr(blank) < gate
 
     def test_constant_difference_signal_is_infinite(self):
         # A perfectly linear ramp has constant consecutive differences,
@@ -65,11 +114,14 @@ class TestFcutoffSelection:
     def _drive(self, r2):
         x = np.linspace(0, 10, 4000)
         s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
-        # _fcutoff requests the sensitivity curve too, so the mock returns
-        # the (r2, sensitivity) tuple; the sensitivity value is unused here.
+        # _fcutoff requests the Durbin-Watson array and the sensitivity
+        # curve too, so the mock returns the (r2, dw, sensitivity) tuple.
+        # Neither extra is used by the assertions here; dw is filled with
+        # 2.0, the value at which the residual is uncorrelated.
         with mock.patch.object(
                 baseline_module, "_r2_array_cached",
                 return_value=(np.ascontiguousarray(r2),
+                              np.full_like(r2, 2.0, dtype=float),
                               np.zeros_like(r2, dtype=float))):
             return baseline_module._fcutoff(s, x, len(s), num=self._N,
                                             method="beads")
@@ -86,8 +138,15 @@ class TestFcutoffSelection:
         assert idx.size
         splits = np.where(np.diff(idx) > 1)[0] + 1
         region = np.split(idx, splits)[-1]
-        expected = np.sqrt(grid[region[0]] * grid[region[-1]])
-        assert fcut == pytest.approx(expected)
+        # The centre is taken on the index axis and therefore lands on a
+        # grid point the sweep evaluated, so it equals the geometric mean
+        # of the region's ends only when their sum is even. Comparing the
+        # index avoids asserting a parity accident.
+        centre = int(round(0.5 * (region[0] + region[-1])))
+        assert fcut == pytest.approx(grid[centre])
+        step = grid[1] / grid[0]
+        assert fcut / np.sqrt(grid[region[0]] * grid[region[-1]]) == (
+            pytest.approx(1.0, rel=step - 1.0))
 
     def test_no_surviving_plateau_raises_a_described_error(self):
         # A pure descent: nothing is flat, so stage 2 leaves nothing and
@@ -97,6 +156,43 @@ class TestFcutoffSelection:
         t = np.linspace(0, 1, self._N)
         with pytest.raises(ValueError, match="no surviving plateau"):
             self._drive(0.999 - 0.9 * t)
+
+    def test_no_surviving_plateau_still_prints_both_figures(self, tmp_path):
+        # The signal that fails gets its r2 diagnostic and its input
+        # signal drawn like every other one, and the error is unchanged.
+        t = np.linspace(0, 1, self._N)
+        r2 = 0.999 - 0.9 * t
+        x = np.linspace(0, 10, 4000)
+        s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
+        path = str(tmp_path / "sig.txt")
+        with mock.patch.object(
+                baseline_module, "_r2_array_cached",
+                return_value=(r2, np.full_like(r2, 2.0),
+                              np.zeros_like(r2))):
+            with pytest.raises(baseline_module.NoSurvivingRegionError,
+                               match="no surviving plateau") as err:
+                auto_beads(s, x, method="beads", print_plot=True,
+                           path=path, output_dir=str(tmp_path))
+        assert isinstance(err.value, ValueError)
+        assert err.value.plot_data["fcut"] is None
+        assert (tmp_path / "r2_plots" / "sig_r2.png").is_file()
+        assert (tmp_path / "images" / "sig.png").is_file()
+
+    def test_no_surviving_plateau_without_plots_writes_nothing(
+            self, tmp_path):
+        t = np.linspace(0, 1, self._N)
+        r2 = 0.999 - 0.9 * t
+        x = np.linspace(0, 10, 4000)
+        s = np.exp(-0.5 * ((x - 5.0) / 0.5) ** 2)
+        with mock.patch.object(
+                baseline_module, "_r2_array_cached",
+                return_value=(r2, np.full_like(r2, 2.0),
+                              np.zeros_like(r2))):
+            with pytest.raises(baseline_module.NoSurvivingRegionError):
+                auto_beads(s, x, method="beads",
+                           path=str(tmp_path / "sig.txt"),
+                           output_dir=str(tmp_path))
+        assert not any(tmp_path.iterdir())
 
 
 class TestBeads:
@@ -230,7 +326,7 @@ class TestBeads:
         signal = np.linspace(0.0, 1.0, 50)
         param_range = np.geomspace(1e-4, 0.4, 10)
         key = _r2_cache_key(_beads, signal, param_range, "freq_cutoff", {})
-        assert _R2_CHANNEL in ("y-baseline",)
+        assert _R2_CHANNEL in ("y-baseline-dw",)
         import unittest.mock as mock
         with mock.patch.object(baseline_module, "_R2_CHANNEL", "other"):
             other = _r2_cache_key(_beads, signal, param_range,
@@ -297,6 +393,46 @@ class TestAutoBeads:
             y, x, freq_cutoff=0.01, method="custom_beads"
         )
         assert len(baseline) == len(y)
+        assert "noise" in params
+
+    def test_default_method_is_custom_beads(self):
+        """The default fits through custom_bc, not the plain path.
+
+        Every other test passes `method` explicitly, so nothing else
+        here notices if the default moves. It matters: the two paths
+        put the collapse of the r2 curve at different cutoffs, and the
+        selection anchors on the last plateau before it.
+
+        Routing is asserted directly rather than through the fitted
+        baseline, because the two paths return the identical baseline
+        whenever ``_relevant_regions`` finds no region, which is the
+        case on small synthetic traces.
+        """
+        x = np.linspace(0, 10, 201)
+        rng = np.random.default_rng(107)
+        y = 3.0 * np.exp(-0.5 * ((x - 3.0) / 0.3) ** 2)
+        y += 2.0 * np.exp(-0.5 * ((x - 7.0) / 1.2) ** 2)
+        y += 0.1 * (x - 5.0)
+        y += 0.01 * rng.normal(size=len(x))
+
+        import weaselytics.baseline as bl_mod
+        called = []
+        real = bl_mod._custom_beads
+
+        def spy(*args, **kwargs):
+            called.append(kwargs.get('regions', 'missing'))
+            return real(*args, **kwargs)
+
+        bl_mod._custom_beads = spy
+        # The dispatch table is rebuilt per call from module globals.
+        try:
+            baseline, params = auto_beads(y, x, freq_cutoff=0.01)
+        finally:
+            bl_mod._custom_beads = real
+
+        assert called, "auto_beads did not route through _custom_beads"
+        assert len(baseline) == len(y)
+        # `noise` is rebuilt only on the custom_bc path.
         assert "noise" in params
 
     def test_raises_on_invalid_asymmetry(self):

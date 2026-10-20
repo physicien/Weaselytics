@@ -12,21 +12,12 @@ description = "Python package to extract and analyse chromatographic data."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    # Floors set to the versions running on Rorqual, so a cluster sweep
-    # and a local one are at least not separated by a KNOWN-divergent
-    # pair. They do not make the two identical: the r2 curve is
-    # ill-conditioned at low fcut and any version change moves it. See
-    # requirements/requirements.txt for the measurement.
     "numpy>=2.4.2",
     "scipy>=1.17.0",
     "matplotlib>=3.5",
     "seaborn>=0.13.0",
     "pandas>=2.0",
-    # Pinned to a commit rather than @development: that branch moves, and
-    # the beads lam_0/1/2 defaults changed on it with no changelog entry.
-    # Pin forward only — the new default is the literature-backed L1
-    # scaling. See requirements/requirements.txt for the measured impact.
-    "pybaselines @ git+https://github.com/derb12/pybaselines@c36ce6128a8acae93503d0167207a99a035e9095",
+    "pybaselines @ git+https://github.com/derb12/pybaselines@4e21860b9b1fac90b5e1dad4dd4629355f231afb",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

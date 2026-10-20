@@ -25,6 +25,7 @@ from weaselytics.utils import smooth_SG
 
 
 def main() -> None:
+    """Defer to `weaselytics.weaselytics.main`, imported on call."""
     from weaselytics.weaselytics import main as _main
     _main()
 

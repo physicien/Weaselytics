@@ -1,6 +1,12 @@
 # coding: utf-8
 """
 Plotting functions.
+
+Two figures: `plot` draws a chromatogram with whichever of the
+smoothed, corrected, baseline and fitted-peak curves are supplied, and
+`r2_plots` draws the autocorrelation diagnostic the cutoff selection is
+read from. Both write under `output_dir` when asked, `plot` into
+``images`` and `r2_plots` into ``r2_plots``.
 """
 
 import os
@@ -16,21 +22,21 @@ from matplotlib.ticker import FixedLocator, MaxNLocator, MultipleLocator
 #: the trimmed fill, orange the proto-plateaus, purple the flat set.
 _SENSITIVITY_COLOR = "darkslateblue"
 
-#: _HATCH_NOTE -- why the hatched overlays set `facecolor`/`edgecolor`
+#: _HATCH_NOTE, on why the hatched overlays set `facecolor`/`edgecolor`
 #: explicitly instead of `color="none", ec=..., alpha=...`.
 #:
 #: matplotlib 3.11 made the hatch colour a property of its own, and
 #: changed the default of `rcParams["hatch.color"]` from ``"black"`` to
 #: ``"edge"``. With `color="none"` the hatch colour then resolves
 #: against that "none" rather than against the `ec=` given afterwards,
-#: and the hatch is not drawn at all -- silently, with no warning and
+#: and the hatch is not drawn at all, silently, with no warning and
 #: with every artist property still reporting the expected value
 #: (`get_hatch()`, `get_edgecolor()` and `get_linewidth()` are identical
 #: on 3.10 and 3.11). The only visible symptom is the missing hatch in
 #: the rendered figure.
 #:
 #: Passing `facecolor="none"` with an RGBA `edgecolor` carrying the
-#: alpha renders identically on both versions -- verified by pixel count
+#: alpha renders identically on both versions, verified by pixel count
 #: on 3.10.1 and 3.11.0. Do not "simplify" it back to `color=`/`alpha=`.
 
 #: Fixed top of the baseline-sensitivity panel. Fixed rather than
@@ -63,7 +69,7 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
          path: str = "./file.txt",
          output_dir: str = "results") -> None:
     """
-    Plot the signal and its various modified variations.
+    Plot the signal alongside whichever derived curves are supplied.
 
     Parameters
     ----------
@@ -98,6 +104,10 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
         If True, the plot will be exported as an image. Default is False.
     path : str, optional
         Path of the data file.
+    output_dir : str, optional
+        Directory the image is written to, under an ``images``
+        subdirectory. Default is "results". Used only when
+        `print_plot`.
 
     Returns
     -------
@@ -147,7 +157,7 @@ def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
     return None
 
 def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
-             freq_cutoff: float, fcut_r2: float,
+             freq_cutoff: float | None, fcut_r2: float | None,
              cp_flat: np.ndarray | None = None,
              cp_dips: np.ndarray | None = None,
              cp_removed: np.ndarray | None = None,
@@ -159,7 +169,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
              path: str = "./file.txt",
              output_dir: str = "results") -> None:
     """
-    Plot the autocorrelation and its first two derivatives.
+    Plot the autocorrelation curve with the two diagnostics the cutoff
+    selection is read from.
+
+    Three stacked panels sharing an x-axis: the autocorrelation `r2`,
+    the baseline-sensitivity curve, and the dip curve the proto-plateau
+    detector reads.
 
     Parameters
     ----------
@@ -173,10 +188,12 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
         `r2`, Gaussian-smoothed and normalised to its own maximum.
         ``detect_dips`` marks proto-plateaus at its local minima, so the
         orange basins above line up with the dips of this panel.
-    freq_cutoff : float
-        Frequency cutoff.
-    fcut_r2 : float
-        Value of `r2` at `freq_cutoff`.
+    freq_cutoff : float or None
+        Frequency cutoff. None when stage 2 left no region to select
+        from: no cutoff line is drawn, and "no surviving region" is
+        written where its `r2` value would be.
+    fcut_r2 : float or None
+        Value of `r2` at `freq_cutoff`. None when `freq_cutoff` is.
     cp_flat : array-like, shape (N,), dtype bool, optional
         Mask of the full flat set from ``segmentation.classify_segments``
         (before any trimming), drawn as a light solid blue fill beneath
@@ -193,7 +210,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
         stage-1 trimming, drawn as a red fill. Default is None, which
         disables the overlay.
     cp_snr_removed : array-like, shape (N,), dtype bool, optional
-        Mask of the additional regions the SNR-gated collapse exclusion
+        Mask of the additional regions the SNR-gated past-drop exclusion
         would remove (beyond ``cp_removed``), drawn as a dark-red
         cross-hatch. A preview only; it does not affect the selection.
         Default is None, which disables the overlay.
@@ -213,9 +230,9 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
         unstable, settling where it becomes reliable. Default is None,
         which leaves the panel empty.
     n_used : int, optional
-        Number of signal points used by the sweep. Its reciprocal is the
-        record's fundamental frequency — the slowest baseline the data
-        can constrain — marked on the sensitivity panel. Default is None,
+        Number of signal points used by the sweep. Its reciprocal is
+        the signal's fundamental frequency, the slowest baseline the data
+        can constrain, marked on the sensitivity panel. Default is None,
         which omits the marker.
     show_plot : bool, optional
         If True, the plot will be shown to the screen. Default is False.
@@ -224,7 +241,13 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     path : str, optional
         Path of the data file.
     output_dir : str, optional
-        Output directory for the exported plots. Default is "results".
+        Output directory for the exported plots, written under an
+        ``r2_plots`` subdirectory. Default is "results". Used only when
+        `print_plot`.
+
+    Returns
+    -------
+    None
 
     """
     #TODO: Cleanup this function...
@@ -237,17 +260,17 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     gs = fig.add_gridspec(3, hspace=0, height_ratios=[2.0, 1.0, 1.0])
     axs = gs.subplots(sharex=True)
     # Red fill: the detected plateaus/proto-plateaus removed by the
-    # stage-1 trimming (sub-fundamental clip and frozen tail).
+    # stage-1 trimming (the sub-fundamental clip).
     if cp_removed is not None:
         axs[0].fill_between(x, 0, 1,
                             where=cp_removed,
                             color='red', alpha=0.15,
                             label='trimmed',
                             transform=axs[0].get_xaxis_transform())
-    # Dark-red cross-hatch: what the SNR-gated collapse exclusion (#3)
+    # Dark-red cross-hatch: what the SNR-gated past-drop exclusion (#3)
     # would additionally remove. A preview; it does not affect selection.
     # Only drawn (and labelled) when it actually removes something, so
-    # blanks do not carry a phantom legend entry.
+    # a signal it never fires on carries no phantom legend entry.
     if cp_snr_removed is not None and np.any(cp_snr_removed):
         # facecolor/edgecolor set explicitly, with the alpha carried in
         # the RGBA edge colour rather than passed as `alpha`. See
@@ -296,7 +319,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     if sensitivity is not None:
         axs[1].semilogx(x, sensitivity, ls='-', lw=0.8,
                         color=_SENSITIVITY_COLOR)
-        # The fundamental, 1/n_used: the slowest baseline the record can
+        # The fundamental, 1/n_used: the slowest baseline the signal can
         # constrain. Below it the fit has nothing to fix the baseline
         # against, which is where the instability lives.
         if n_used:
@@ -342,14 +365,23 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     axs[2].semilogx(x, dip_curve, ls='-', lw=0.9, color='tab:orange')
 
     for ax in axs.flat:
-        ax.axvline(x=freq_cutoff, c='tab:red', ls='dashed')
+        if freq_cutoff is not None:
+            ax.axvline(x=freq_cutoff, c='tab:red', ls='dashed')
         ax.label_outer()
-    axs[0].annotate(f'{fcut_r2:0.4f}',
-                    xy=(freq_cutoff,1.01),
-                    xycoords=("data","axes fraction"),
-                    ha='center',
-                    color='tab:red'
-                    )
+    if freq_cutoff is not None:
+        axs[0].annotate(f'{fcut_r2:0.4f}',
+                        xy=(freq_cutoff,1.01),
+                        xycoords=("data","axes fraction"),
+                        ha='center',
+                        color='tab:red'
+                        )
+    else:
+        axs[0].annotate('no surviving region',
+                        xy=(0.5, 1.01),
+                        xycoords="axes fraction",
+                        ha='center',
+                        color='tab:red'
+                        )
 #    axs[2].set_xlabel('Cutoff frequency')
     axs[0].set_ylabel(r'$r^2_{y-b}$')
     # rms change of the fitted baseline between adjacent cutoffs, as a

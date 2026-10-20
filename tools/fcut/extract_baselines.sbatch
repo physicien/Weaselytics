@@ -15,7 +15,7 @@
 # chromatogram, for comparison against the analytic baselines the
 # synthetic benchmark uses.
 #
-# Follows tools/slurm_script: work in $SLURM_TMPDIR, run the branch
+# Follows tools/loop_bl.sbatch: work in $SLURM_TMPDIR, run the branch
 # checked out in the launch directory, move the results and the log back
 # at the end.
 #

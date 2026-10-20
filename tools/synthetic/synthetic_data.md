@@ -17,8 +17,8 @@ Tests: [`weaselytics/tests/test_synth_dataset.py`](../weaselytics/tests/test_syn
 
 ## 1. Why a synthetic benchmark exists
 
-The constants that decide the BEADS cutoff frequency — `collapse_level`, and
-`instability_boundary`'s `trigger` and `settled` — are adopted, not grounded.
+The constants that decide the BEADS cutoff frequency, `drop_level` and
+`instability_boundary`'s `trigger` and `settled`, are adopted, not grounded.
 Grounding them requires knowing the true baseline, which no real chromatogram
 provides. Niezen et al. state the dilemma directly: real data has realistic
 peak overlap, noise and drift but no ground truth, while fully simulated data
@@ -325,7 +325,7 @@ auto-scaled with no changelog entry, shifting r² from 0.885 to 0.950 at a
 fixed cutoff — so a benchmark that imported it would silently depend on the
 install date.
 
-The formulas are therefore copied from the documentation at the pinned
+The formulas are therefore copied from the documentation as it stood at
 commit `c36ce6128` and covered by tests, including one asserting
 **bit-for-bit** equality with `pybaselines.utils.gaussian`. Note the
 transcription evaluates `h·exp(-0.5(x-c)²/σ²)` rather than

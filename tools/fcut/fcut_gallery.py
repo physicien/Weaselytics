@@ -192,7 +192,7 @@ def candidate_regions(fcut_range: np.ndarray, r2: np.ndarray,
     ``C1 / n_used`` a cutoff describes an oscillation slower than half
     a cycle over the record, which the data cannot constrain, so those
     cutoffs are not worth a human decision. Every other exclusion of
-    `trim_candidates` (flatness, frozen tail, cliff bridging) is
+    `trim_candidates` (flatness, cliff bridging) is
     calibrated and is dropped here.
 
     """
@@ -214,7 +214,7 @@ def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
 
     Uses ``segmentation.trim_plateaus`` (the same trimming as the
     diagnostic overlay) so the gallery and the diagnostic cannot drift.
-    The collapse exclusion needs the signal-to-noise ratio, hence ``s``.
+    The past-drop exclusion needs the signal-to-noise ratio, hence ``s``.
 
     Returns
     -------
@@ -229,7 +229,7 @@ def surviving_regions(fcut_range: np.ndarray, r2: np.ndarray, n_used: int,
     dips = detect_dips(fcut_range, r2)
     high_snr = _snr(s) >= snr_threshold
     masks = trim_plateaus(fcut_range, segments, dips, n_used,
-                          exclude_collapse=high_snr, c1=c1,
+                          exclude_past_drop=high_snr, c1=c1,
                           sensitivity=sensitivity)
     cp_flat = np.zeros(len(fcut_range), dtype=bool)
     for seg in segments:
@@ -559,13 +559,13 @@ def main() -> None:
     parser.add_argument("--survive", action="store_true",
                         help="restrict the sampling to the regions "
                              "surviving the stage-1 trimming (sub-"
-                             "fundamental clip, frozen tail, the "
-                             "SNR-gated collapse exclusion and the "
+                             "fundamental clip, the SNR-gated "
+                             "past-drop exclusion and the "
                              "stiff-side instability exclusion), via "
                              "segmentation.trim_plateaus, and draw them "
                              "on 00_r2.png")
     parser.add_argument("--snr-threshold", type=float, default=25.0,
-                        help="SNR above which the collapse exclusion is "
+                        help="SNR above which the past-drop exclusion is "
                              "applied under --survive (default: 25)")
     parser.add_argument("--c1", type=float, default=1.0,
                         help="sub-fundamental clip factor for --survive: "

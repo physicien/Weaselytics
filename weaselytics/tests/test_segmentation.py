@@ -133,17 +133,28 @@ class TestClassifySegmentsHysteresis:
 
 class TestTrimCandidates:
     def _curve(self):
-        """p_ini, cliff, shelf, cliff, live tail, then a frozen tail."""
+        """p_ini, cliff, shelf, cliff, low live tail, collapse, rebound.
+
+        The tail is followed by a collapse floor and a rising tail
+        because that is what the instrument produces: on all 339
+        production chromatograms r2 climbs back after its minimum, by a
+        median 29% of the total drop and by more than 1% on 97% of them.
+        A fixture that stops at a frozen tail has no floor to speak of,
+        and the lowest-mean segment among several identical ones is then
+        arbitrary.
+        """
         rng = np.random.default_rng(12)
         parts = [
             np.full(300, 1.0),
             np.linspace(1.0, 0.8, 30),
             np.linspace(0.8, 0.65, 150),
             np.linspace(0.65, 0.3, 40),
-            np.full(180, 0.3),
+            np.full(180, 0.3),                 # low live tail
+            np.linspace(0.3, 0.02, 120),       # descent to the floor
+            np.full(60, 0.02),                 # the collapse floor
+            np.linspace(0.02, 0.55, 120),      # the rebound
         ]
         y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
-        y = np.concatenate([y, np.full(300, 0.3)])  # noise-free frozen tail
         fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
         segments = classify_segments(
             segment_features(fcut_range, y, pelt_linear(y)))
@@ -156,12 +167,6 @@ class TestTrimCandidates:
         assert not candidates[fcut_range < 1.0 / n_used].any()
         # ... but the region above the clip is not blanket-removed
         assert candidates.any()
-
-    def test_frozen_tail_is_trimmed(self):
-        fcut_range, y, segments = self._curve()
-        candidates = trim_candidates(fcut_range, segments, 1000)
-        # the last, noise-free stretch must not be a candidate
-        assert not candidates[-100:].any()
 
     # The shelf of `_curve` sits at fcut ~8e-4, so with `n_used=1000`
     # the sub-fundamental clip (1/n_used = 1e-3 at the default c1=1.0)
@@ -179,7 +184,7 @@ class TestTrimCandidates:
         base = trim_candidates(fcut_range, segments, self.N_USED_LONG)
         assert base[600]                      # low live tail, kept
         excl = trim_candidates(fcut_range, segments, self.N_USED_LONG,
-                               exclude_collapse=True)
+                               exclude_past_drop=True)
         assert not excl[600]                  # low live tail, dropped
         assert excl[400]                      # high shelf, survives
 
@@ -270,18 +275,24 @@ class TestDetectDips:
 
 class TestTrimPlateaus:
     def _curve(self):
-        """p_ini, cliff, shelf, cliff, low live tail, frozen tail — with
-        a proto-plateau shelf that detect_dips picks up."""
+        """p_ini, cliff, shelf, cliff, low live tail, collapse, rebound,
+        with a proto-plateau shelf that detect_dips picks up.
+
+        Ends on a rebound rather than a frozen tail; see
+        ``TestTrimCandidates._curve``.
+        """
         rng = np.random.default_rng(12)
         parts = [
             np.full(300, 1.0),
             np.linspace(1.0, 0.8, 30),
             np.linspace(0.8, 0.65, 150),
             np.linspace(0.65, 0.3, 40),
-            np.full(180, 0.3),
+            np.full(180, 0.3),                 # low live tail
+            np.linspace(0.3, 0.02, 120),       # descent to the floor
+            np.full(60, 0.02),                 # the collapse floor
+            np.linspace(0.02, 0.55, 120),      # the rebound
         ]
         y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
-        y = np.concatenate([y, np.full(300, 0.3)])   # frozen tail
         fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
         segments = classify_segments(
             segment_features(fcut_range, y, pelt_linear(y)))
@@ -291,14 +302,14 @@ class TestTrimPlateaus:
     def test_no_snr_removed_without_collapse(self):
         fcut_range, y, segments, dips = self._curve()
         masks = trim_plateaus(fcut_range, segments, dips, 1000,
-                              exclude_collapse=False)
+                              exclude_past_drop=False)
         assert not masks['snr_removed'].any()
 
     def test_surviving_disjoint_from_removed(self):
         fcut_range, y, segments, dips = self._curve()
         for excl in (False, True):
             masks = trim_plateaus(fcut_range, segments, dips, 1000,
-                                  exclude_collapse=excl)
+                                  exclude_past_drop=excl)
             assert not (masks['surviving'] & masks['removed']).any()
             assert not (masks['surviving'] & masks['snr_removed']).any()
 
@@ -311,13 +322,13 @@ class TestTrimPlateaus:
         assert not masks['surviving'][sub].any()
 
     def test_collapse_removes_the_low_tail(self):
-        # The low live tail (r2 ~ 0.3) is past the collapse; with the
+        # The low live tail (r2 ~ 0.3) is past the drop; with the
         # gate on it must move into snr_removed and out of surviving.
         fcut_range, y, segments, dips = self._curve()
         off = trim_plateaus(fcut_range, segments, dips, 1000,
-                            exclude_collapse=False)
+                            exclude_past_drop=False)
         on = trim_plateaus(fcut_range, segments, dips, 1000,
-                           exclude_collapse=True)
+                           exclude_past_drop=True)
         assert off['surviving'][600] and not on['surviving'][600]
         assert on['snr_removed'][600]
 
@@ -406,7 +417,7 @@ class TestProtoPlateauFallback:
 
     `detect_dips` exists to catch the relative flattenings the absolute
     flat test misses, so it is a fallback rather than a peer: without
-    this, dips found on the descent past the collapse survive as a
+    this, dips found on the descent past the drop survive as a
     spurious second region.
     """
 
@@ -555,7 +566,7 @@ class TestDipCurve:
 
 
 class TestCollapseFallback:
-    """The collapse exclusion narrows the choice; it is not a veto.
+    """The past-drop exclusion narrows the choice; it is not a veto.
 
     When the sub-fundamental clip, the frozen tail and the instability
     boundary have already removed everything outside the collapse,
@@ -565,16 +576,19 @@ class TestCollapseFallback:
     """
 
     def _curve(self):
+        """Ends on a rebound; see ``TestTrimCandidates._curve``."""
         rng = np.random.default_rng(12)
         parts = [
             np.full(300, 1.0),
             np.linspace(1.0, 0.8, 30),
             np.linspace(0.8, 0.65, 150),
             np.linspace(0.65, 0.3, 40),
-            np.full(180, 0.3),
+            np.full(180, 0.3),                 # low live tail
+            np.linspace(0.3, 0.02, 120),       # descent to the floor
+            np.full(60, 0.02),                 # the collapse floor
+            np.linspace(0.02, 0.55, 120),      # the rebound
         ]
         y = np.concatenate(parts) + rng.normal(0, 5e-4, sum(map(len, parts)))
-        y = np.concatenate([y, np.full(300, 0.3)])
         fcut_range = np.geomspace(1e-5, 0.5, len(y), endpoint=False)
         segments = classify_segments(
             segment_features(fcut_range, y, pelt_linear(y)))
@@ -586,9 +600,9 @@ class TestCollapseFallback:
         # its job: the low tail goes, the shelf stays.
         fcut_range, y, segments, dips = self._curve()
         off = trim_plateaus(fcut_range, segments, dips, 1000,
-                            exclude_collapse=False)
+                            exclude_past_drop=False)
         on = trim_plateaus(fcut_range, segments, dips, 1000,
-                           exclude_collapse=True)
+                           exclude_past_drop=True)
         assert on['surviving'].any()
         assert on['surviving'].sum() < off['surviving'].sum()
         assert on['snr_removed'].any()
@@ -603,15 +617,15 @@ class TestCollapseFallback:
         real = seg.trim_candidates
 
         def fake(fr, segs, n_used, **kw):
-            if kw.get('exclude_collapse'):
+            if kw.get('exclude_past_drop'):
                 return np.zeros(len(fr), dtype=bool)
             return real(fr, segs, n_used, **kw)
 
         no_collapse = trim_plateaus(fcut_range, segments, dips, 1000,
-                                    exclude_collapse=False)['surviving']
+                                    exclude_past_drop=False)['surviving']
         monkeypatch.setattr(seg, 'trim_candidates', fake)
         masks = trim_plateaus(fcut_range, segments, dips, 1000,
-                              exclude_collapse=True)
+                              exclude_past_drop=True)
         assert masks['surviving'].any(), 'the fallback did not fire'
         assert np.array_equal(masks['surviving'], no_collapse)
 
@@ -628,5 +642,5 @@ class TestCollapseFallback:
             seg, 'trim_candidates',
             lambda fr, segs, n_used, **kw: np.zeros(len(fr), dtype=bool))
         masks = trim_plateaus(fcut_range, segments, [], 1000,
-                              exclude_collapse=True)
+                              exclude_past_drop=True)
         assert not masks['surviving'].any()

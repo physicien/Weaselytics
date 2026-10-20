@@ -1,47 +1,21 @@
-# numpy and scipy floors are the versions installed on Rorqual
-# (numpy 2.4.2, scipy 1.17.0), so a cluster sweep and a local one are
-# not separated by a pair already MEASURED to diverge.
+# numpy and scipy floors match Rorqual's scipy-stack/2026a module
+# (numpy 2.4.2, scipy 1.17.0). The r2 curve amplifies one-ulp
+# differences at low cutoffs, so other versions give other curves
+# there and can move the selected cutoff.
 #
-# This narrows the risk; it does not remove it. Measured 2026-07-27 on
-# one machine, same code, same pinned pybaselines, ONLY numpy/scipy
-# differing (2.2.4/1.15.3 vs 2.5.0/1.18.0): the swept r2 curve differs
-# by up to 5.6e-2 near fcut 1e-4 while agreeing to 1 ulp above fcut 0.1
-# — a one-ulp input difference amplified ~2e14 by the method's own
-# low-frequency instability (Navarro-Huerta 2017 §3.1(iv)). That is the
-# same magnitude as the Rorqual-vs-workstation difference, so the
-# cluster was never the variable: the library version is.
-#
-# Consequence: 6 of 339 signals select a cutoff more than 0.1 decade
-# apart across that version pair, 5 of them via the stiff-side
-# instability trim. No pin fixes this — every upgrade re-rolls it. The
-# real fix is a trim that is robust to ~1e-3 wobble near the
-# fundamental. See the README TO DO.
-#
-# Beware: `_r2_cache_key` quantises to float32, so a one-ulp grid change
-# does NOT invalidate the cache. After changing numpy or scipy, rebuild
-# the r2 cache from empty or curves from the old version are served
-# silently.
+# After changing numpy, scipy, numba or pybaselines, rebuild the r2
+# cache from empty: its key ignores library versions, so old curves
+# are served silently.
 numpy>=2.4.2
 scipy>=1.17.0
 matplotlib>=3.5
 seaborn>=0.13.0
 pandas>=2.0
-# Pinned to a commit, NOT to `@development`: that branch moves, and the
-# `lam_0/1/2` defaults of `beads` changed on it from 1.0 to None in
-# commit 1ded189, which auto-scales each as
-# `alpha / ||diff(y, d)||_1` — alpha over the L1 norm of the d'th
-# finite difference of the data. CHANGELOG.rst stops at 1.2.1 and has
-# no 1.3.0 section, so the only record is a `versionchanged` directive
-# in the docstring. `_custom_beads` never passes them, so the effective
-# regularization — and therefore every baseline, autocorrelation curve
-# and selected `fcut` — would depend on the install date. Measured on a
-# reference blank: baselines differ by up to 0.7% of the signal range,
-# and r2 by 0.885 vs 0.950 at the same cutoff.
+# Pinned to a commit: `@development` moves, and its beads defaults
+# have changed on it without a changelog entry. Pin forward only:
+# older commits use lam=1.0 instead of the L1-norm scaling of
+# Ning et al. (2014).
 #
-# Pin FORWARD, never back: the new auto-scaled default is the L1-norm
-# scaling recommended by Ning et al. (2014) and used explicitly in the
-# upstream `plot_beads_param_selection.py` example
-# (`lam_0 = 1 / abs(y_transf).sum()`, etc.). The old `lam=1.0` is the
-# unjustified value. Unpinning to an older pybaselines would be a
-# regression, not a fix.
-pybaselines @ git+https://github.com/derb12/pybaselines@c36ce6128a8acae93503d0167207a99a035e9095
+# When numba imports, beads uses its banded solver, which rounds
+# differently. numba does not import beside numpy > 2.4.
+pybaselines @ git+https://github.com/derb12/pybaselines@4e21860b9b1fac90b5e1dad4dd4629355f231afb

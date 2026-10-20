@@ -1,4 +1,16 @@
 #!/usr/bin/python3
+"""
+Command-line entry point for the Weaselytics workflow.
+
+Parses the arguments, reads the file through `parsers.ParsedData`, and
+runs the stages. Baseline correction through `baseline.auto_beads` and
+peak fitting through `peakfitting.fit_peak` run by default and are
+turned off with ``--nobaseline`` and ``--nofit``; smoothing, plotting
+and the exports stay off until their flags are given.
+
+The library emits its progress through the ``logging`` module and is
+silent on import; this module is where that output is turned on.
+"""
 
 import argparse
 import logging
@@ -111,14 +123,14 @@ def main() -> None:
                             ' cutoff frequency, 0 < freq_cutoff < 0.5'
                             ' (default: automatic selection)'
                         ))
-    parser.add_argument('-snr', '--snr-threshold', type=float, default=25.0,
+    parser.add_argument('-snr', '--snr-threshold', type=float, default=10.0,
                         help=(
                             'signal-to-noise ratio above which the'
-                            ' collapsed (past-drop) plateaus are excluded'
+                            ' plateaus past the drop are excluded'
                             ' from the candidate cutoff regions: a high-SNR'
                             ' signal has analyte whose area a cutoff there'
-                            ' would destroy. Below it (blanks) they are'
-                            ' kept. Default: 25'
+                            ' would destroy. Below it they are'
+                            ' kept. Default: 10, the limit of quantitation'
                         ))
 
     args: argparse.Namespace = parser.parse_args()

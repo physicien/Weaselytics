@@ -29,19 +29,19 @@ Run: runs/SYNTH_2026-10-19_23559214, generated at parabola_len=3.
 import csv
 import glob
 import os
-import sys
 
 import numpy as np
 from scipy.ndimage import median_filter
 from scipy.signal import find_peaks
 
-sys.path.insert(0, '/home/esteban/Simulation/DFT/separation_part2/'
-                   'Weaselytics')
+import weaselytics  # noqa: E402
 import weaselytics.segmentation as S  # noqa: E402
 from weaselytics.baseline import _snr  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 
-ROOT = '/home/esteban/Simulation/DFT/separation_part2'
+# data/, runs/ and the datasets sit beside the checkout.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(weaselytics.__file__))))
 RUN = os.path.join(ROOT, 'runs/SYNTH_2026-10-19_23559214')
 DS = os.path.join(ROOT, 'SYNTH_ERB_2026-08-18')
 OUT = os.path.dirname(os.path.abspath(__file__))

@@ -14,9 +14,9 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=2.4.2",
     "scipy>=1.17.0",
-    "matplotlib>=3.5",
+    "matplotlib>=3.10.0",
     "seaborn>=0.13.0",
-    "pandas>=2.0",
+    "pandas>=2.2.2",
     "pybaselines @ git+https://github.com/derb12/pybaselines@4e21860b9b1fac90b5e1dad4dd4629355f231afb",
 ]
 classifiers = [

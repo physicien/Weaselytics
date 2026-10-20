@@ -27,7 +27,8 @@ Not part of ``render_all.sh``: this documents a staging constant rather
 than one of the fcut selection figures.
 """
 
-import glob  # noqa: I001
+import argparse  # noqa: I001
+import glob
 import os
 
 import matplotlib
@@ -36,13 +37,8 @@ matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
 import matplotlib.pyplot as plt  # noqa: E402
 
-import weaselytics  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 
-# data/, runs/ and the datasets sit beside the checkout.
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(weaselytics.__file__))))
-DATA = os.path.join(ROOT, 'data')
 OUT = os.path.dirname(os.path.abspath(__file__))
 EPS = 1.0
 CNH, COUR = '#c2521f', '#1f4e79'
@@ -68,8 +64,8 @@ def amplitudes(root: str) -> np.ndarray:
     return np.array(out)
 
 
-def main() -> None:
-    a = amplitudes(DATA)
+def main(data: str) -> None:
+    a = amplitudes(data)
     fig, axes = plt.subplots(1, 2, figsize=(13.6, 5.3))
 
     ax = axes[0]
@@ -128,4 +124,8 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--data', required=True,
+                        help='raw data directory, holding '
+                             '<Molecule>/<stem>.txt')
+    main(parser.parse_args().data)

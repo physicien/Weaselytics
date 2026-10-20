@@ -26,6 +26,7 @@ which none of the ratios can be read.
 Run: runs/SYNTH_2026-10-19_23559214, generated at parabola_len=3.
 """
 
+import argparse
 import csv
 import glob
 import os
@@ -34,16 +35,12 @@ import numpy as np
 from scipy.ndimage import median_filter
 from scipy.signal import find_peaks
 
-import weaselytics  # noqa: E402
 import weaselytics.segmentation as S  # noqa: E402
 from weaselytics.baseline import _snr  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 
-# data/, runs/ and the datasets sit beside the checkout.
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(weaselytics.__file__))))
-RUN = os.path.join(ROOT, 'runs/SYNTH_2026-10-19_23559214')
-DS = os.path.join(ROOT, 'SYNTH_ERB_2026-08-18')
+# Set from the command line in __main__.
+RUN = DS = None
 OUT = os.path.dirname(os.path.abspath(__file__))
 RMSE_MAX = 0.05
 NULL_DRAWS = 200
@@ -194,4 +191,13 @@ def main():
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--run', required=True,
+                        help='synthetic run directory, holding '
+                             'r2_cache/ and diag/')
+    parser.add_argument('--dataset', required=True,
+                        help='synthetic dataset directory, holding '
+                             'signals/ and truth/')
+    args = parser.parse_args()
+    RUN, DS = args.run, args.dataset
     main()

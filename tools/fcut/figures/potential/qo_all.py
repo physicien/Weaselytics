@@ -29,7 +29,8 @@ generator used. Only `TRUE baseline` and `TRUE correction` on the right
 panels are ground truth.
 """
 
-import csv  # noqa: I001
+import argparse  # noqa: I001
+import csv
 import glob
 import os
 import shutil
@@ -42,7 +43,6 @@ import matplotlib.pyplot as plt  # noqa: E402
 from pybaselines import Baseline  # noqa: E402
 from scipy.ndimage import median_filter  # noqa: E402
 
-import weaselytics  # noqa: E402
 import weaselytics.segmentation as S  # noqa: E402,I001
 from weaselytics.baseline import (  # noqa: E402
     _custom_beads,
@@ -53,12 +53,8 @@ from weaselytics.baseline import (  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.plot import plot, r2_plots  # noqa: E402
 
-# data/, runs/ and the datasets sit beside the checkout.
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(weaselytics.__file__))))
-RUN = os.path.join(ROOT, 'runs/SYNTH_2026-10-19_23559214')
-DS = os.path.join(ROOT, 'SYNTH_ERB_2026-08-18')
-OUT = os.path.join(ROOT, 'MERGED/QUASIOPT_2026-08-24')
+# Set from the command line in __main__.
+RUN = DS = OUT = None
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
 CQO, COPT = '#1f7a1f', '#7a3fa0'
 
@@ -382,4 +378,16 @@ def main():
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--run', required=True,
+                        help='synthetic run directory, holding '
+                             'r2_cache/ and diag/')
+    parser.add_argument('--dataset', required=True,
+                        help='synthetic dataset directory, holding '
+                             'signals/ and truth/')
+    parser.add_argument('--out', required=True,
+                        help='output directory for the merged '
+                             'figures')
+    args = parser.parse_args()
+    RUN, DS, OUT = args.run, args.dataset, args.out
     main()

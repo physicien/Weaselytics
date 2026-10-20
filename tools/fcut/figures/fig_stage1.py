@@ -11,6 +11,7 @@ Two panels of one worked example, on the curve of Figures 1 and 3.
                    rule is visible as a region of the plane rather than
                    as three numbers in a table.
 """
+import argparse
 import glob
 import os
 
@@ -20,18 +21,12 @@ import numpy as np
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-import weaselytics  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
     classify_segments,
     pelt_linear,
     segment_features,
 )
 
-# data/, runs/ and the datasets sit beside the checkout.
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(weaselytics.__file__))))
-CACHE = os.path.join(ROOT, 'runs', 'PROD_2026-10-19_23559213',
-                     'r2_cache')
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
 DPI = 200
@@ -42,8 +37,8 @@ REL_NOISE_MAX, CLIFF_MIN = 0.006, 1.0
 CURVE, FLAT, NOTFLAT, CLIFF = '#1f4e79', '#1a7a44', '#c2521f', '#7a3fa0'
 
 
-def load():
-    f = glob.glob(os.path.join(CACHE, f'{STEM}__r2__*.npz'))[0]
+def load(cache):
+    f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     return d['fcut_range'], d['r2_val']
 
@@ -168,8 +163,8 @@ def fig_features(segs):
     print(p)
 
 
-def main():
-    fr, r2 = load()
+def main(cache):
+    fr, r2 = load(cache)
     segs = classify_segments(segment_features(fr, r2, pelt_linear(r2)))
     print(f"  {len(segs)} segments, {sum(s['flat'] for s in segs)} flat")
     fig_segments(fr, r2, segs)
@@ -177,4 +172,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cache', required=True,
+                        help='r2_cache directory of a production run, '
+                             'e.g. runs/PROD_<date>_<job>/r2_cache')
+    main(parser.parse_args().cache)

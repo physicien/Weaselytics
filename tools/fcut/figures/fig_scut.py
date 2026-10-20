@@ -13,6 +13,7 @@ computed on the truncated record against the curve computed on the whole
 of it.
 """
 
+import argparse
 import glob
 import os
 
@@ -24,7 +25,6 @@ matplotlib.rcParams['savefig.dpi'] = 200
 import matplotlib.pyplot as plt  # noqa: E402
 from pybaselines import Baseline  # noqa: E402
 
-import weaselytics  # noqa: E402
 from weaselytics.baseline import (  # noqa: E402
     _custom_beads,
     _log_transform,
@@ -33,9 +33,6 @@ from weaselytics.baseline import (  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.utils import r2_dw  # noqa: E402
 
-# data/, runs/ and the datasets sit beside the checkout.
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(weaselytics.__file__))))
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEMS = ['2-Xylene__LPYE__CS2__15', '2-Xylene__LPYE__90-96-100__2']
 TAGS = ['(a)', '(b)']
@@ -59,11 +56,11 @@ def sweep(z, x_used, regions, sampling):
     return fcuts, out
 
 
-def main():
+def main(data):
     fig, axes = plt.subplots(2, 2, figsize=(12.4, 6.6),
                              gridspec_kw={'width_ratios': [1, 1.25]})
     for row, (stem, tag) in enumerate(zip(STEMS, TAGS)):
-        src = glob.glob(os.path.join(ROOT, 'data', '*', f'{stem}.txt'))[0]
+        src = glob.glob(os.path.join(data, '*', f'{stem}.txt'))[0]
         d = ParsedData(src).data
         x, y = np.asarray(d[0], float), np.asarray(d[1], float)
         regions, sampling, scut = _relevant_regions(y, x)
@@ -126,4 +123,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--data', required=True,
+                        help='raw data directory, holding '
+                             '<Molecule>/<stem>.txt')
+    main(parser.parse_args().data)

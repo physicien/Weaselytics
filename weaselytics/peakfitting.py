@@ -172,7 +172,8 @@ def pearson7(x: np.ndarray, params: np.ndarray) -> np.ndarray:
     peaks: Niezen et al. compared fifteen distributions by the Akaike
     information criterion and ranked it first (Table 1), and Milani et
     al. measured a lower RMSE over 458 fitted peaks. The comparison run
-    for this project is in ``tools/synthetic_data.md``.
+    for this project is in ``tools/synthetic/synthetic_data.md`` §4 of
+    commit ``efc7aa7``.
 
     Parameters
     ----------

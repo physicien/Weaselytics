@@ -42,11 +42,7 @@ matplotlib.use('Agg')
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-from scipy.ndimage import (  # noqa: E402
-    binary_dilation,
-    gaussian_filter1d,
-    median_filter,
-)
+from scipy.ndimage import gaussian_filter1d  # noqa: E402
 from scipy.stats import exponnorm  # noqa: E402
 
 PEAK_CASES = {
@@ -85,117 +81,8 @@ _FWHM_PER_SIGMA = 2.3548
 # a datasheet: in all 339 reference signals every consecutive difference
 # is an exact integer multiple of it to within 1e-9, a ~900-point record
 # holds only 45-60 distinct values, and ~25% of consecutive samples are
-# identical. See tools/synthetic/synthetic_data.md §7.
+# identical. See tools/synthetic/synthetic_data.md §4.
 ADC_STEP_MV = 0.008996
-
-# Normal-consistency factor of the median absolute deviation, used by
-# Niezen et al. (2022) Eqs. (12a)/(12b) to turn a MAD into a sigma.
-MAD_TO_SIGMA = 1.4826
-
-# Selection heuristic for the peak-free stretch (synthetic_data.md §3.1).
-# NOT GROUNDED: these decide only which real data is admitted to the
-# background pool, never a reported number, and the regions they produce
-# are reviewed by eye before use. Reviewed and accepted 2026-07-27.
-PEAK_FREE_SIGMA = 8.0        # excursion threshold, in sigma
-PEAK_FREE_WINDOW_FRAC = 40   # median-filter width = len(signal) / this
-
-
-def noise_sigma_mad(y: np.ndarray, on_derivative: bool = True) -> float:
-    """
-    Estimate the noise level of a trace by the median absolute deviation.
-
-    Niezen et al. (2022) Eq. (12a) applies the MAD to the signal itself;
-    their Eq. (12b) applies it to the first derivative, and they note
-    that in the presence of a baseline and peaks the derivative gives a
-    "more representative value", which is the default here. Both are
-    scaled by `MAD_TO_SIGMA` for consistency with a normal distribution.
-
-    Parameters
-    ----------
-    y : array-like, shape (N,)
-        The trace.
-    on_derivative : bool, optional
-        If True (default), Eq. (12b); otherwise Eq. (12a).
-
-    Returns
-    -------
-    sigma : float
-        The noise estimate, in the units of `y`.
-
-    Notes
-    -----
-    On quantised data this does not measure analogue noise: it returns a
-    small integer multiple of the quantisation step, so it is an upper
-    bound. See tools/synthetic/synthetic_data.md §6.
-
-    References
-    ----------
-    Niezen, Schoenmakers & Pirok (2022), Anal. Chim. Acta 1201, 339605,
-    Eqs. (12a) and (12b).
-
-    """
-    v = np.diff(np.asarray(y, dtype=float)) if on_derivative else \
-        np.asarray(y, dtype=float)
-    return float(MAD_TO_SIGMA * np.median(np.abs(v - np.median(v))))
-
-
-def peak_free_stretch(y: np.ndarray, k_sigma: float = PEAK_FREE_SIGMA,
-                      window_frac: int = PEAK_FREE_WINDOW_FRAC
-                      ) -> slice:
-    """
-    Locate the longest stretch of a trace showing no peak.
-
-    Niezen et al. (2022) §4.1.1 require a background containing "only
-    low-frequency drift and a small amount of initial noise", and obtain
-    it by removing peaks from experimental blanks by curve fitting and
-    subtraction. Here the same requirement is met by *selecting* a
-    peak-free stretch instead, so the drift is the recorded signal
-    itself and nothing is fitted or subtracted.
-
-    A point is busy when the residual against a median filter exceeds
-    `k_sigma` times the derivative-MAD noise estimate; busy points are
-    dilated by half the filter width so a peak's shoulders are excluded
-    with it, and the longest surviving run is returned.
-
-    .. warning::
-       `k_sigma` and `window_frac` are **not grounded**. They decide only
-       which real data enters the background pool, never a reported
-       number, and the regions they select are reviewed by eye. The
-       criterion cannot certify the absence of peaks -- only the absence
-       of excursions it can see, so a very broad, low feature could
-       survive it and would then be scored as drift.
-
-    Parameters
-    ----------
-    y : array-like, shape (N,)
-        The trace to search.
-    k_sigma : float, optional
-        Excursion threshold in units of the noise estimate.
-    window_frac : int, optional
-        The median filter spans ``len(y) / window_frac`` points.
-
-    Returns
-    -------
-    region : slice
-        The longest peak-free run. Empty (``slice(0, 0)``) when the
-        whole trace is busy or the noise estimate is degenerate.
-
-    """
-    y = np.asarray(y, dtype=float)
-    sigma = noise_sigma_mad(y)
-    if sigma <= 0 or len(y) < 8:
-        return slice(0, 0)
-    width = max(31, len(y) // window_frac) | 1
-    resid = np.abs(y - median_filter(y, size=width))
-    busy = binary_dilation(resid > k_sigma * sigma,
-                           np.ones(max(width // 2, 1), dtype=bool))
-    idx = np.flatnonzero(~busy)
-    if idx.size == 0:
-        return slice(0, 0)
-    runs = np.split(idx, np.flatnonzero(np.diff(idx) > 1) + 1)
-    best = max(runs, key=len)
-    return slice(int(best[0]), int(best[-1]) + 1)
-
 
 def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
     """
@@ -207,7 +94,7 @@ def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
     consecutive differences, which on quantised data is pinned to the
     lattice and on continuous data is a true noise estimate, so an
     unquantised benchmark measures a different quantity under the same
-    name. See tools/synthetic/synthetic_data.md §7.
+    name. See tools/synthetic/synthetic_data.md §4.
 
     Parameters
     ----------
@@ -305,43 +192,9 @@ def gauss_peak(t: np.ndarray, tc: float, sigma: float,
     return height * np.exp(-0.5 * ((t - tc) / sigma) ** 2)
 
 
-# Parameter ranges of the modified Pearson VII. Each range is kept under
-# its own provenance rather than blended, so any number taken from here
-# can be attributed. See tools/synthetic/synthetic_data.md §4.2.
-#
-# PUBLISHED: fitted by Niezen et al. (2022), Table 2, to gradient-RPLC of
-# small uncharged molecules. The paper states the parameters "may change
-# significantly in other modes of chromatography", so these are not
-# transplantable on their own.
-PEARSON7_KURTOSIS_NIEZEN = (3.5, 51.0)        # m
-PEARSON7_ASYMMETRY_NIEZEN = (0.01, 0.28)      # A_s, tailing only
-#
-# MEASURED here on 60 randomly-chosen LPYE peaks (p10-p90), fitted by the
-# procedure of synthetic_data.md §4.1. Two departures from the published
-# range: peaks that are effectively Gaussian (m far above 51), and a
-# substantial fraction that FRONT rather than tail (A_s < 0), which a
-# positive-only range excludes outright.
-PEARSON7_KURTOSIS_LPYE = (2.2, 2.1e4)
-PEARSON7_ASYMMETRY_LPYE = (-0.191, 0.174)
-#
-# The generator samples the UNION, so the benchmark represents *a*
-# chromatogram rather than one instrument's. The kurtosis upper bound is
-# taken from the published range rather than the measured one: beyond
-# m ~ 50 the profile is already indistinguishable from a Gaussian to
-# within the quantisation step, so the measured 2.1e4 carries no extra
-# shape -- it is the fit reporting "Gaussian", not a wider family.
-PEARSON7_KURTOSIS = (min(PEARSON7_KURTOSIS_NIEZEN[0],
-                         PEARSON7_KURTOSIS_LPYE[0]),
-                     PEARSON7_KURTOSIS_NIEZEN[1])
-PEARSON7_ASYMMETRY = (min(PEARSON7_ASYMMETRY_NIEZEN[0],
-                          PEARSON7_ASYMMETRY_LPYE[0]),
-                      max(PEARSON7_ASYMMETRY_NIEZEN[1],
-                          PEARSON7_ASYMMETRY_LPYE[1]))
-
-
 # --------------------------------------------------------------------
 # The `pyb` family: idealised signals built on the examples of the
-# pybaselines documentation. See tools/synthetic/synthetic_data.md §10.
+# pybaselines documentation. See tools/synthetic/synthetic_data.md §6.
 #
 # NOT IMPORTED. `pybaselines.utils.make_data` states that
 # its output "may change without notice ... outside users are advised
@@ -524,7 +377,7 @@ PYB_N_POINTS = (300, 4000)
 #: Baseline component vocabulary. Each entry is a builder taking
 #: ``(x, rng)`` and returning ``(values, description)``. Coefficient
 #: ranges are the spans observed in the documentation; the sources for
-#: each are named in tools/synthetic/synthetic_data.md §9.4.
+#: each are named in tools/synthetic/synthetic_data.md §6.4.
 def _bc_linear(x, rng):
     a = rng.uniform(1., 30.)             # offsets 1, 3, 5, 10, 15, 30
     b = rng.uniform(-0.005, 0.01)        # slopes -0.005 .. +0.01
@@ -601,7 +454,7 @@ def pyb_random_signal(seed: int, n_points: int | None = None,
     composed analytic baseline with white noise -- but with every
     parameter drawn from the ranges observed across the pybaselines
     documentation, so the family becomes a population rather than eight
-    points. See tools/synthetic/synthetic_data.md §9.4.
+    points. See tools/synthetic/synthetic_data.md §6.4.
 
     The baseline is the sum of one or two components, as the
     documentation itself does (``10 - 0.005x + gaussian(x, 5, 850,
@@ -975,83 +828,6 @@ def erb_random_signal(seed: int, n_points: int | None = None,
                      'baseline_range': float(baseline.max()
                                              - baseline.min()),
                      'peaks': peaks}}
-
-
-def pearson7_peak(t: np.ndarray, tc: float, sigma: float, kurtosis: float,
-                  asymmetry: float, height: float) -> np.ndarray:
-    r"""
-    Evaluate a modified Pearson VII peak.
-
-    .. math::
-
-       f(t) = A\left(1 + \frac{(t-\mu)^2}
-                          {m\,(\sigma + A_s (t-\mu))^2}\right)^{-m}
-
-    Two independent groups selected this shape over the usual
-    alternatives for chromatographic peaks. Niezen et al. compared 15
-    distributions by the Akaike information criterion on real peaks and
-    found it best overall (Table 1: sum-AIC -7.20e3, against -6.91e3 for
-    the exponentially-modified Gaussian). Milani et al. reached the same
-    function from a different direction, calling it the Skewed
-    Lorentz-Normal, and measured RMSE <= 0.0045 against <= 0.0048 for a
-    Gaussian over 458 fitted peaks.
-
-    The shape interpolates between a Gaussian (``kurtosis`` -> infinity)
-    and a Lorentzian (``kurtosis`` -> 1), with ``asymmetry`` producing
-    tailing (positive) or fronting (negative).
-
-    Parameters
-    ----------
-    t : array-like, shape (N,)
-        Time axis.
-    tc : float
-        Peak centre, the retention time (``mu`` above).
-    sigma : float
-        Width parameter, in the units of `t`.
-    kurtosis : float
-        Shape parameter ``m``. See `PEARSON7_KURTOSIS` for the range
-        fitted to real peaks.
-    asymmetry : float
-        Skew parameter ``A_s``. See `PEARSON7_ASYMMETRY`.
-    height : float
-        Peak maximum; ``f(tc) == height`` exactly.
-
-    Returns
-    -------
-    y : numpy.ndarray, shape (N,)
-        The peak profile.
-
-    Notes
-    -----
-    For ``asymmetry != 0`` the denominator vanishes at
-    ``t - tc = -sigma / asymmetry``, and beyond that point the
-    expression rises again into a spurious second lobe. It is tiny --
-    measured at 9.3e-7 of `height` at the widest fitted asymmetry, some
-    five orders below the detector's quantisation step -- but it is
-    clipped to zero rather than left to a numerical accident, so the
-    function is exactly single-lobed by construction.
-
-    References
-    ----------
-    Niezen, Schoenmakers & Pirok (2022), Anal. Chim. Acta 1201, 339605,
-    Eq. (14) and Table 2.
-    Milani et al. (2024), Anal. Chim. Acta 1312, 342724, Eq. (2).
-
-    """
-    if sigma <= 0:
-        raise ValueError("sigma must be greater than 0.")
-    if kurtosis <= 0:
-        raise ValueError("kurtosis must be greater than 0.")
-    dt = t - tc
-    denom = sigma + asymmetry * dt
-    with np.errstate(divide='ignore', invalid='ignore'):
-        y = height * (1. + dt ** 2 / (kurtosis * denom ** 2)) ** -kurtosis
-    y = np.nan_to_num(y, nan=0., posinf=0., neginf=0.)
-    if asymmetry != 0.:
-        # Keep only the lobe containing the centre: the sign of the
-        # denominator at t == tc.
-        y = np.where(np.sign(denom) == np.sign(sigma), y, 0.)
-    return y
 
 
 def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
@@ -1600,7 +1376,7 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
         consecutive differences, which on quantised data is pinned to
         the lattice and on continuous data is a true noise estimate, so
         an unquantised benchmark exercises a different quantity under
-        the same name. See tools/synthetic/synthetic_data.md §7.
+        the same name. See tools/synthetic/synthetic_data.md §4.
 
     Returns
     -------

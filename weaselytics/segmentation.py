@@ -437,7 +437,7 @@ def dip_curve(r2: np.ndarray, window: int = 3,
     classification thresholds are ratios and are not.
 
     The normalisation divides by the largest value anywhere on the
-    curve, including the rebound past the collapse, which
+    curve, including the rebound beyond the collapse floor, which
     ``detect_dips`` does not search. A tall feature outside the
     searched range therefore compresses every prominence inside it.
 
@@ -696,15 +696,14 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       set, flat segments lying below ``drop_level`` of the way up
       the total r2 drop are removed. Approaching the collapse the
       baseline has begun absorbing the analyte-correlated content, so
-      for a signal that carries analyte a cutoff there destroys peak
-      area and the optimum cannot lie in it (Navarro-Huerta et al.
-      2017, §3.4). This reaches the descent *before* the floor, which the
+      a cutoff there destroys peak area (Navarro-Huerta et al. 2017,
+      §3.4). This reaches the descent *before* the floor, which the
       rebound clip does not; the two are complementary and neither
-      subsumes the other. Whether a signal carries analyte is a property
-      of the signal, not of the curve, so the caller decides
-      ``exclude_past_drop`` from the signal-to-noise ratio. A weak signal
-      leaves it off, and its low shelves survive as legitimate
-      candidates.
+      subsumes the other. The caller decides ``exclude_past_drop`` from
+      the signal-to-noise ratio, so that a signal whose structure is
+      mostly baseline keeps its low shelves as candidates. That gate has
+      not switched on any signal processed so far, so the branch that
+      keeps them is untested.
 
     Bridging is off by default. See ``bridge`` below.
 
@@ -1032,13 +1031,12 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     flat test misses). This applies the a-priori exclusions to it:
 
     - the sub-fundamental clip, always;
-    - the SNR-gated past-drop exclusion, only when ``exclude_past_drop``.
-      Past the collapse a cutoff destroys analyte peak area
-      (Navarro-Huerta et al. 2017 §3.4), so on a signal carrying analyte
-      the plateaus below ``drop_level`` of the drop are removed,
-      while a weak signal keeps them. Whether a signal carries analyte is a
-      property of the signal, not of the curve, so the caller decides it
-      from the signal-to-noise ratio;
+    - the SNR-gated past-drop exclusion, only when ``exclude_past_drop``:
+      past the drop a cutoff destroys peak area (Navarro-Huerta et al.
+      2017 §3.4), so the plateaus below ``drop_level`` of the drop are
+      removed. The caller decides it from the signal-to-noise ratio, so
+      that a signal whose structure is mostly baseline keeps them; see
+      `trim_candidates`;
     - the stiff-side instability exclusion, when `sensitivity` is given.
 
     The proto-plateaus are a **fallback**: the flat channel is run

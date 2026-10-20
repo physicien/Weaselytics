@@ -1,6 +1,5 @@
-# numpy and scipy floors match Rorqual's scipy-stack/2026a module
-# (numpy 2.4.2, scipy 1.17.0). The r2 curve amplifies one-ulp
-# differences at low cutoffs, so other versions give other curves
+# The r2 curve amplifies one-ulp differences at low cutoffs, so
+# numpy and scipy versions other than these floors give other curves
 # there and can move the selected cutoff.
 #
 # After changing numpy, scipy, numba or pybaselines, rebuild the r2

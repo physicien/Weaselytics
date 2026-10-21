@@ -5,11 +5,12 @@ Generate synthetic chromatograms with known ground truth.
 Two families are produced, so the algorithm can be tested both on this
 instrument and more generally:
 
-* **native**: calibrated to the LPYE dataset. Exponentially-modified
+* **native**: chosen to match the LPYE dataset
+  (tools/synthetic/synthetic_data.md §2). Exponentially-modified
   Gaussian peaks; a bipolar dead-time artifact (positive spike + a
-  negative undershoot, the dominant feature of the real blanks, and the
-  reason a symmetric BEADS cost is needed); a small baseline (real blank
-  baseline structure is 0.33 mV median) built from a solvent-front
+  negative undershoot, the dominant feature of its blanks, and the
+  reason a symmetric BEADS cost is needed); a small baseline (its blanks
+  carry 0.33 mV of baseline structure at the median) built from a solvent-front
   decay, a broad hump, a drift, a level step across the dead time and
   a mid-frequency wander; near-constant detector noise (~0.019 mV);
   120 points/min.
@@ -20,12 +21,12 @@ instrument and more generally:
   Type-1 (polynomial + sinusoid) or Type-2 (low-pass-filtered noise)
   baseline, with the noise set by a target SNR spanning 8-25 dB.
 
-Every signal is written in the same two-column text format as the real
+Every signal is written in the same two-column text format as the LPYE
 data, so the whole weaselytics pipeline runs on it unchanged; the exact
 baseline/signal/noise decomposition is stored in
 ``truth/<stem>__truth.npz``; and a per-signal plot is written to
 ``plots/`` (unless ``--no-plot``) so the synthetic data can be reviewed
-against the real chromatograms before it is trusted for scoring.
+against the LPYE chromatograms before it is trusted for scoring.
 
 Usage
 -----
@@ -57,31 +58,30 @@ PEAK_CASES = {
     'isocratic': (7, None),
 }
 BASELINE_CASES = ['exp', 'hump', 'exp_hump_drift']
-# White detector noise. Measured on the 339 real signals (MAD of
-# consecutive differences): the noise is nearly constant in absolute
-# terms at ~0.019 mV regardless of amplitude or blank/non-blank, with a
-# maximum of 0.047. These two cases bracket the measured median and the
-# upper tail.
+# White detector noise, chosen to match the LPYE dataset, whose noise
+# (MAD of consecutive differences) is nearly constant in absolute terms
+# at ~0.019 mV regardless of amplitude or blank/non-blank, with a
+# maximum of 0.047. These two cases bracket its median and upper tail.
 NOISE_CASES = {'typ': 0.019, 'high': 0.038}
-# Record lengths for the native family. Real n_points spans 473-39000
+# Record lengths for the native family. LPYE n_points spans 473-39000
 # (median 1180). The dead time is absolute at ~4.5 min and analytes
 # elute after it, so a native record must span well beyond it: at
 # 120 pts/min these are 7.5, 15 and 33 min, all comfortably past a
-# 4.5 min dead time, and they bracket the real median and the long-run
+# 4.5 min dead time, and they bracket the LPYE median and the long-run
 # regime (Cyclohexane, Benzene).
 N_CASES = [900, 1800, 4000]
 
-# Points per minute. Real dt has median 0.00833 min, i.e. 120 pts/min
-# (two samples per second).
+# Points per minute. 120 pts/min (two samples per second) is the most
+# common rate of the LPYE dataset.
 PTS_PER_MIN = 120
 
 _FWHM_PER_SIGMA = 2.3548
 
-# Quantization step of the LPYE detector, in mV. MEASURED: in all 339
-# reference signals every consecutive difference is an exact integer
-# multiple of it to within 1e-9, a ~900-point record holds only 45-60
-# distinct values, and ~25% of consecutive samples are identical. See
-# tools/synthetic/synthetic_data.md §4.
+# Quantization step of the LPYE dataset, in mV: in all its records
+# every consecutive difference is an exact integer multiple of it to
+# within 1e-9, a ~900-point record holds only 45-60 distinct values, and
+# ~25% of consecutive samples are identical. See
+# tools/synthetic/synthetic_data.md §5.
 ADC_STEP_MV = 0.008996
 
 def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
@@ -90,11 +90,11 @@ def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
 
     The LPYE detector digitizes at `ADC_STEP_MV`; synthetic signals are
     rounded likewise so the benchmark exercises the same code paths as
-    real data. `baseline._snr` divides by a MAD of consecutive
+    the LPYE data. `baseline._snr` divides by a MAD of consecutive
     differences, which on quantized data is pinned to the lattice and on
     continuous data is a true noise estimate, so an unquantized benchmark
     measures a different quantity under the same name. See
-    tools/synthetic/synthetic_data.md §4.
+    tools/synthetic/synthetic_data.md §5.
 
     Parameters
     ----------
@@ -194,7 +194,7 @@ def gauss_peak(t: np.ndarray, tc: float, sigma: float,
 
 # --------------------------------------------------------------------
 # The `pyb` family: idealized signals built on the examples of the
-# pybaselines documentation. See tools/synthetic/synthetic_data.md §6.
+# pybaselines documentation. See tools/synthetic/synthetic_data.md §7.
 #
 # NOT IMPORTED. `pybaselines.utils.make_data` states that
 # its output "may change without notice ... outside users are advised
@@ -367,7 +367,7 @@ PYB_PEAK_SIGMA_FRAC = (0.005, 0.020)    # of the abscissa span
 PYB_NOISE_STD_RANGE = (0.025, 1.0)
 
 # Record length: the documentation uses 500 and 1000 points. WIDENED to
-# 300-4000: the real LPYE records span 473-39129 points, and record
+# 300-4000: the LPYE records span 473-39129 points, and record
 # length changes the fundamental (1/n_used), which is what the
 # instability trim keys on. A benchmark fixed at two lengths could not
 # detect a constant that depends on it.
@@ -376,7 +376,7 @@ PYB_N_POINTS = (300, 4000)
 #: Baseline component vocabulary. Each entry is a builder taking
 #: ``(x, rng)`` and returning ``(values, description)``. Coefficient
 #: ranges are the spans observed in the documentation; the sources for
-#: each are named in tools/synthetic/synthetic_data.md §6.4.
+#: each are named in tools/synthetic/synthetic_data.md §7.4.
 def _bc_linear(x, rng):
     a = rng.uniform(1., 30.)             # offsets 1, 3, 5, 10, 15, 30
     b = rng.uniform(-0.005, 0.01)        # slopes -0.005 .. +0.01
@@ -452,7 +452,7 @@ def pyb_random_signal(seed: int, n_points: int | None = None,
     composed analytic baseline with white noise), but with every
     parameter drawn from the ranges observed across the pybaselines
     documentation, so the family becomes a population. See
-    tools/synthetic/synthetic_data.md §6.4.
+    tools/synthetic/synthetic_data.md §7.4.
 
     The baseline is the sum of one or two components, as the
     documentation itself does (``10 - 0.005x + gaussian(x, 5, 850,
@@ -835,7 +835,7 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
     Bipolar injection artifact at the dead time.
 
     A sharp positive spike at ``t0`` immediately followed by a wider
-    negative undershoot, the dominant feature of the real blanks. The
+    negative undershoot, the dominant feature of the LPYE blanks. The
     negative lobe is genuine signal, which is why a symmetric BEADS
     cost (``asymmetry=1``) is required: an asymmetric cost would absorb
     it into the baseline.
@@ -856,8 +856,8 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
     neg_abs : (float, float), optional
         Absolute range of the negative-lobe depth. If given, the dip is
         drawn from it directly rather than as a multiple of the positive
-        spike; used to cap the native dip at the measured real maximum
-        (~1.2 mV). Default None keeps the 0.5-2x relative scaling.
+        spike; used to cap the native dip at the deepest dip of the
+        LPYE blanks (~1.2 mV). Default None keeps the 0.5-2x relative scaling.
 
     Returns
     -------
@@ -894,11 +894,11 @@ def make_baseline(t: np.ndarray, kind: str,
     """
     Build the slowly varying baseline of a ``native`` signal.
 
-    Calibrated to the LPYE instrument. The real blanks (which are
-    baseline + noise + artifact) have a smoothed peak-to-peak baseline
-    structure of only **0.33 mV median, 0.75 mV maximum** over the 67
-    blanks: this detector's baseline is nearly flat, and the large
-    excursions in the real chromatograms are peaks. The
+    Chosen to match the LPYE dataset. Its blanks (which are baseline +
+    noise + artifact) have a smoothed peak-to-peak baseline structure of
+    only **0.33 mV median, 0.75 mV maximum** over its 67 blanks: this
+    detector's baseline is nearly flat, and the large excursions in its
+    chromatograms are peaks. The
     component amplitudes below are scaled to that measurement, an order
     of magnitude smaller than a generic literature baseline (for which
     see ``lit_baseline``).
@@ -914,11 +914,11 @@ def make_baseline(t: np.ndarray, kind: str,
         Source of randomness for the component parameters.
     t0 : float, optional
         Dead time. If given, a small step in the baseline level is
-        placed across it, as the real blanks show (the baseline settles
+        placed across it, as the LPYE blanks show (the baseline settles
         at a different level after the injection).
     is_blank : bool, optional
         If True, the large hump is omitted and the exp/drift amplitudes
-        are reduced: the real blanks are nearly flat (smoothed baseline
+        are reduced: the LPYE blanks are nearly flat (smoothed baseline
         p2p 0.33 mV median, 0.75 max).
 
     Returns
@@ -929,7 +929,7 @@ def make_baseline(t: np.ndarray, kind: str,
     """
     span = t[-1] - t[0]
     b = np.full(len(t), rng.uniform(-0.5, 1.5))
-    # Level step across the dead time: the real baselines settle at a
+    # Level step across the dead time: the LPYE baselines settle at a
     # slightly different level after the injection (a smoothed
     # Heaviside, not a discontinuity, since the detector has a finite
     # response time).
@@ -951,7 +951,7 @@ def make_baseline(t: np.ndarray, kind: str,
         b += drift * (t - t[0]) / span
 
     # Mid-frequency wander (pump, thermal and detector fluctuations),
-    # which every real baseline carries and the slow components above
+    # which every LPYE baseline carries and the slow components above
     # cannot represent. Its correlation length sits between the peak
     # widths and the run length, so it is what decides how flexible the
     # baseline has to be: on a signal with little analyte, capturing it
@@ -961,8 +961,8 @@ def make_baseline(t: np.ndarray, kind: str,
     wander = gaussian_filter1d(rng.normal(size=len(t)), corr_len)
     peak_amp = np.abs(wander).max()
     if peak_amp > 0:
-        # Absolute amplitude 0.1-0.35 mV, matching the measured blank
-        # baseline structure (median p2p 0.33 mV).
+        # Absolute amplitude 0.1-0.35 mV, matching the baseline structure
+        # of the LPYE blanks (median p2p 0.33 mV).
         wander *= rng.uniform(0.1, 0.35) / peak_amp
         b = b + wander
     return b
@@ -1034,7 +1034,7 @@ def native_peak_component(n: int, peak_case: str,
     order, so that the reviewed peak model can be placed on a different
     baseline without being written a second time.
 
-    The component is calibrated to the LPYE instrument: 120 points per
+    The component is chosen to match the LPYE dataset: 120 points per
     minute, an absolute dead time near 4.5 min carrying the bipolar
     injection artifact, exponentially-modified Gaussian analytes
     eluting after it, and widths growing with retention time.
@@ -1068,7 +1068,7 @@ def native_peak_component(n: int, peak_case: str,
     """
     dt = 1. / PTS_PER_MIN               # minutes per sample
     t = np.arange(n) * dt
-    # Dead time in ABSOLUTE minutes. Measured on the real blanks it is a
+    # Dead time in ABSOLUTE minutes. In the LPYE blanks it is a
     # fixed 4.58 min regardless of run length (55-73% of the span), not
     # a fraction of it, so it is placed absolutely and only pulled in
     # for a record too short to contain it (none of the shipped native
@@ -1082,11 +1082,11 @@ def native_peak_component(n: int, peak_case: str,
     peaks = []
 
     # The dead-time injection artifact (bipolar; see dead_time_artifact).
-    # On many real blanks the negative lobe is the largest excursion in
+    # On many LPYE blanks the negative lobe is the largest excursion in
     # the whole trace, down to -1.2 mV on a 0.6 mV blank.
-    # The negative dip is capped at the measured real maximum (~1.2 mV);
-    # without the cap the relative scaling produced dips to -2.7 mV that
-    # the real data never shows.
+    # The negative dip is capped at the deepest LPYE dip (~1.2 mV);
+    # without the cap the relative scaling produced dips to -2.7 mV,
+    # deeper than any in the dataset.
     contrib, entries = dead_time_artifact(t, t0, dt, rng,
                                           pos_height=(1., 4.),
                                           neg_abs=(0.3, 1.4))
@@ -1106,7 +1106,8 @@ def native_peak_component(n: int, peak_case: str,
         elute_lo, elute_hi = 0.9 * t[-1], 0.98 * t[-1]
 
     # For blanks, a few small ghost/carryover peaks along the run, so a
-    # blank still carries the faint detectable features real blanks show.
+    # blank still carries the faint detectable features the LPYE blanks
+    # show.
     if n_peaks == 0:
         for _ in range(rng.integers(1, 4)):
             tc = rng.uniform(elute_lo, elute_hi)
@@ -1196,7 +1197,7 @@ def _draw_analytes(t: np.ndarray, t0: float, dt: float, n_peaks: int,
         centers = np.sort(centers)
     # Constant plate number of the isocratic case: sigma = tc/sqrt(Np),
     # so the first peaks are sharp and the late ones broad, with a
-    # width ratio set by the retention ratio (the hard regime the real
+    # width ratio set by the retention ratio (the hard regime the LPYE
     # dataset shows).
     n_plates = rng.uniform(3000., 12000.)
     broaden_g = rng.uniform(2., 4.)
@@ -1257,15 +1258,15 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
             'baseline': baseline, 'noise': noise, 'peaks': peaks}
 
 
-# Record length for the `erb_native` family. MEASURED: the quantile
-# function of the 339 real LPYE records, every 5% from the minimum to
-# the maximum. Lengths are drawn from it by inverse-CDF sampling, so the
-# generated distribution reproduces the real one by construction rather
-# than approximating it with a ladder of fixed values.
+# Record length for the `erb_native` family, chosen to match the LPYE
+# dataset: the quantile function of its 339 records, every 5% from the
+# minimum to the maximum. Lengths are drawn from it by inverse-CDF
+# sampling, so the generated distribution reproduces the dataset's by
+# construction.
 #
 # Record length sets the fundamental frequency 1/n_used, which is exactly
 # what `instability_boundary` keys on, so length must vary, but a balanced
-# ladder misrepresents how often each length actually occurs. The real set
+# ladder misrepresents how often each length actually occurs. The LPYE set
 # is strongly skewed: the median record is 1176 points while the longest
 # is 39129, and only 4.7% exceed 10000. A six-level geometric ladder puts
 # 33% of the benchmark above 10000, over-weighting the most expensive
@@ -1295,11 +1296,11 @@ _ELUTION_SHRINK = 0.85
 
 def draw_record_length(rng: np.random.Generator) -> int:
     """
-    Draw a record length from the real LPYE length distribution.
+    Draw a record length from the LPYE length distribution.
 
     Inverse-CDF sampling on `ERB_NATIVE_N_QUANTILES`: a uniform draw is
-    mapped through the measured quantile function, so the generated
-    lengths follow the real distribution, span its full range, and take
+    mapped through the LPYE quantile function, so the generated
+    lengths follow that distribution, span its full range, and take
     arbitrary values.
 
     Parameters
@@ -1310,7 +1311,7 @@ def draw_record_length(rng: np.random.Generator) -> int:
     Returns
     -------
     n : int
-        A record length in points, between the real minimum and maximum.
+        A record length in points, between the LPYE minimum and maximum.
 
     """
     grid = np.linspace(0., 1., len(ERB_NATIVE_N_QUANTILES))
@@ -1329,10 +1330,10 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
     benchmark needs.
 
     From `native`, by way of `native_peak_component`, the reviewed peak
-    model calibrated to the LPYE instrument: 120 points per minute, the
+    model chosen to match the LPYE dataset: 120 points per minute, the
     bipolar injection artifact at an absolute dead time near 4.5 min,
     exponentially-modified Gaussian analytes eluting after it, widths
-    growing with retention time, and detector noise at the measured
+    growing with retention time, and detector noise at the LPYE
     level.
 
     From `erb`, by way of `erb_baseline`: a baseline that is an exact
@@ -1345,9 +1346,9 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
     **Scales.** The baseline is evaluated on a normalized 0-1000
     abscissa spanning the record, because `erb_baseline`'s coefficients
     are written for that range; its output is then read as mV. Erb's
-    baselines span roughly 2-12 in his units, and the drift measured on
-    the real records spans 0.08-12.5 mV, so the two scales coincide to
-    within the spread of the real data.
+    baselines span roughly 2-12 in his units, and the drift of the LPYE
+    records spans 0.08-12.5 mV, so the two scales coincide to within the
+    spread of the dataset.
 
     Parameters
     ----------
@@ -1367,7 +1368,7 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
         differences, which on quantized data is pinned to the lattice
         and on continuous data is a true noise estimate, so an
         unquantized benchmark exercises a different quantity under
-        the same name. See tools/synthetic/synthetic_data.md §4.
+        the same name. See tools/synthetic/synthetic_data.md §5.
 
     Returns
     -------
@@ -1506,7 +1507,7 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
     Render one synthetic signal against its known ground truth.
 
     Always produced so the synthetic data can be eyeballed against the
-    real chromatograms before it is trusted for scoring. Shows the raw
+    LPYE chromatograms before it is trusted for scoring. Shows the raw
     measured signal, the true baseline, and the true baseline-corrected
     signal (peaks + noise), with the dead-time region marked.
 
@@ -1568,7 +1569,7 @@ def main() -> None:
                         choices=('native', 'lit', 'erb_native', 'both',
                                  'all'),
                         default='both',
-                        help="'native' = calibrated to the LPYE data; "
+                        help="'native' = chosen to match the LPYE data; "
                              "'lit' = generic Ning 2014 benchmark "
                              "conditions; 'erb_native' = the LPYE peak "
                              "component on Erb's four analytic "
@@ -1579,7 +1580,7 @@ def main() -> None:
     parser.add_argument('--no-plot', action='store_true',
                         help='skip the per-signal PNG in plots/ '
                              '(rendered by default so the synthetic data '
-                             'can be reviewed against the real signals)')
+                             'can be reviewed against the LPYE signals)')
     args = parser.parse_args()
 
     sig_dir = os.path.join(args.output, 'signals')

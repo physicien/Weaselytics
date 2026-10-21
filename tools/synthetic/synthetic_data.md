@@ -27,9 +27,25 @@ peak-free-stretch selection and its modified Pearson VII peaks are in commit
 `efc7aa7`, with their design in that commit's
 `tools/synthetic/synthetic_data.md` §2 to §8.
 
-## 2. The injection / dead-time artifact
+## 2. The LPYE dataset
 
-Real LPYE runs carry a bipolar excursion at the dead time: a positive spike
+The `native` and `erb_native` families are chosen to match an experimental
+dataset that is not distributed with the package: 339 chromatograms of
+fullerenes and fullertubes, whose separation chemistry is described in
+Bourret, Stevenson & Côté (2024). Its run conditions:
+
+- a PYE (pyrenylethyl) column, 150 mm long and 10 mm I.D. (header code
+  `SAS-150-10-30`);
+- isocratic elution at 3.06 mL/min, the mobile phase varying between runs;
+- UV-visible detection at one of ten wavelengths between 300 and 568 nm, most
+  often 410 nm (173 runs);
+- the detector output in mV, sampled at 60 (79 runs), 120 (226) or 180 (34)
+  points per minute, from 473 to 39,129 points per run;
+- 67 blanks among the 339 runs.
+
+## 3. The injection / dead-time artifact
+
+The LPYE runs carry a bipolar excursion at the dead time: a positive spike
 followed by a negative undershoot, which on many blanks is the largest
 feature of the trace. The negative lobe is the documented reason the
 production BEADS call uses a symmetric cost (`asymmetry = 1`).
@@ -53,32 +69,32 @@ column and flow rate. Pinning it would build an instrument constant into the
 benchmark. The position is drawn from a wide range and recorded per signal, so
 that any dependence of a constant on it is measurable.
 
-## 3. Noise
+## 4. Noise
 
 White Gaussian noise is **added** at a known level, so the noise component is
 known exactly rather than inferred (Niezen 2022, §4.1.1, step ii).
 
-## 4. Quantization
+## 5. Quantization
 
-The LPYE detector output is digitized at
+The LPYE dataset is digitized at
 
 ```
 q = 0.008996 mV
 ```
 
-Measured: in all 339 reference signals every consecutive difference is an
+In all its records every consecutive difference is an
 exact integer multiple of `q` to within 1e-9, a ~900-point record holds only
 45–60 distinct values, and ~25% of consecutive samples are identical.
 
 Assembled signals are **rounded to multiples of `q`**. This matters beyond
 realism: `baseline._snr` divides by a MAD of consecutive differences, which on
 quantized data is pinned to the lattice and takes only five distinct values
-across the whole reference set. On continuous synthetic data the same function
+across the dataset. On continuous synthetic data the same function
 returns a true signal-to-noise ratio. Without quantization the benchmark would
 exercise a different quantity under the same name. That has happened once
 already; see the README TO DO.
 
-## 5. Scoring
+## 6. Scoring
 
 Two metrics, because Niezen measured that they disagree about which method
 wins (§4.3.2 against §4.3.3):
@@ -93,9 +109,9 @@ the one giving the smallest peak-area errors. Since the deliverable of this
 project is peak areas, both are reported; optimizing on RMSE alone would risk
 grounding a constant against the wrong quantity.
 
-## 6. The `pyb` family: idealized signals from the pybaselines docs
+## 7. The `pyb` family: idealized signals from the pybaselines docs
 
-### 6.1 Why `make_data` is not called
+### 7.1 Why `make_data` is not called
 
 The docstring of `pybaselines.utils.make_data` states the output "may change
 without notice to meet the needs of the examples in the pybaselines
@@ -112,7 +128,7 @@ including one asserting **bit-for-bit** equality with
 rather than `h·exp(-0.5((x-c)/σ)²)`: algebraically identical, different in the
 last bits, and the first is what the source computes.
 
-### 6.2 The two sources and what each contributes
+### 7.2 The two sources and what each contributes
 
 **[A] `docs/examples/misc/plot_beads_preprocessing.py`**: three baselines that
 violate the BEADS periodicity requirement by degrees, which is what that
@@ -139,7 +155,7 @@ datasets with these BEADS parameters:
 
 `asymmetry = 1` is used on exactly the dataset with negative peaks, and 6–8 on
 the others. Production uses `asymmetry = 1` because of the bipolar dead-time
-undershoot (§2), and the library author uses the same value for the same
+undershoot (§3), and the library author uses the same value for the same
 reason.
 
 Second, `freq_cutoff` spans **0.01 to 0.08** across the five datasets of one
@@ -151,7 +167,7 @@ must cover.
 they are *not* ground truth for the optimum. The **baselines** are exact,
 which is what the benchmark needs.
 
-### 6.3 The eight cases
+### 7.3 The eight cases
 
 `PYB_CASES` in `synth_dataset.py`; `pyb_signal(case, seed=None)` returns
 `x`, `y`, `signal`, `baseline`, `noise` and a `meta` dict. With `seed=None`
@@ -159,7 +175,7 @@ each case reproduces its published figure exactly, using the seed published
 with it (1 for [B], 0 for [A]); an explicit seed produces a replicate with
 the same signal and baseline but fresh noise.
 
-### 6.4 From eight cases to a population
+### 7.4 From eight cases to a population
 
 Eight signals cannot separate a real effect from a coincidence: three of Erb's
 signals already produced a monotone trade-off that no single threshold
@@ -186,7 +202,7 @@ documentation** at the pinned commit, collected from `docs/examples/*/*.py`,
 The record-length widening is deliberate and load-bearing: length sets the
 fundamental, `1/n_used`, which is exactly what `instability_boundary` keys
 on. A benchmark fixed at two lengths could not detect a constant that depends
-on it, and the real LPYE records span 473–39,129 points.
+on it, and the LPYE records span 473–39,129 points.
 
 **Baseline components.** One or two are summed, as the documentation itself
 does (`10 - 0.005x + gaussian(x, 5, 850, 200)`): `linear`, `exponential`,
@@ -198,7 +214,7 @@ the collected published values, signs included, so
 **Negative peaks** occur with probability 0.2, mirroring the published `B5`
 case; when they occur a random subset of peaks is subtracted. This is the
 purely-synthetic analogue of the LPYE dead-time undershoot, and the reason
-`asymmetry = 1` exists in production (§6.2).
+`asymmetry = 1` exists in production (§7.2).
 
 **The endpoint condition is recorded, not forced.** How close the baseline
 sits to its own minimum at each end is measured and stored in
@@ -211,24 +227,24 @@ incidentally.
 per-peak list, so any dependence of a constant on any generator parameter can
 be measured after the fact.
 
-## 7. What this benchmark does not establish
+## 8. What this benchmark does not establish
 
 - **Cross-machine reproducibility bounds what can be concluded.** The swept
   `r²` curve is ill-conditioned at low cutoff: a one-ulp difference in the
-  frequency grid reaches 5.6e-2 of `r²` near `fcut` 1e-4, and 6 of 339
-  signals select a cutoff more than 0.1 decade apart across a numpy/scipy
+  frequency grid reaches 5.6e-2 of `r²` near `fcut` 1e-4, and 6 of the 339
+  LPYE records select a cutoff more than 0.1 decade apart across a numpy/scipy
   version change. No constant should be grounded to a precision finer than
   ~1e-3 near the fundamental; below that, the benchmark measures the
   machine. See the README TO DO.
 
-## 8. What BEADS assumes, and where this benchmark violates it
+## 9. What BEADS assumes, and where this benchmark violates it
 
 Measured on `SYNTH_ERB_2026-08-18` (432 signals, 2026-08-20), scored by
 `target_rmse`, the RMS departure in mV between the baseline fitted at
 the true optimum and the known baseline. "Bad" below means >= 0.10 mV,
 Emmanuel's provisional line drawn by eye on the merged figures.
 
-### 8.1 The assumptions, as the authors state them
+### 9.1 The assumptions, as the authors state them
 
 Ning, Selesnick & Duval (2014):
 
@@ -260,7 +276,7 @@ quantification error after subtraction, not baseline correctness.
 split below is therefore a finding outside what either author
 addressed.
 
-### 8.2 Failure by peak case and baseline
+### 9.2 Failure by peak case and baseline
 
 Percentage at or above 0.10 mV, 72 signals per peak case, 144 per
 baseline:
@@ -294,7 +310,7 @@ multi_wide        5/24   18/24   24/24
 it does not defeat BEADS without analyte peaks. Failure needs both a
 hard baseline and peaks.
 
-### 8.3 Crowding, not the baseline alone
+### 9.3 Crowding, not the baseline alone
 
 Chromatographic resolution between adjacent analytes, `Rs = 1.18 (t2 -
 t1) / (w1 + w2)` on FWHM, computed from the truth parameters over the
@@ -318,7 +334,7 @@ passing signals sit at Rs 0.06 and failing ones at 1.03.
 0.13 vs 0.09). So crowding accounts for `multi_narrow` and
 `multi_mixed x erb2`, and does not account for `multi_wide x erb0`.
 
-### 8.4 The generator makes mostly unresolved chromatograms
+### 9.4 The generator makes mostly unresolved chromatograms
 
 **252 of 288** multi-peak signals have at least one adjacent pair below
 Rs = 1.5, the conventional baseline-resolution mark. Peaks covering a
@@ -327,23 +343,22 @@ in the sense of assumption 1, so a large part of the `multi_*` failure
 population is the benchmark asking BEADS for something its model does
 not describe.
 
-### 8.5 The analytic baselines are unlike the real ones
+### 9.5 The analytic baselines are unlike the LPYE ones
 
-From `runs/REAL_BASELINES_2026-08-20`, the baselines production fits to
-the 339 real chromatograms:
+The baselines production fits to the 339 LPYE chromatograms:
 
 | | p10 | median | p90 | max |
 |---|---|---|---|---|
-| real baseline range (mV) | 0.113 | **0.279** | 1.604 | 7.799 |
-| real signal range (mV) | 1.700 | 5.092 | 14.165 | 65.500 |
+| LPYE baseline range (mV) | 0.113 | **0.279** | 1.604 | 7.799 |
+| LPYE signal range (mV) | 1.700 | 5.092 | 14.165 | 65.500 |
 
 Against `erb0` 5.00 mV, `erb1` 8.11 mV, `erb2` 12.13 mV. **The
-benchmark's smallest baseline is eighteen times the median real one.**
-Only 5 of 339 real baselines exceed 5 mV of range, and only 56 exceed
+benchmark's smallest baseline is eighteen times the median LPYE one.**
+Only 5 of the 339 baselines exceed 5 mV of range, and only 56 exceed
 1 mV.
 
-Plotted on a shared axis with their signals, the real baselines read as
-flat with a slight tilt, or a single shallow bend; the few with real
+Plotted on a shared axis with their signals, the LPYE baselines read as
+flat with a slight tilt, or a single shallow bend; the few with appreciable
 range are monotone (`Cyclohexane C60C70C90 6`, 7.8 mV over 650 min,
 zero direction changes). The only visibly structured ones are the
 runs where the baseline is following analyte, which is a
@@ -361,6 +376,9 @@ drift, and the statistic is meaningless at that amplitude.
 - Navarro-Huerta, J.A. et al. (2017). Assisted baseline subtraction in
   complex chromatograms using the BEADS algorithm. *J. Chromatogr. A*
   **1507**, 1–10. doi:10.1016/j.chroma.2017.05.057
+- Bourret, E., Stevenson, S., Côté, M. (2024). Anisotropic Contributions in
+  the Chromatographic Elution Behavior of Fullerenes and Fullertubes.
+  *J. Phys. Chem. C* **128**, 13283–13298.
 - Niezen, L.E., Schoenmakers, P.J., Pirok, B.W.J. (2022). Critical comparison
   of background correction algorithms used in chromatography. *Anal. Chim.
   Acta* **1201**, 339605. doi:10.1016/j.aca.2022.339605;

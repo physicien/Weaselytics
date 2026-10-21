@@ -161,12 +161,12 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
         given, a third row is written and the columns ``m`` and ``E``
         are appended.
 
-        Note ``m`` is **censored at 1000**, the upper bound of
-        `peakfitting.PEARSON7_M_BOUNDS`: the Gaussian is only reached in
-        the limit, so a genuinely Gaussian peak drives ``m`` to the rail
-        and the value there means "Gaussian" rather than a fitted
-        number. ``m`` and ``E`` are left empty on the Gaussian and
-        Skew-Normal rows, not applicable being different from zero.
+        The shape becomes Gaussian only as ``m`` -> inf, so a Gaussian
+        peak drives ``m`` to 1000, the upper bound of
+        `peakfitting.PEARSON7_M_BOUNDS`. An ``m`` of 1000 therefore
+        means the peak is Gaussian. ``m`` and ``E`` are left empty, not
+        zero, on the Gaussian and Skew-Normal rows, where they do not
+        apply.
 
     Returns
     -------

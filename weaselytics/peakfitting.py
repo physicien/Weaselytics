@@ -138,20 +138,15 @@ def skew_norm(x: np.ndarray, params: np.ndarray) -> np.ndarray:
     return dist
 
 #: Bounds on the modified Pearson VII shape parameters, from Milani
-#: et al. (2024) §3.1.1: "M was restricted to a range of 1-1000, and E
+#: et al. (2024) §3.1.3: "M was restricted to a range of 1-1000, and E
 #: to -0.3 to +0.3, preventing implausible peak fits while favoring
 #: mathematically ideal solutions." M -> 1 is a Lorentzian and M -> inf
 #: a Gaussian, so the upper bound only excludes shapes already
 #: indistinguishable from a Gaussian.
 #:
-#: **A reported m at the upper bound is a rail, not a measurement.**
-#: Because the Gaussian is only reached in the limit, a peak that really
-#: is Gaussian drives m upward until it stops at 1000; the value then
-#: says "Gaussian, as far as this model can express it" and carries no
-#: further information. Measured on 92 real analyte peaks this happens
-#: on 9 of them (10%), concentrated in the later-eluting molecules; away
-#: from the rail m has a median of 6.6 and spans 1.0 to 109. Anything
-#: consuming the exported `m` column should treat 1000 as censored.
+#: The shape becomes Gaussian only as m -> inf, so no finite m fits a
+#: Gaussian peak. Fitting one drives m to the upper bound, so an
+#: exported m of 1000 means the peak is Gaussian.
 PEARSON7_M_BOUNDS = (1.0, 1000.0)
 PEARSON7_E_BOUNDS = (-0.3, 0.3)
 
@@ -171,9 +166,7 @@ def pearson7(x: np.ndarray, params: np.ndarray) -> np.ndarray:
     Gaussian and the exponentially-modified Gaussian for chromatographic
     peaks: Niezen et al. compared fifteen distributions by the Akaike
     information criterion and ranked it first (Table 1), and Milani et
-    al. measured a lower RMSE over 458 fitted peaks. The comparison run
-    for this project is in ``tools/synthetic/synthetic_data.md`` §4 of
-    commit ``efc7aa7``.
+    al. measured a lower RMSE over 458 fitted peaks.
 
     Parameters
     ----------
@@ -375,7 +368,7 @@ def _lsq_pearson7_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Fit a modified Pearson VII distribution via robust least-squares.
 
     The shape bounds are `PEARSON7_M_BOUNDS` and `PEARSON7_E_BOUNDS`,
-    both from Milani et al. (2024) §3.1.1. The starting values, m = 10
+    both from Milani et al. (2024) §3.1.3. The starting values, m = 10
     and a symmetric E = 0, are optimiser seeds only, chosen inside the
     published range rather than fitted to any dataset.
 

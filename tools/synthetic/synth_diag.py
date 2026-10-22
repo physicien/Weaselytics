@@ -336,6 +336,31 @@ def _err_at(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     return float(error_curve(x, s, b_true, np.array([fcut]))[0])
 
 
+def stem_fields(stem: str) -> dict:
+    """
+    Read the case keys from a synthetic signal's name.
+
+    Parameters
+    ----------
+    stem : str
+        A name ``SYN__family__case__baseline__noise__replicate__n``, as
+        `synth_dataset.signal_stem` writes it. Names written before the
+        replicate moved ahead of the length read their length as the
+        replicate.
+
+    Returns
+    -------
+    fields : dict
+        ``peak_case``, ``baseline_case``, ``noise_case`` and
+        ``replicate``, empty where the name is shorter.
+
+    """
+    parts = stem.split('__')
+    keys = ('peak_case', 'baseline_case', 'noise_case', 'replicate')
+    return {k: parts[i] if len(parts) > i else ''
+            for k, i in zip(keys, range(2, 6))}
+
+
 def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
              diag_dir: str, workers: int, stride: int,
              reuse_err: bool = True, snr_threshold: float = 10.0) -> dict:
@@ -503,13 +528,8 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
              instab_removed=pd['cp_instab_removed'],
              dip_mask=pd['cp_dips'], flat_mask=pd['cp_flat'])
 
-    parts = stem.split('__')
     return {
-        'stem': stem,
-        'peak_case': parts[2] if len(parts) > 2 else '',
-        'baseline_case': parts[3] if len(parts) > 3 else '',
-        'noise_case': parts[4] if len(parts) > 4 else '',
-        'n_points': len(s), 'replicate': parts[6] if len(parts) > 6 else '',
+        'stem': stem, **stem_fields(stem), 'n_points': len(s),
         'n_used': n_used, 'snr': snr_val,
         'fc_best': fc_best, 'e_min': e_min,
         'e_med': float(np.nanmedian(err)), 'e_max': float(np.nanmax(err)),

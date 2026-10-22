@@ -35,8 +35,8 @@ class TestErrorCurve:
         # running monotonically to an edge, which is what a broken
         # metric would do.
         rng = np.random.default_rng(0)
-        d = synth.erb_native_signal(900, 'multi_narrow', 1, 0.019, rng,
-                                    quantise_output=False)
+        d = synth.erb_signal(900, 'many', 1, 0.019, rng,
+                             quantise_output=False)
         fcuts = np.geomspace(1e-3, 0.2, 12)
         err = diag.error_curve(d['x'], d['y'], d['baseline'], fcuts)
         assert np.isfinite(err).sum() >= 10
@@ -263,8 +263,8 @@ class TestErrorCurveReuse:
 
     def _case(self, seed=0, n=700):
         rng = np.random.default_rng(seed)
-        d = synth.erb_native_signal(n, 'multi_narrow', 1, 0.019, rng,
-                                    quantise_output=False)
+        d = synth.erb_signal(n, 'many', 1, 0.019, rng,
+                             quantise_output=False)
         return d['x'], d['y'], d['baseline']
 
     def test_key_is_stable_for_the_same_inputs(self):
@@ -298,3 +298,14 @@ class TestErrorCurveReuse:
             other = diag._err_key(y, x, b, fcuts)
         assert other != base
         assert B is not None
+
+
+class TestStemFields:
+    def test_reads_back_what_the_generator_writes(self):
+        stem = synth.signal_stem('erb', 'many', 'step', 'high', 7, 4312, 2)
+        assert diag.stem_fields(stem) == {
+            'peak_case': 'many', 'baseline_case': 'step',
+            'noise_case': 'high', 'replicate': '07'}
+
+    def test_short_names_leave_fields_empty(self):
+        assert diag.stem_fields('SYN__erb')['replicate'] == ''

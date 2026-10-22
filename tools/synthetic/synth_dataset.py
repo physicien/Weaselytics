@@ -44,31 +44,36 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from scipy.ndimage import gaussian_filter1d  # noqa: E402
-from scipy.stats import exponnorm  # noqa: E402
+from scipy.stats import exponnorm, skewnorm  # noqa: E402
 
 PEAK_CASES = {
-    # (number of peaks, FWHM range in points at the run start);
-    # 'isocratic' ignores the range and derives widths from a constant
-    # plate number instead (width proportional to retention time)
-    'blank': (0, None),
-    'single_narrow': (1, (8, 14)),
-    'multi_narrow': (6, (8, 14)),
-    'multi_mixed': (6, (10, 45)),
-    'multi_wide': (4, (40, 90)),
-    'isocratic': (7, None),
+    # (fewest, most) analytes, the count drawn per signal. Every case
+    # takes its widths from the plate model (`PLATE_NUMBER_RANGE`);
+    # 'isocratic' also pins an early and a late eluter and keeps the
+    # exact plate width.
+    'blank': (0, 0),
+    'single': (1, 1),
+    'few': (3, 4),
+    'many': (6, 8),
+    'isocratic': (7, 7),
 }
+# Column plate number, drawn once per signal and chosen to match the LPYE
+# dataset. On its peaks above 0.5 mV, N = 5.54 (tR / W1/2)^2 (Snyder,
+# Kirkland & Dolan 2009, §2.4, Eq. 2.9a, p. 35) spans about this range
+# from its 10th to its 90th percentile. The same book calls an
+# N of about 10,000 a good starting point (§2.5, p. 57).
+PLATE_NUMBER_RANGE = (2000., 14000.)
 BASELINE_CASES = ['exp', 'hump', 'exp_hump_drift']
-# White detector noise, chosen to match the LPYE dataset, whose noise
-# (MAD of consecutive differences) is nearly constant in absolute terms
-# at ~0.019 mV regardless of amplitude or blank/non-blank, with a
-# maximum of 0.047. These two cases bracket its median and upper tail.
-NOISE_CASES = {'typ': 0.019, 'high': 0.038}
+# White detector noise. The LPYE noise (MAD of consecutive differences)
+# is nearly constant in absolute terms at ~0.019 mV regardless of
+# amplitude or blank/non-blank, with a maximum of 0.047. 'typ' sits at
+# its median and 'high' just above its maximum.
+NOISE_CASES = {'typ': 0.02, 'high': 0.05}
 # Record lengths for the native family. LPYE n_points spans 473-39000
-# (median 1180). The dead time is absolute at ~4.5 min and analytes
-# elute after it, so a native record must span well beyond it: at
-# 120 pts/min these are 7.5, 15 and 33 min, all comfortably past a
-# 4.5 min dead time, and they bracket the LPYE median and the long-run
-# regime (Cyclohexane, Benzene).
+# (median 1180). Analytes elute after the dead time, so a native record
+# must span well beyond it: at 120 pts/min these are 7.5, 15 and 33 min,
+# all past the 6.5 min upper bound of the dead time, and they bracket
+# the LPYE median and the long-run regime (Cyclohexane, Benzene).
 N_CASES = [900, 1800, 4000]
 
 # Points per minute. 120 pts/min (two samples per second) is the most
@@ -192,442 +197,24 @@ def gauss_peak(t: np.ndarray, tc: float, sigma: float,
     return height * np.exp(-0.5 * ((t - tc) / sigma) ** 2)
 
 
-# --------------------------------------------------------------------
-# The `pyb` family: idealized signals built on the examples of the
-# pybaselines documentation. See tools/synthetic/synthetic_data.md §7.
-#
-# NOT IMPORTED. `pybaselines.utils.make_data` states that
-# its output "may change without notice ... outside users are advised
-# not to rely on the exact output", and this project has already been
-# bitten once by an undocumented pybaselines change (the beads lam_0/1/2
-# defaults). Calling it would make every score depend on the install
-# date.
-#
-# Sources, both read at pybaselines commit c36ce6128 and unchanged
-# since:
-#   [A] docs/examples/misc/plot_beads_preprocessing.py, make_data()
-#       three baselines that violate the BEADS periodicity requirement
-#       by degrees (Navarro-Huerta 2017 §3.3.1): ends at zero on both /
-#       one / neither end.
-#   [B] docs/algorithms/algorithms_1d/misc.rst, create_data()
-#       five datasets varying peak density, noise level and baseline
-#       shape, one of which carries NEGATIVE peaks.
+###############################################################################
+# Erb's test baselines: the analytic baselines of the `make_data` function
+# Donald Erb, author of pybaselines, wrote to test the cutoff-frequency
+# selection of this project. The `erb` family places the LPYE peak
+# component on them.
+###############################################################################
 
 def _g(x: np.ndarray, height: float, center: float,
        sigma: float) -> np.ndarray:
     """
     ``pybaselines.utils.gaussian`` in its own argument order.
 
-    Defined here so the formulas below keep the documentation's argument
-    order, and evaluated with pybaselines' own
-    expression, ``h * exp(-0.5 * (x - c)**2 / s**2)``, rather than with
-    `gauss_peak`'s ``h * exp(-0.5 * ((x - c) / s)**2)``. The two are
-    algebraically identical but differ in the last bits, and the point
-    of this family is that the signals reproduce the published figures
-    exactly; the tests assert bit-equality with pybaselines and
-    approximate equality with `gauss_peak`.
+    Evaluated with pybaselines' own expression,
+    ``h * exp(-0.5 * (x - c)**2 / s**2)``, so `erb_baseline` uses the
+    same expression as Erb's script.
 
     """
     return height * np.exp(-0.5 * ((x - center) ** 2) / sigma ** 2)
-
-
-def pyb_peaks(x: np.ndarray, group: str) -> np.ndarray:
-    """
-    Evaluate one of the pybaselines peak groups.
-
-    Parameters
-    ----------
-    x : array-like, shape (N,)
-        The abscissa.
-    group : {'A', 'B', 'C', 'preproc'}
-        ``'A'``, ``'B'`` and ``'C'`` are ``signal``, ``signal_2`` and
-        ``signal_3`` of source [B]; ``'preproc'`` is the eight-peak
-        signal of source [A].
-
-    Returns
-    -------
-    signal : numpy.ndarray, shape (N,)
-
-    """
-    if group == 'A':
-        return (_g(x, 6, 180, 5) + _g(x, 8, 350, 10)
-                + _g(x, 6, 550, 5) + _g(x, 9, 800, 10))
-    if group == 'B':
-        return (_g(x, 9, 100, 12) + _g(x, 15, 400, 8)
-                + _g(x, 13, 700, 12) + _g(x, 9, 880, 8))
-    if group == 'C':
-        return (_g(x, 8, 150, 10) + _g(x, 20, 120, 12)
-                + _g(x, 16, 300, 20) + _g(x, 12, 550, 5)
-                + _g(x, 20, 750, 12) + _g(x, 18, 800, 18)
-                + _g(x, 15, 830, 12))
-    if group == 'preproc':
-        return (_g(x, 9, 100, 12) + _g(x, 6, 180, 5) + _g(x, 8, 350, 11)
-                + _g(x, 15, 400, 18) + _g(x, 6, 550, 6)
-                + _g(x, 13, 700, 8) + _g(x, 9, 800, 9)
-                + _g(x, 9, 880, 7))
-    raise ValueError(f"unknown peak group {group!r}")
-
-
-def pyb_baseline(x: np.ndarray, kind: str) -> np.ndarray:
-    """
-    Evaluate one of the pybaselines baselines.
-
-    The three ``ends_*`` kinds are source [A] and are named for what
-    they do to the BEADS periodicity requirement, which is the reason
-    they exist: `ends_both` reaches zero at both ends, `ends_one` at
-    one, `ends_neither` at neither.
-
-    Parameters
-    ----------
-    x : array-like, shape (N,)
-        The abscissa.
-    kind : str
-        One of ``'ends_both'``, ``'ends_one'``, ``'ends_neither'``,
-        ``'linear'``, ``'exponential'``, ``'gaussian'``,
-        ``'decreasing_bump'``, ``'linear_offset'``.
-
-    Returns
-    -------
-    baseline : numpy.ndarray, shape (N,)
-
-    """
-    if kind == 'ends_both':          # [A] type 0, parabola
-        return 2e-5 * (x - 500) ** 2 - 5
-    if kind == 'ends_one':           # [A] type 1
-        return 10 - 10 * np.exp(-x / 600)
-    if kind == 'ends_neither':       # [A] type 2, integrated gaussian
-        return (-np.cumsum(_g(x, 0.05, 400, 100))
-                + _g(x, 3, 800, 100) - 5)
-    if kind == 'linear':             # [B] linear_baseline
-        return 3 + 0.01 * x
-    if kind == 'exponential':        # [B] exponential_baseline
-        return 5 + 15 * np.exp(-x / 400)
-    if kind == 'gaussian':           # [B] gaussian_baseline
-        return 5 + _g(x, 20, 500, 500)
-    if kind == 'decreasing_bump':    # [B] baseline_4
-        return 10 - 0.005 * x + _g(x, 5, 850, 200)
-    if kind == 'linear_offset':      # [B] baseline_5
-        return 3 + 0.01 * x + 20
-    raise ValueError(f"unknown baseline kind {kind!r}")
-
-
-#: The eight `pyb` cases. Each is
-#: ``(n_points, x_range, peak_expression, baseline_kind, noise_scale,
-#:   published_seed, source)``. The five from [B] reproduce y1..y5 of
-#: that figure exactly, including its documented BEADS parameters; the
-#: three from [A] reproduce its endpoint ladder. `neg` marks the case
-#: carrying negative peaks: the published analogue of the LPYE
-#: dead-time undershoot, and the one for which the pybaselines
-#: documentation itself uses ``asymmetry=1`` while using 6-8 elsewhere.
-PYB_CASES = {
-    #                       n     x_range      peaks          baseline
-    'B1_sparse_hi_noise': (500, (1., 1000.), ('2A',),      'linear',
-                           5.0, 1, 'B'),
-    'B2_dense':           (500, (1., 1000.), ('A', 'B', 'C'), 'gaussian',
-                           1.0, 1, 'B'),
-    'B3_medium':          (500, (1., 1000.), ('A', 'B'),   'exponential',
-                           1.0, 1, 'B'),
-    'B4_lo_noise':        (500, (1., 1000.), ('A', 'B'),   'decreasing_bump',
-                           0.5, 1, 'B'),
-    'B5_negative_peaks':  (500, (1., 1000.), ('2A', '-B'), 'linear_offset',
-                           1.0, 1, 'B'),
-    'A0_ends_both':       (1000, (0., 1000.), ('preproc',), 'ends_both',
-                           1.0, 0, 'A'),
-    'A1_ends_one':        (1000, (0., 1000.), ('preproc',), 'ends_one',
-                           1.0, 0, 'A'),
-    'A2_ends_neither':    (1000, (0., 1000.), ('preproc',), 'ends_neither',
-                           1.0, 0, 'A'),
-}
-
-#: Base noise standard deviation of both sources, scaled per case by the
-#: `noise_scale` entry of `PYB_CASES`.
-PYB_NOISE_STD = 0.2
-
-
-# --------------------------------------------------------------------
-# Randomized `pyb` generation.
-#
-# Eight signals cannot separate a real effect from a coincidence, so the
-# ranges below turn the fixed cases above into a population. Every one of
-# them is the span of values actually used across the pybaselines
-# documentation at the pinned commit, collected from docs/examples/*/*.py,
-# docs/algorithms/algorithms_1d/*.rst and utils.make_data. Where a range
-# is WIDER than the published span, it says so and why.
-#
-# Peak parameters, from the published peak lists (heights 4-20, centres
-# 100-880 on a span of 1000, sigmas 5-20, counts 4-15). The height upper
-# bound is 40 because two of the published datasets use `signal * 2`.
-PYB_N_PEAKS = (4, 15)
-PYB_PEAK_HEIGHT = (4.0, 40.0)
-PYB_PEAK_CENTER_FRAC = (0.10, 0.88)     # of the abscissa span
-PYB_PEAK_SIGMA_FRAC = (0.005, 0.020)    # of the abscissa span
-
-# Noise: the documentation uses std 0.05 and 0.2, scaled per dataset by
-# 0.5, 1 and 5, giving 0.025 to 1.0.
-PYB_NOISE_STD_RANGE = (0.025, 1.0)
-
-# Record length: the documentation uses 500 and 1000 points. WIDENED to
-# 300-4000: the LPYE records span 473-39129 points, and record
-# length changes the fundamental (1/n_used), which is what the
-# instability trim keys on. A benchmark fixed at two lengths could not
-# detect a constant that depends on it.
-PYB_N_POINTS = (300, 4000)
-
-#: Baseline component vocabulary. Each entry is a builder taking
-#: ``(x, rng)`` and returning ``(values, description)``. Coefficient
-#: ranges are the spans observed in the documentation; the sources for
-#: each are named in tools/synthetic/synthetic_data.md §7.4.
-def _bc_linear(x, rng):
-    a = rng.uniform(1., 30.)             # offsets 1, 3, 5, 10, 15, 30
-    b = rng.uniform(-0.005, 0.01)        # slopes -0.005 .. +0.01
-    return a + b * x, f'linear(a={a:.3g}, b={b:.3g})'
-
-
-def _bc_exponential(x, rng):
-    a = rng.uniform(5., 10.)
-    c = rng.uniform(-15., 15.)           # both signs appear (10-10exp)
-    tau = rng.uniform(150., 1200.)       # published 150 .. 1200
-    span = x[-1] - x[0]
-    return (a + c * np.exp(-(x - x[0]) / (tau / 1000. * span)),
-            f'exponential(a={a:.3g}, c={c:.3g}, tau={tau:.3g})')
-
-
-def _bc_gaussian_bump(x, rng):
-    a = rng.uniform(5., 30.)
-    h = rng.uniform(-6., 20.)            # gaussian(x, -6, ...) appears
-    span = x[-1] - x[0]
-    c = x[0] + rng.uniform(0.3, 0.9) * span
-    s = rng.uniform(0.1, 0.5) * span     # published 100 .. 500 on 1000
-    return (a + _g(x, h, c, s),
-            f'gaussian_bump(a={a:.3g}, h={h:.3g}, c={c:.3g}, s={s:.3g})')
-
-
-def _bc_sine(x, rng):
-    a = rng.uniform(10., 70.)
-    amp = rng.uniform(1., 5.)            # published 1 and 5
-    # Period: only x/50 appears; WIDENED to 30-150 so the benchmark
-    # spans baselines the cutoff selector must treat differently.
-    period = rng.uniform(30., 150.)
-    return (a + amp * np.sin((x - x[0]) / period),
-            f'sine(a={a:.3g}, amp={amp:.3g}, period={period:.3g})')
-
-
-def _bc_parabola(x, rng):
-    span = x[-1] - x[0]
-    k = rng.uniform(1e-5, 3e-5) * (1000. / span) ** 2
-    x0 = x[0] + rng.uniform(0.35, 0.65) * span
-    a = rng.uniform(-10., 5.)
-    return k * (x - x0) ** 2 + a, f'parabola(k={k:.3g}, x0={x0:.3g})'
-
-
-def _bc_logistic(x, rng):
-    # The 'ends_neither' shape: a logistic approximated by integrating a
-    # gaussian, which is near zero at neither end.
-    span = x[-1] - x[0]
-    h = rng.uniform(0.02, 0.08)
-    c = x[0] + rng.uniform(0.25, 0.6) * span
-    s = rng.uniform(0.05, 0.2) * span
-    a = rng.uniform(-10., 0.)
-    return (-np.cumsum(_g(x, h, c, s)) + a,
-            f'logistic(h={h:.3g}, c={c:.3g}, s={s:.3g})')
-
-
-PYB_BASELINE_COMPONENTS = {
-    'linear': _bc_linear,
-    'exponential': _bc_exponential,
-    'gaussian_bump': _bc_gaussian_bump,
-    'sine': _bc_sine,
-    'parabola': _bc_parabola,
-    'logistic': _bc_logistic,
-}
-
-
-def pyb_random_signal(seed: int, n_points: int | None = None,
-                      negative_fraction: float = 0.2,
-                      max_components: int = 2) -> dict:
-    """
-    Generate one randomized ``pyb`` signal with exact ground truth.
-
-    Built from the same vocabulary as `PYB_CASES` (Gaussian peaks on a
-    composed analytic baseline with white noise), but with every
-    parameter drawn from the ranges observed across the pybaselines
-    documentation, so the family becomes a population. See
-    tools/synthetic/synthetic_data.md §7.4.
-
-    The baseline is the sum of one or two components, as the
-    documentation itself does (``10 - 0.005x + gaussian(x, 5, 850,
-    200)``). Nothing forces an endpoint condition: where the baseline
-    sits relative to zero at each end is *recorded* in the metadata
-    rather than imposed, so the periodicity axis is measurable without
-    being a design variable.
-
-    Parameters
-    ----------
-    seed : int
-        Seed for all draws, including the noise. The signal is a pure
-        function of it.
-    n_points : int, optional
-        Record length. Default None draws from `PYB_N_POINTS`.
-    negative_fraction : float, optional
-        Probability that the signal carries a negative peak group, as
-        the published ``B5`` case does. Default 0.2.
-    max_components : int, optional
-        Maximum number of summed baseline components. Default 2.
-
-    Returns
-    -------
-    components : dict
-        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise`` and
-        ``meta``. ``meta`` records every drawn parameter, so a signal can
-        be regenerated and any dependence on a parameter measured.
-
-    """
-    rng = np.random.default_rng(seed)
-    n = int(n_points if n_points is not None
-            else rng.integers(PYB_N_POINTS[0], PYB_N_POINTS[1] + 1))
-    x = np.linspace(0., 1000., n)
-    span = x[-1] - x[0]
-
-    n_peaks = int(rng.integers(PYB_N_PEAKS[0], PYB_N_PEAKS[1] + 1))
-    centers = x[0] + rng.uniform(*PYB_PEAK_CENTER_FRAC, n_peaks) * span
-    heights = np.exp(rng.uniform(*np.log(PYB_PEAK_HEIGHT), n_peaks))
-    sigmas = rng.uniform(*PYB_PEAK_SIGMA_FRAC, n_peaks) * span
-    negative = rng.random() < negative_fraction
-    signs = np.ones(n_peaks)
-    if negative:
-        # As in the published B5 case, a subset of the peaks is
-        # subtracted rather than added.
-        signs[rng.random(n_peaks) < 0.35] = -1.
-        if np.all(signs > 0):
-            signs[int(rng.integers(n_peaks))] = -1.
-    signal = np.zeros(n)
-    peaks = []
-    for h, c, s, sg in zip(heights, centers, sigmas, signs):
-        signal = signal + sg * _g(x, h, c, s)
-        peaks.append({'height': float(sg * h), 'center': float(c),
-                      'sigma': float(s)})
-
-    kinds = list(PYB_BASELINE_COMPONENTS)
-    n_comp = int(rng.integers(1, max_components + 1))
-    chosen = list(rng.choice(kinds, size=n_comp, replace=False))
-    baseline = np.zeros(n)
-    descs = []
-    for k in chosen:
-        vals, desc = PYB_BASELINE_COMPONENTS[k](x, rng)
-        baseline = baseline + vals
-        descs.append(desc)
-
-    noise_std = float(np.exp(rng.uniform(*np.log(PYB_NOISE_STD_RANGE))))
-    noise = rng.normal(0., noise_std, n)
-
-    rng_b = baseline.max() - baseline.min()
-    ends = (abs(baseline[0] - baseline.min()) / max(rng_b, 1e-12),
-            abs(baseline[-1] - baseline.min()) / max(rng_b, 1e-12))
-    return {'x': x, 'y': signal + baseline + noise, 'signal': signal,
-            'baseline': baseline, 'noise': noise,
-            'meta': {'family': 'pyb_random', 'seed': seed, 'n_points': n,
-                     'n_peaks': n_peaks, 'has_negative_peaks': bool(negative),
-                     'baseline_kinds': [str(k) for k in chosen],
-                     'baseline_desc': '; '.join(descs),
-                     'noise_std': noise_std,
-                     'baseline_range': float(rng_b),
-                     'end_offsets': [float(e) for e in ends],
-                     'peaks': peaks}}
-
-
-def pyb_signal(case: str, seed: int | None = None) -> dict:
-    """
-    Assemble one ``pyb`` synthetic signal with its exact ground truth.
-
-    Parameters
-    ----------
-    case : str
-        A key of `PYB_CASES`.
-    seed : int, optional
-        Seed of the noise generator. Default None uses the seed
-        published with the source, so the signal reproduces the
-        documentation figure exactly; pass an integer for a replicate.
-
-    Returns
-    -------
-    components : dict
-        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise``, and
-        ``meta`` describing the case and its provenance.
-
-    """
-    if case not in PYB_CASES:
-        raise ValueError(f"unknown pyb case {case!r}")
-    n, (x0, x1), groups, bkind, nscale, pub_seed, src = PYB_CASES[case]
-    x = np.linspace(x0, x1, n)
-    signal = np.zeros(n)
-    for g in groups:
-        if g.startswith('2'):
-            signal = signal + 2. * pyb_peaks(x, g[1:])
-        elif g.startswith('-'):
-            signal = signal - pyb_peaks(x, g[1:])
-        else:
-            signal = signal + pyb_peaks(x, g)
-    baseline = pyb_baseline(x, bkind)
-    rng_seed = pub_seed if seed is None else seed
-    noise = (np.random.default_rng(rng_seed).normal(0., PYB_NOISE_STD, n)
-             * nscale)
-    return {'x': x, 'y': signal + baseline + noise, 'signal': signal,
-            'baseline': baseline, 'noise': noise,
-            'meta': {'family': 'pyb', 'case': case, 'source': src,
-                     'baseline_kind': bkind, 'noise_scale': nscale,
-                     'seed': rng_seed, 'n_points': n,
-                     'has_negative_peaks': any(g.startswith('-')
-                                               for g in groups)}}
-
-
-###############################################################################
-# The `erb` family: the BEADS test signals of Donald Erb, author of
-# pybaselines, from the `make_data` function of a script he wrote to test
-# the cutoff-frequency selection of this project.
-###############################################################################
-
-# The seven Gaussian peaks of Erb's `make_data`, as (height, centre,
-# sigma) in the units of `x`. His script carries an eighth, commented
-# out: `gaussian(x, 15, 400, 18)`. It is kept, also disabled, because
-# its parameters are the only evidence for the upper end of the height
-# and width ranges the population draws from.
-ERB_PEAKS = ((9., 100., 12.), (6., 180., 5.), (8., 350., 11.),
-             (6., 550., 6.), (13., 700., 8.), (9., 800., 9.),
-             (9., 880., 7.))
-ERB_PEAK_DISABLED = (15., 400., 18.)
-
-ERB_NOISE_STD = 0.05
-ERB_SEED = 0
-
-# The three x-ranges his script offers, with the plateau count each is
-# annotated with in his own comments. MEASURED 2026-08-16 through the
-# production path: one_plateau and three_plateaus reproduce (1 and 3
-# detected flat regions); two_plateaus does NOT (1 detected). See
-# tools/synthetic/synthetic_data.md §10.2 for why.
-#
-#   name: (x_start, x_end, n_points, claimed_plateaus)
-ERB_CASES = {
-    'one_plateau': (0., 1000., 1000, 1),
-    'two_plateaus': (0., 4000., 1000, 2),
-    'three_plateaus': (-4000., 1000., 1000, 3),
-}
-
-# What the x-range knob actually varies is WHERE THE PEAKS SIT inside
-# the record, not the abscissa: the peak centres are fixed numbers
-# (100-880) while the span moves, so the peaks occupy 10-88% of the
-# record in the first case, 2.5-22% in the second and 82-98% in the
-# third. The population therefore varies that window directly, and the
-# ranges below are exactly the values his three cases take, and none
-# is widened.
-ERB_PEAK_WINDOW_START = (0.025, 0.82)
-ERB_PEAK_WINDOW_WIDTH = (0.16, 0.78)
-# Height and sigma spans of his eight peaks, the disabled one included.
-# Sigma is expressed as a fraction of the abscissa span, on which his
-# 5-18 over a span of 1000 becomes 0.005-0.018.
-ERB_PEAK_HEIGHT = (6., 15.)
-ERB_PEAK_SIGMA_FRAC = (0.005, 0.018)
-ERB_N_PEAKS = (7, 8)
-
 
 
 def erb_baseline(x: np.ndarray, kind: int,
@@ -684,146 +271,6 @@ def erb_baseline(x: np.ndarray, kind: int,
     if kind == 3:
         return 10. + 1. * np.sin(x / 50.)
     raise ValueError(f"unknown erb baseline kind {kind!r}")
-
-
-def erb_signal(case: str, baseline_type: int = 2,
-               seed: int | None = None) -> dict:
-    """
-    Assemble one of Erb's three fixed plateau-count cases.
-
-    Reproduces ``make_data`` exactly: the seven Gaussian peaks at their
-    published centres, one of the four baselines, and white noise at
-    ``ERB_NOISE_STD`` from seed 0. The peaks do not move with the
-    abscissa, which is what makes the three cases differ.
-
-    .. warning::
-       The plateau counts in `ERB_CASES` are **his annotations**.
-       Checked through the production path on 2026-08-16,
-       ``one_plateau`` and ``three_plateaus`` reproduce while
-       ``two_plateaus`` yields one detected region, not two: there the
-       peaks fall in the first quarter of the record, so
-       ``baseline._relevant_regions`` truncates the sweep to 235 of
-       1000 points and the fundamental moves with it.
-
-    Parameters
-    ----------
-    case : str
-        A key of `ERB_CASES`.
-    baseline_type : int, optional
-        Which of the four baselines, see `erb_baseline`. Default 2, the
-        one his plateau-count comments were written against.
-    seed : int, optional
-        Noise seed. Default None uses his published seed, so the signal
-        reproduces his script exactly; pass an integer for a replicate
-        with the same signal and baseline but fresh noise.
-
-    Returns
-    -------
-    components : dict
-        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise`` and
-        ``meta``.
-
-    """
-    if case not in ERB_CASES:
-        raise ValueError(f"unknown erb case {case!r}")
-    x0, x1, n, claimed = ERB_CASES[case]
-    x = np.linspace(x0, x1, n)
-    signal = np.zeros(n)
-    for height, centre, sigma in ERB_PEAKS:
-        signal = signal + _g(x, height, centre, sigma)
-    baseline = erb_baseline(x, baseline_type)
-    rng_seed = ERB_SEED if seed is None else seed
-    noise = np.random.default_rng(rng_seed).normal(0., ERB_NOISE_STD, n)
-    span = x[-1] - x[0]
-    lo = (ERB_PEAKS[0][1] - x[0]) / span
-    hi = (ERB_PEAKS[-1][1] - x[0]) / span
-    return {'x': x, 'y': signal + baseline + noise, 'signal': signal,
-            'baseline': baseline, 'noise': noise,
-            'meta': {'family': 'erb', 'case': case,
-                     'source': 'Donald Erb, make_data',
-                     'baseline_type': baseline_type, 'seed': rng_seed,
-                     'n_points': n, 'x_range': [float(x0), float(x1)],
-                     'claimed_plateaus': claimed,
-                     'peak_window': [float(lo), float(hi)],
-                     'noise_std': ERB_NOISE_STD,
-                     'peaks': [{'height': h, 'center': c, 'sigma': s}
-                               for h, c, s in ERB_PEAKS]}}
-
-
-def erb_random_signal(seed: int, n_points: int | None = None,
-                      baseline_type: int | None = None,
-) -> dict:
-    """
-    Generate one randomized ``erb`` signal with exact ground truth.
-
-    Turns Erb's three fixed cases into a population. The variable his
-    x-range knob actually moves is the **peak window**, the fraction of
-    the record the peaks occupy, so that is what is drawn here,
-    from the span his own three cases cover. The abscissa is held at a
-    fixed 0-1000 instead, which removes the confound: in his cases the
-    window and the record length move together, so a constant that
-    depended on either could not be told apart.
-
-    Every range is taken from values his script contains; none is
-    widened, except the record length, which comes from `PYB_N_POINTS`
-    and is justified there: length sets the fundamental, ``1/n_used``,
-    which is what `instability_boundary` keys on.
-
-    Parameters
-    ----------
-    seed : int
-        Seed for all draws, including the noise. The signal is a pure
-        function of it.
-    n_points : int, optional
-        Record length. Default None draws from `PYB_N_POINTS`.
-    baseline_type : int, optional
-        Which of the four baselines. Default None draws uniformly.
-    Returns
-    -------
-    components : dict
-        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise`` and
-        ``meta``. ``meta`` records every drawn parameter.
-
-    """
-    rng = np.random.default_rng(seed)
-    n = int(n_points if n_points is not None
-            else rng.integers(PYB_N_POINTS[0], PYB_N_POINTS[1] + 1))
-    x = np.linspace(0., 1000., n)
-    span = x[-1] - x[0]
-
-    start = float(rng.uniform(*ERB_PEAK_WINDOW_START))
-    width = float(rng.uniform(*ERB_PEAK_WINDOW_WIDTH))
-    # Keep the window inside the record; his widest case ends at 0.98.
-    width = min(width, 0.98 - start)
-    n_peaks = int(rng.integers(ERB_N_PEAKS[0], ERB_N_PEAKS[1] + 1))
-
-    centres = x[0] + (start + np.sort(rng.uniform(0., 1., n_peaks))
-                      * width) * span
-    heights = rng.uniform(*ERB_PEAK_HEIGHT, n_peaks)
-    sigmas = rng.uniform(*ERB_PEAK_SIGMA_FRAC, n_peaks) * span
-
-    signal = np.zeros(n)
-    peaks = []
-    for height, centre, sigma in zip(heights, centres, sigmas):
-        signal = signal + _g(x, height, centre, sigma)
-        peaks.append({'height': float(height), 'center': float(centre),
-                      'sigma': float(sigma)})
-
-    kind = (int(rng.integers(0, 4)) if baseline_type is None
-            else int(baseline_type))
-    # exact_integral so kind 2's amplitude does not scale with the
-    # record length; see `erb_baseline`.
-    baseline = erb_baseline(x, kind, exact_integral=True)
-    noise = rng.normal(0., ERB_NOISE_STD, n)
-    return {'x': x, 'y': signal + baseline + noise, 'signal': signal,
-            'baseline': baseline, 'noise': noise,
-            'meta': {'family': 'erb_random', 'seed': seed, 'n_points': n,
-                     'baseline_type': kind, 'n_peaks': n_peaks,
-                     'peak_window': [start, start + width],
-                     'noise_std': ERB_NOISE_STD,
-                     'baseline_range': float(baseline.max()
-                                             - baseline.min()),
-                     'peaks': peaks}}
 
 
 def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
@@ -1022,20 +469,19 @@ def lit_baseline(t: np.ndarray, kind: str,
 
 
 def native_peak_component(n: int, peak_case: str,
-                          rng: np.random.Generator,
-                          noise_sigma: float | None = None
+                          rng: np.random.Generator, noise_sigma: float
                           ) -> tuple[np.ndarray, np.ndarray, list[dict],
-                                     float]:
+                                     float, dict]:
     """
     Build the LPYE peak component: analytes, artifact and time axis.
 
     Everything a `native` chromatogram contains except its baseline and
-    its noise. Factored out of `make_signal`, with the draws in the same
-    order, so that the reviewed peak model can be placed on a different
-    baseline without being written a second time.
+    its noise. Factored out of `make_signal` so that the peak model can
+    be placed on a different baseline without being written a second
+    time.
 
     The component is chosen to match the LPYE dataset: 120 points per
-    minute, an absolute dead time near 4.5 min carrying the bipolar
+    minute, a dead time between 2.5 and 6.5 min carrying the bipolar
     injection artifact, exponentially-modified Gaussian analytes
     eluting after it, and widths growing with retention time.
 
@@ -1047,11 +493,15 @@ def native_peak_component(n: int, peak_case: str,
         Key of `PEAK_CASES`.
     rng : numpy.random.Generator
         Source of randomness.
-    noise_sigma : float, optional
-        Standard deviation of the noise the signal will carry. When
-        given, the analyte set is redrawn until its trailing edge has
-        decayed below it at the last sample, so no record ends part-way
-        down a peak. Default None, which applies no such constraint.
+    noise_sigma : float
+        Standard deviation of the noise the signal will carry. Every
+        analyte is placed so that it is within it until the injection
+        artifact has returned to it and again at the last sample, at a
+        resolution of at least `MIN_RESOLUTION` from every other
+        analyte (see `_place_peak`). When an analyte fits nowhere, the
+        dead time and the analytes are drawn again, with the dead time
+        earlier, until all fit; an analyte that still fits nowhere with
+        the dead time at 2.5 min is dropped.
 
     Returns
     -------
@@ -1061,24 +511,94 @@ def native_peak_component(n: int, peak_case: str,
         Analytes plus the injection artifact.
     peaks : list of dict
         Per-peak parameters; entries with ``artifact=True`` are the
-        injection lobes and the blank ghosts, not analytes.
+        two injection lobes, the others are analytes. Analytes also
+        carry ``apex``, ``fwhm_true_points``, ``half_left`` and
+        ``half_right``, measured on the noise-free profile: ``tc`` and
+        ``fwhm_points`` describe the Gaussian component of the EMG, not
+        the peak itself.
     t0 : float
         The dead time used, minutes.
+    info : dict
+        ``n_requested`` (analytes the case drew), ``n_plates`` (NaN for
+        a blank) and ``dead_time_redraws``.
+
+    Raises
+    ------
+    ValueError
+        If the record is too short to hold a dead time of 2.5 min.
 
     """
     dt = 1. / PTS_PER_MIN               # minutes per sample
     t = np.arange(n) * dt
-    # Dead time in ABSOLUTE minutes. In the LPYE blanks it is a
-    # fixed 4.58 min regardless of run length (55-73% of the span), not
-    # a fraction of it, so it is placed absolutely and only pulled in
-    # for a record too short to contain it (none of the shipped native
-    # lengths are).
-    t0 = rng.uniform(4.3, 4.7)
-    if t[-1] < t0 + 0.5:
-        t0 = 0.85 * t[-1]
+    # Dead time in absolute minutes, drawn between 2.5 and 6.5 min. The
+    # range was picked for this benchmark. The dead time depends on the
+    # column and the flow rate, so it changes from one setup to another.
+    # The upper bound is lowered on a short record so the elution window
+    # opened below, from 0.02 of the run after the dead time to 0.9 of
+    # the run, is never empty; a record too short to hold the lower bound
+    # is refused.
+    t0_hi = min(6.5, 0.88 * t[-1])
+    if t0_hi <= 2.5:
+        raise ValueError(f'a {t[-1]:.2f} min record cannot hold a dead '
+                         f'time of at least 2.5 min before its elution '
+                         f'window')
+    lo, hi = PEAK_CASES[peak_case]
+    n_peaks = int(rng.integers(lo, hi + 1))
 
-    n_peaks, fwhm_pts = PEAK_CASES[peak_case]
-    signal = np.zeros(n)
+    # Packing many analytes into a short run is only possible with an
+    # early dead time. When an analyte fits nowhere, the dead time is
+    # drawn again below the one that failed, with a new set of analytes,
+    # so it moves earlier until every analyte fits, or until it reaches
+    # 2.5 min within a sample.
+    redraws = -1
+    while True:
+        redraws += 1
+        t0 = rng.uniform(2.5, t0_hi)
+        signal, peaks, n_plates = _peak_component_at(
+            t, t0, n_peaks, peak_case, noise_sigma, rng)
+        n_placed = sum(not p['artifact'] for p in peaks)
+        if n_placed == n_peaks or t0 - 2.5 < dt:
+            break
+        t0_hi = t0
+    return t, signal, peaks, t0, {'n_requested': n_peaks,
+                                  'n_plates': n_plates,
+                                  'dead_time_redraws': redraws}
+
+
+def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
+                       peak_case: str, noise_sigma: float,
+                       rng: np.random.Generator
+                       ) -> tuple[np.ndarray, list[dict], float]:
+    """
+    Build the artifact and place the analytes for one dead time.
+
+    Parameters
+    ----------
+    t : numpy.ndarray, shape (N,)
+        Time axis, minutes.
+    t0 : float
+        Dead time, minutes.
+    n_peaks : int
+        Number of analytes to place.
+    peak_case : str
+        Key of `PEAK_CASES`.
+    noise_sigma : float
+        Noise standard deviation; see `native_peak_component`.
+    rng : numpy.random.Generator
+        Source of randomness.
+
+    Returns
+    -------
+    signal : numpy.ndarray, shape (N,)
+        Analytes plus the injection artifact.
+    peaks : list of dict
+        The two artifact lobes, then the placed analytes by apex.
+    n_plates : float
+        Plate number drawn for the analytes, NaN without analytes.
+
+    """
+    dt = t[1] - t[0]
+    signal = np.zeros(len(t))
     peaks = []
 
     # The dead-time injection artifact (bipolar; see dead_time_artifact).
@@ -1092,64 +612,66 @@ def native_peak_component(n: int, peak_case: str,
                                           neg_abs=(0.3, 1.4))
     signal += contrib
     peaks += entries
-    # Nothing elutes before the dead time. It is the transit time of an
-    # unretained species, so it is the lower bound on every retention
-    # time in the run, ghosts and carryover included: a feature earlier
-    # than it would have to have travelled the column faster than the
-    # mobile phase. The window is bounded above by the run end. A record
-    # must be long enough to hold it (all shipped native lengths are),
-    # but guard the degenerate case so a short record never crashes the
-    # uniform draw.
+    # The dead time is the first thing to leave the column: it is the
+    # transit time of an unretained species, so every other feature
+    # starts only once the injection artifact is back in the noise. A
+    # feature earlier than that would have travelled the column faster
+    # than the mobile phase.
+    above = np.nonzero(np.abs(contrib) > noise_sigma)[0]
+    t_front = t[above[-1]] if above.size else t0
+    # Peaks are first drawn in this window, bounded above by the run
+    # end; `_place_peak` then moves any that does not fit.
     elute_lo = t0 + 0.02 * t[-1]
     elute_hi = 0.9 * t[-1]
-    if elute_hi <= elute_lo:
-        elute_lo, elute_hi = 0.9 * t[-1], 0.98 * t[-1]
 
-    # For blanks, a few small ghost/carryover peaks along the run, so a
-    # blank still carries the faint detectable features the LPYE blanks
-    # show.
-    if n_peaks == 0:
-        for _ in range(rng.integers(1, 4)):
-            tc = rng.uniform(elute_lo, elute_hi)
-            fwhm_a = rng.uniform(8., 16.)
-            height = rng.uniform(0.15, 0.8)
-            sigma = fwhm_a * dt / _FWHM_PER_SIGMA
-            tau = rng.uniform(0.3, 0.8) * sigma
-            signal += emg_peak(t, tc, sigma, tau, height)
-            peaks.append({'tc': tc, 'sigma': sigma, 'tau': tau,
-                          'height': height, 'fwhm_points': fwhm_a,
-                          'artifact': True})
+    # A blank carries the injection artifact and nothing else: no peak
+    # stands above 0.2 mV after the artifact in any of the LPYE blanks.
+    if not n_peaks:
+        return signal, peaks, float('nan')
+    specs, n_plates = _draw_analytes(t, t0, n_peaks,
+                                     peak_case == 'isocratic', elute_lo,
+                                     elute_hi, rng)
 
     # An analyte has eluted when its trailing edge is back in the noise.
     # A record that stops before that is impossible: the trace ends
     # part-way down a peak, which is the endpoint mismatch BEADS'
     # periodicity requirement forbids and which no parabola correction
-    # repairs. Redraw the analyte set until it
-    # has decayed at the last sample, pulling the elution window in when
-    # redrawing alone does not get there, so the loop always terminates.
-    for _ in range(_ELUTION_ATTEMPTS):
-        contrib, entries = _draw_analytes(t, t0, dt, n_peaks, fwhm_pts,
-                                          elute_lo, elute_hi, rng)
-        if noise_sigma is None or contrib[-1] <= noise_sigma:
-            break
-        elute_hi = elute_lo + _ELUTION_SHRINK * (elute_hi - elute_lo)
-    signal += contrib
-    peaks += entries
+    # repairs. Peaks are placed in elution order, each where it was
+    # drawn when it neither overlaps the dead time, nor runs off the
+    # end, nor crowds a peak already placed, else anywhere it does, and
+    # dropped only when there is no such place.
+    placed = []
+    for spec in specs:
+        found = _place_peak(t, spec['tc'], spec['sigma_at'],
+                            spec['tau_ratio'], spec['height'], t_front,
+                            noise_sigma, placed, rng)
+        if found is None:
+            continue
+        tc, (apex, left, right) = found
+        sigma = spec['sigma_at'](tc)
+        tau = spec['tau_ratio'] * sigma
+        signal += emg_peak(t, tc, sigma, tau, spec['height'])
+        placed.append({'tc': tc, 'sigma': sigma, 'tau': tau,
+                       'height': spec['height'],
+                       'fwhm_points': sigma * _FWHM_PER_SIGMA / dt,
+                       'apex': apex,
+                       'fwhm_true_points': (right - left) / dt,
+                       'half_left': left, 'half_right': right,
+                       'artifact': spec['artifact']})
+    peaks += sorted(placed, key=lambda p: p['apex'])
+    return signal, peaks, n_plates
 
-    return t, signal, peaks, t0
 
-
-def _draw_analytes(t: np.ndarray, t0: float, dt: float, n_peaks: int,
-                   fwhm_pts: tuple[float, float] | None,
-                   elute_lo: float, elute_hi: float,
-                   rng: np.random.Generator
-                   ) -> tuple[np.ndarray, list[dict]]:
+def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
+                   isocratic: bool, elute_lo: float, elute_hi: float,
+                   rng: np.random.Generator) -> tuple[list[dict], float]:
     """
-    Draw one analyte set: centres, widths, tails and heights.
+    Draw one analyte set: centres, width laws, tails and heights.
 
-    Split out of `native_peak_component` so the set can be redrawn as a
-    whole when it does not fit inside the record. The draws happen in
-    the order they did when this was inline.
+    A width is a function of where the peak sits, so each analyte is
+    returned with the law that gives its sigma at any retention time:
+    `_place_peak` may move it, and a moved peak takes the width of its
+    new place.
 
     Parameters
     ----------
@@ -1157,71 +679,273 @@ def _draw_analytes(t: np.ndarray, t0: float, dt: float, n_peaks: int,
         Time axis, minutes.
     t0 : float
         Dead time, minutes.
-    dt : float
-        Sampling step, minutes.
     n_peaks : int
-        Number of analytes; 0 returns an empty component.
-    fwhm_pts : tuple or None
-        Base width range in points, or None for the isocratic plate
-        model.
+        Number of analytes, at least 1.
+    isocratic : bool
+        Pin an early and a late eluter and keep the exact plate width,
+        without the per-peak jitter.
     elute_lo, elute_hi : float
-        Bounds of the elution window, minutes.
+        Bounds of the window the centres are drawn in, minutes.
     rng : numpy.random.Generator
         Source of randomness.
 
     Returns
     -------
-    contrib : numpy.ndarray, shape (N,)
-        The summed analyte component.
-    entries : list of dict
-        Per-peak parameters, all with ``artifact=False``.
+    specs : list of dict
+        One per analyte, sorted by drawn centre: ``tc``, ``sigma_at``
+        (retention time to sigma), ``tau_ratio`` (tail time constant
+        over sigma), ``height`` and ``artifact=False``.
+    n_plates : float
+        The plate number drawn for the signal.
 
     """
-    contrib = np.zeros(len(t))
-    entries: list[dict] = []
-    if n_peaks == 0:
-        return contrib, entries
     centers = np.sort(rng.uniform(elute_lo, elute_hi, n_peaks))
-    if fwhm_pts is None and n_peaks >= 2:
-        # isocratic case: guarantee the hard sharp-first/broad-last
-        # contrast by pinning an early and a late eluter. Both are
-        # clipped into the elution window: a fraction of the record
-        # length can fall on either side of it once the window is
-        # pushed late by the dead time or pulled in by the redraw, and
-        # the sort below would then make such a peak the first one,
-        # ahead of the dead time.
+    if isocratic and n_peaks >= 2:
+        # isocratic case: aim for a sharp first and a broad last peak by
+        # pinning an early and a late eluter, both clipped into the
+        # window so the sort keeps them in order. Placement may still
+        # move them.
         centers[0] = np.clip(t0 * rng.uniform(1.05, 1.20),
                              elute_lo, elute_hi)
         centers[-1] = np.clip(rng.uniform(0.85, 0.92) * t[-1],
                               elute_lo, elute_hi)
         centers = np.sort(centers)
-    # Constant plate number of the isocratic case: sigma = tc/sqrt(Np),
-    # so the first peaks are sharp and the late ones broad, with a
-    # width ratio set by the retention ratio (the hard regime the LPYE
-    # dataset shows).
-    n_plates = rng.uniform(3000., 12000.)
-    broaden_g = rng.uniform(2., 4.)
-    # One base width per signal, so the retention growth is the dominant
-    # trend rather than being swamped by per-peak scatter; a mild
-    # per-peak jitter keeps the compounds from being identical.
-    base_fwhm = None if fwhm_pts is None else rng.uniform(*fwhm_pts) * dt
+    # One plate number per signal: W = 4 N^-0.5 tR with W = 4 sigma, so
+    # sigma = tR / sqrt(N), tR counted from injection (Snyder, Kirkland &
+    # Dolan 2009, §2.3 p. 24, Eqs. 2.9b and 2.10, §2.4 p. 36). A width is
+    # then a fixed share of its retention time, and since every peak
+    # elutes inside the run, widths scale with the run length. The first
+    # peaks are sharp and the late ones broad.
+    n_plates = rng.uniform(*PLATE_NUMBER_RANGE)
+    specs = []
     for tc in centers:
-        if fwhm_pts is None:
-            # isocratic: the pure plate model, sigma proportional to the
-            # retention time from injection.
-            sigma = max(tc - t0, dt) / np.sqrt(n_plates)
-        else:
-            fwhm = (base_fwhm * broadening_factor(tc, t0, t[-1], broaden_g)
-                    * rng.uniform(0.85, 1.15))
-            sigma = fwhm / _FWHM_PER_SIGMA
-        fwhm = sigma * _FWHM_PER_SIGMA
-        tau = rng.uniform(0.3, 1.2) * sigma
-        height = np.exp(rng.uniform(np.log(1.), np.log(30.)))
-        contrib += emg_peak(t, tc, sigma, tau, height)
-        entries.append({'tc': tc, 'sigma': sigma, 'tau': tau,
-                        'height': height, 'fwhm_points': fwhm / dt,
-                        'artifact': False})
-    return contrib, entries
+        # A mild per-peak jitter keeps the compounds from being identical;
+        # the isocratic case keeps the exact plate width.
+        jitter = 1. if isocratic else rng.uniform(0.85, 1.15)
+
+        def sigma_at(x, jitter=jitter):
+            return jitter * x / np.sqrt(n_plates)
+        specs.append({'tc': tc, 'sigma_at': sigma_at,
+                      'tau_ratio': rng.uniform(0.3, 1.2),
+                      'height': np.exp(rng.uniform(np.log(1.),
+                                                   np.log(30.))),
+                      'artifact': False})
+    return specs, n_plates
+
+
+# Minimum chromatographic resolution between any two placed peaks,
+# Rs = 1.18 (t2 - t1) / (w1 + w2) on the apex and the FWHM. At Rs = 1.0
+# about 2% of each band lies under the other (Fornstedt, Forssén &
+# Westerlund 2015, §1.2, Eqs. 1.17-1.18, p. 13; Gaussian zones of equal
+# amount); 1.5 is baseline resolution (Snyder, Kirkland & Dolan 2009,
+# §2.5, Eq. 2.23, p. 54), and 1.18 follows from their W1/2 = 0.588 W
+# (§2.4, p. 35). BEADS assumes the peaks and their first two derivatives
+# are sparse (Ning, Selesnick & Duval 2014, §3). A floor of 1.0 still
+# allows small overlaps, to test the limits of that assumption. The
+# formula assumes Gaussian peaks and can be far off for asymmetric ones
+# (Dyson 1998, p. 10); these EMG peaks tail, so the 2% is approximate.
+MIN_RESOLUTION = 1.0
+
+# Matrix entries evaluated at once while searching for a place, a memory
+# bound only: it never changes where a peak lands.
+_PLACEMENT_CHUNK = 2_000_000
+
+
+def _apex_and_half_width(t: np.ndarray, y: np.ndarray
+                         ) -> tuple[float, float, float]:
+    """
+    Measure the apex and the half-maximum crossings of a sampled peak.
+
+    The apex is refined by a parabola through the three samples around
+    the maximum; each crossing is interpolated linearly between the two
+    samples that bracket half the maximum.
+
+    Parameters
+    ----------
+    t : numpy.ndarray, shape (N,)
+        Time axis, minutes.
+    y : numpy.ndarray, shape (N,)
+        Noise-free, single-peaked profile.
+
+    Returns
+    -------
+    apex, left, right : float
+        Apex time and the times where the profile crosses half its
+        maximum on either side, minutes. A crossing beyond the record is
+        reported at its end.
+
+    """
+    k = int(np.argmax(y))
+    apex = t[k]
+    if 0 < k < len(y) - 1:
+        denom = y[k - 1] - 2. * y[k] + y[k + 1]
+        if denom < 0:
+            apex += 0.5 * (y[k - 1] - y[k + 1]) / denom * (t[1] - t[0])
+    half = 0.5 * y[k]
+    below = np.nonzero(y[:k] < half)[0]
+    if below.size:
+        i = below[-1]
+        left = t[i] + (half - y[i]) / (y[i + 1] - y[i]) * (t[i + 1] - t[i])
+    else:
+        left = t[0]
+    below = np.nonzero(y[k:] < half)[0]
+    if below.size:
+        i = k + below[0]
+        right = t[i - 1] + ((y[i - 1] - half) / (y[i - 1] - y[i])
+                            * (t[i] - t[i - 1]))
+    else:
+        right = t[-1]
+    return float(apex), float(left), float(right)
+
+
+def _resolution(a: tuple[float, float, float],
+                b: tuple[float, float, float]) -> float:
+    """
+    Chromatographic resolution of two peaks from their apex and FWHM.
+
+    Parameters
+    ----------
+    a, b : tuple of float
+        ``(apex, left, right)`` of each peak, as `_apex_and_half_width`
+        returns them.
+
+    Returns
+    -------
+    rs : float
+        ``1.18 |apex_b - apex_a| / (fwhm_a + fwhm_b)``; see
+        `MIN_RESOLUTION` for the source and its limits.
+
+    """
+    return 1.18 * abs(b[0] - a[0]) / ((a[2] - a[1]) + (b[2] - b[1]))
+
+
+def _place_peak(t: np.ndarray, tc: float, sigma_at, tau_ratio: float,
+                height: float, t_front: float, noise_sigma: float,
+                placed: list[dict], rng: np.random.Generator
+                ) -> tuple[float, tuple[float, float, float]] | None:
+    """
+    Place a peak at its drawn retention time, or anywhere it fits.
+
+    A peak fits when its profile is within the noise at every sample up
+    to `t_front`, where the injection artifact has returned to the
+    noise, and at the last sample, and when its resolution from every
+    peak in `placed` is at least `MIN_RESOLUTION`. It then neither
+    overlaps the dead time, front tail included, nor runs off the end
+    of the record, nor crowds another peak. The drawn `tc` is kept when
+    it fits; otherwise the peak is drawn uniformly among the samples
+    after `t_front` where it fits, each evaluated with the width
+    `sigma_at` gives at that place.
+
+    Parameters
+    ----------
+    t : numpy.ndarray, shape (N,)
+        Time axis, minutes.
+    tc : float
+        Drawn retention time, minutes.
+    sigma_at : callable
+        Maps a retention time to the peak's sigma, minutes.
+    tau_ratio : float
+        Tail time constant over sigma.
+    height : float
+        Peak maximum.
+    t_front : float
+        End of the injection artifact, minutes.
+    noise_sigma : float
+        Noise standard deviation, the level a peak must be within.
+    placed : list of dict
+        Peaks already placed, each with ``apex``, ``half_left`` and
+        ``half_right``.
+    rng : numpy.random.Generator
+        Source of randomness for the new place.
+
+    Returns
+    -------
+    found : tuple or None
+        ``(tc, (apex, left, right))`` of the chosen place, or None when
+        the peak fits nowhere.
+
+    Notes
+    -----
+    Fails, by returning None, when the peak is wider than any room left
+    between the end of the artifact, the end of the record and the
+    peaks already placed. A peak that does not fit where it was drawn
+    costs one profile per sample of the record, so its cost grows with
+    the square of the record length.
+
+    """
+    others = [(p['apex'], p['half_left'], p['half_right']) for p in placed]
+    front = t <= t_front
+
+    def fitting(c):
+        sigma = np.array([sigma_at(x) for x in c])
+        shape = exponnorm.pdf(t[None, :], K=max(tau_ratio, 1e-3),
+                              loc=c[:, None], scale=sigma[:, None])
+        peak_max = shape.max(axis=1)
+        y = height * shape / np.where(peak_max > 0, peak_max, 1.)[:, None]
+        ok = (peak_max > 0) & (y[:, -1] <= noise_sigma)
+        if front.any():
+            ok &= y[:, front].max(axis=1) <= noise_sigma
+        fits = []
+        for i in np.nonzero(ok)[0]:
+            shape_i = _apex_and_half_width(t, y[i])
+            if all(_resolution(shape_i, o) >= MIN_RESOLUTION
+                   for o in others):
+                fits.append((float(c[i]), shape_i))
+        return fits
+
+    drawn = fitting(np.array([tc]))
+    if drawn:
+        return drawn[0]
+    later = t[t > t_front]
+    chunk = max(1, _PLACEMENT_CHUNK // len(t))
+    fits = []
+    for start in range(0, len(later), chunk):
+        fits += fitting(later[start:start + chunk])
+    if not fits:
+        return None
+    return fits[int(rng.integers(len(fits)))]
+
+
+def _analyte_meta(t: np.ndarray, peaks: list[dict], t0: float,
+                  info: dict) -> dict:
+    """
+    Summarize the placed analytes of one peak component.
+
+    Parameters
+    ----------
+    t : numpy.ndarray, shape (N,)
+        Time axis, minutes.
+    peaks : list of dict
+        Peaks from `native_peak_component`.
+    t0 : float
+        Dead time, minutes.
+    info : dict
+        The ``info`` returned by `native_peak_component`.
+
+    Returns
+    -------
+    meta : dict
+        ``n_analytes``, ``rs_min`` (lowest resolution between adjacent
+        analytes, NaN below two), ``coverage`` (share of the run inside
+        their half-maximum widths), ``n_requested``, ``n_dropped``,
+        ``n_plates``, ``dead_time`` and ``dead_time_redraws``.
+
+    """
+    analytes = sorted((p['apex'], p['half_left'], p['half_right'])
+                      for p in peaks if not p.get('artifact', False))
+    rs_min = min((_resolution(a, b) for a, b in zip(analytes,
+                                                     analytes[1:])),
+                 default=float('nan'))
+    covered, reach = 0., -np.inf
+    for _, left, right in sorted(analytes, key=lambda a: a[1]):
+        covered += max(0., right - max(left, reach))
+        reach = max(reach, right)
+    return {'n_analytes': len(analytes), 'rs_min': float(rs_min),
+            'coverage': covered / float(t[-1] - t[0]),
+            'n_requested': info['n_requested'],
+            'n_dropped': info['n_requested'] - len(analytes),
+            'n_plates': info['n_plates'], 'dead_time': t0,
+            'dead_time_redraws': info['dead_time_redraws']}
 
 
 def make_signal(n: int, peak_case: str, baseline_case: str,
@@ -1246,62 +970,59 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
     Returns
     -------
     components : dict
-        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise`` and
-        ``peaks`` (the per-peak parameters).
+        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise``,
+        ``peaks`` (the per-peak parameters) and ``meta`` (see
+        `_analyte_meta`).
 
     """
-    t, signal, peaks, t0 = native_peak_component(n, peak_case, rng)
+    t, signal, peaks, t0, info = native_peak_component(n, peak_case, rng,
+                                                       noise_sigma)
     baseline = make_baseline(t, baseline_case, rng, t0=t0,
-                             is_blank=(PEAK_CASES[peak_case][0] == 0))
+                             is_blank=(info['n_requested'] == 0))
     noise = rng.normal(0., noise_sigma, n)
     return {'x': t, 'y': signal + baseline + noise, 'signal': signal,
-            'baseline': baseline, 'noise': noise, 'peaks': peaks}
+            'baseline': baseline, 'noise': noise, 'peaks': peaks,
+            'meta': {'family': 'native', 'n_points': n,
+                     'peak_case': peak_case,
+                     'baseline_case': baseline_case,
+                     'noise_sigma': noise_sigma,
+                     **_analyte_meta(t, peaks, t0, info)}}
 
 
-# Record length for the `erb_native` family, chosen to match the LPYE
-# dataset: the quantile function of its 339 records, every 5% from the
-# minimum to the maximum. Lengths are drawn from it by inverse-CDF
-# sampling, so the generated distribution reproduces the dataset's by
-# construction.
+# Record length for the `erb` family: log10 of the length follows
+# a skew-normal distribution, shape, location and scale below, chosen to
+# match the LPYE dataset. It follows the broad shape of the dataset,
+# smooths its pile-up near 850 points and makes its longest records
+# rarer. Draws outside the range are redrawn.
 #
 # Record length sets the fundamental frequency 1/n_used, which is exactly
 # what `instability_boundary` keys on, so length must vary, but a balanced
-# ladder misrepresents how often each length actually occurs. The LPYE set
-# is strongly skewed: the median record is 1176 points while the longest
-# is 39129, and only 4.7% exceed 10000. A six-level geometric ladder puts
-# 33% of the benchmark above 10000, over-weighting the most expensive
-# signals by sevenfold and implying the instrument produces long runs
-# routinely.
-ERB_NATIVE_N_QUANTILES = (473, 732, 780, 819, 846, 853, 868, 893, 924,
-                          994, 1176, 1259, 1400, 1546, 1707, 2062, 2857,
-                          3495, 5399, 9251, 39129)
+# ladder misrepresents how often each length actually occurs: it would
+# over-weight the long records, which are the most expensive to sweep.
+ERB_LOG10_N_SKEWNORM = (10.02, 2.818, 0.512)
+ERB_N_RANGE = (500, 40000)
 
 # Erb's baseline 3 is a pure sinusoid, ``10 + sin(x/50)``, 2 units
 # peak to peak. Excluded from the benchmark: an HPLC baseline does not
 # oscillate through several full cycles within one run, so scoring
 # against it measures the method on drift it will never meet.
 #
-# It also does not provide a usable target. On the wide and mixed peak
-# cases, the cutoff minimizing the RMSE against it recovers the
-# baseline *worse than a horizontal line* (median ratio 1.19 on
-# ``multi_wide``, 1.15 on ``multi_mixed``), so the "true optimum" there
+# It also does not provide a usable target. On the former ``multi_wide``
+# and ``multi_mixed`` cases, the cutoff minimizing the RMSE against it
+# recovers the baseline *worse than a horizontal line* (median ratio 1.19
+# on ``multi_wide``, 1.15 on ``multi_mixed``), so the "true optimum" there
 # is the least bad of a grid of bad fits.
-EXCLUDED_ERB_BASELINES = ('erb3',)
+EXCLUDED_ERB_BASELINES = ('sine',)
 
-# Redraws allowed before the elution window is pulled in, and the factor
-# it shrinks by. Both control how long the rejection takes.
-_ELUTION_ATTEMPTS = 12
-_ELUTION_SHRINK = 0.85
-
+# Names of Erb's baselines in signal names, by `erb_baseline` kind.
+ERB_BASELINE_NAMES = {'parabola': 0, 'exp': 1, 'step': 2, 'sine': 3}
 
 def draw_record_length(rng: np.random.Generator) -> int:
     """
-    Draw a record length from the LPYE length distribution.
+    Draw a record length from the skew-normal fit to the LPYE lengths.
 
-    Inverse-CDF sampling on `ERB_NATIVE_N_QUANTILES`: a uniform draw is
-    mapped through the LPYE quantile function, so the generated
-    lengths follow that distribution, span its full range, and take
-    arbitrary values.
+    log10 of the length is drawn from `ERB_LOG10_N_SKEWNORM` and
+    redrawn until the length falls inside `ERB_N_RANGE`.
 
     Parameters
     ----------
@@ -1311,18 +1032,20 @@ def draw_record_length(rng: np.random.Generator) -> int:
     Returns
     -------
     n : int
-        A record length in points, between the LPYE minimum and maximum.
+        A record length in points, inside `ERB_N_RANGE`.
 
     """
-    grid = np.linspace(0., 1., len(ERB_NATIVE_N_QUANTILES))
-    u = float(rng.uniform(0., 1.))
-    return int(round(float(np.interp(u, grid,
-                                     ERB_NATIVE_N_QUANTILES))))
+    lo, hi = ERB_N_RANGE
+    while True:
+        n = int(round(10 ** float(skewnorm.rvs(
+            *ERB_LOG10_N_SKEWNORM, random_state=rng))))
+        if lo <= n <= hi:
+            return n
 
 
-def erb_native_signal(n: int, peak_case: str, baseline_type: int,
-                      noise_sigma: float, rng: np.random.Generator,
-                      quantise_output: bool = True) -> dict:
+def erb_signal(n: int, peak_case: str, baseline_type: int,
+               noise_sigma: float, rng: np.random.Generator,
+               quantise_output: bool = True) -> dict:
     """
     Assemble a chromatogram: LPYE peak component on an Erb baseline.
 
@@ -1331,17 +1054,15 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
 
     From `native`, by way of `native_peak_component`, the reviewed peak
     model chosen to match the LPYE dataset: 120 points per minute, the
-    bipolar injection artifact at an absolute dead time near 4.5 min,
+    bipolar injection artifact at a dead time between 2.5 and 6.5 min,
     exponentially-modified Gaussian analytes eluting after it, widths
     growing with retention time, and detector noise at the LPYE
     level.
 
-    From `erb`, by way of `erb_baseline`: a baseline that is an exact
-    analytic function rather than a sum of drawn components, written by
-    the pybaselines author to exercise cutoff selection. That is what
-    `native`'s own baseline cannot offer. Erb's three fixed x-ranges also
-    set how many plateaus the r2 curve shows, which no other family
-    provides.
+    From Erb's script, by way of `erb_baseline`: a baseline that is an
+    exact analytic function rather than a sum of drawn components,
+    written by the pybaselines author to exercise cutoff selection. That
+    is what `native`'s own baseline cannot offer.
 
     **Scales.** The baseline is evaluated on a normalized 0-1000
     abscissa spanning the record, because `erb_baseline`'s coefficients
@@ -1383,9 +1104,20 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
         would let one feature dominate the error. Entries of ``peaks``
         with ``artifact=True`` mark it.
 
+        ``meta['n_requested']`` is the analyte count the case drew,
+        ``meta['n_dropped']`` the analytes that fit nowhere even with the
+        dead time at 2.5 min, and ``n_analytes`` what remains.
+        ``meta['n_plates']`` and ``meta['dead_time_redraws']`` record the
+        plate number and how often the dead time was drawn again,
+        earlier, to make room.
+        ``meta['rs_min']`` is the lowest resolution between adjacent
+        analytes (NaN below two) and ``meta['coverage']`` the share of
+        the run inside their half-maximum widths. Both are measured after
+        placement.
+
     """
-    t, signal, peaks, t0 = native_peak_component(n, peak_case, rng,
-                                                 noise_sigma)
+    t, signal, peaks, t0, info = native_peak_component(n, peak_case, rng,
+                                                       noise_sigma)
     # Erb's coefficients are written for an abscissa of order 0-1000, so
     # the baseline is evaluated there and mapped onto the record. Its
     # shape is therefore independent of the record's duration in
@@ -1400,17 +1132,16 @@ def erb_native_signal(n: int, peak_case: str, baseline_type: int,
         y = quantise(y)
     return {'x': t, 'y': y, 'signal': signal, 'baseline': baseline,
             'noise': noise, 'peaks': peaks,
-            'meta': {'family': 'erb_native', 'n_points': n,
+            'meta': {'family': 'erb', 'n_points': n,
                      'peak_case': peak_case,
                      'baseline_type': baseline_type,
-                     'noise_sigma': noise_sigma, 'dead_time': t0,
+                     'noise_sigma': noise_sigma,
                      'quantised': quantise_output,
                      'points_per_minute': PTS_PER_MIN,
                      'minutes': float(t[-1] - t[0]),
                      'baseline_range': float(baseline.max()
                                              - baseline.min()),
-                     'n_analytes': sum(not p.get('artifact', False)
-                                       for p in peaks)}}
+                     **_analyte_meta(t, peaks, t0, info)}}
 
 
 LIT_PEAK_CASES = {
@@ -1467,8 +1198,7 @@ def lit_signal(n: int, peak_case: str, baseline_case: str,
 
     signal = np.zeros(n)
     peaks = []
-    # Dead-time injection artifact. Unlike the LPYE instrument (fixed
-    # ~4.5 min) the literature family varies it over 3.5-6 min, so the
+    # Dead-time injection artifact, varied over 3.5-6 min so the
     # detector step and the artifact are not always at the same place.
     t0 = rng.uniform(3.5, 6.0)
     if t[-1] > t0 + 0.5:
@@ -1542,7 +1272,7 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
     ax1.set_ylabel('mV')
     ax1.legend(loc='upper right', fontsize=8)
 
-    # Mark the dead-time artifact region (first non-blank-ghost peak).
+    # Mark the dead-time artifact region.
     arts = [p for p in parts['peaks'] if p.get('artifact')]
     if arts:
         t0 = min(p['tc'] for p in arts)
@@ -1552,6 +1282,80 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
     fig.tight_layout()
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
+
+
+# Columns of `manifest.csv`, one row per signal; see `manifest_row`.
+MANIFEST_COLUMNS = ('stem', 'family', 'peak_case', 'baseline_case',
+                    'noise_case', 'n_points', 'replicate', 'n_analytes',
+                    'n_dropped', 'rs_min', 'coverage', 'n_requested',
+                    'n_plates', 'dead_time', 'dead_time_redraws')
+
+
+def signal_stem(family: str, peak_case: str, baseline_case: str,
+                noise_case: str, replicate: int, n: int,
+                rep_width: int) -> str:
+    """
+    Name one synthetic signal.
+
+    Parameters
+    ----------
+    family, peak_case, baseline_case, noise_case : str
+        The case keys of the signal.
+    replicate : int
+        Replicate number.
+    n : int
+        Record length, points.
+    rep_width : int
+        Digits of the widest replicate number, so names sort in order.
+
+    Returns
+    -------
+    stem : str
+        ``SYN__family__case__baseline__noise__replicate__n``.
+
+    """
+    return (f'SYN__{family}__{peak_case}__{baseline_case}__{noise_case}'
+            f'__{replicate:0{rep_width}d}__{n}')
+
+
+def manifest_row(stem: str, family: str, peak_case: str,
+                 baseline_case: str, noise_case: str, n: int,
+                 replicate: int, parts: dict) -> str:
+    """
+    Format the `manifest.csv` row of one signal.
+
+    Parameters
+    ----------
+    stem : str
+        Name of the signal.
+    family, peak_case, baseline_case, noise_case : str
+        The case keys of the signal.
+    n : int
+        Record length, points.
+    replicate : int
+        Replicate number.
+    parts : dict
+        The signal as a family builder returns it; families without
+        ``meta`` leave the placement columns empty.
+
+    Returns
+    -------
+    row : str
+        Comma-separated values in the order of `MANIFEST_COLUMNS`.
+
+    """
+    meta = parts.get('meta', {})
+    n_analytes = meta.get('n_analytes',
+                          sum(not p.get('artifact', False)
+                              for p in parts['peaks']))
+    return (f'{stem},{family},{peak_case},{baseline_case},{noise_case},'
+            f'{n},{replicate},{n_analytes},{meta.get("n_dropped", "")},'
+            f'{meta.get("rs_min", float("nan")):.4g},'
+            f'{meta.get("coverage", float("nan")):.4g},'
+            f'{meta.get("n_requested", "")},'
+            f'{meta.get("n_plates", float("nan")):.0f},'
+            f'{meta.get("dead_time", float("nan")):.3f},'
+            f'{meta.get("dead_time_redraws", "")}')
 
 
 def main() -> None:
@@ -1566,12 +1370,12 @@ def main() -> None:
     parser.add_argument('--seed', type=int, default=0,
                         help='base random seed (default: 0)')
     parser.add_argument('--family',
-                        choices=('native', 'lit', 'erb_native', 'both',
+                        choices=('native', 'lit', 'erb', 'both',
                                  'all'),
                         default='both',
                         help="'native' = chosen to match the LPYE data; "
                              "'lit' = generic Ning 2014 benchmark "
-                             "conditions; 'erb_native' = the LPYE peak "
+                             "conditions; 'erb' = the LPYE peak "
                              "component on Erb's four analytic "
                              "baselines; 'both' (default) = native+lit; "
                              "'all' = every family")
@@ -1607,33 +1411,36 @@ def main() -> None:
                 for nk, snr in LIT_SNR_DB.items():
                     for n in LIT_N_CASES:
                         jobs.append(('lit', pc, bc, nk, snr, n))
-    if args.family in ('erb_native', 'all'):
+    if args.family in ('erb', 'all'):
         for pc in PEAK_CASES:
-            for bt in range(4):
+            for bname in ERB_BASELINE_NAMES:
                 for nk, ns in NOISE_CASES.items():
                     # Length is drawn per signal, not crossed: see
                     # `draw_record_length`.
-                    jobs.append(('erb_native', pc, f'erb{bt}', nk,
+                    jobs.append(('erb', pc, bname, nk,
                                  ns, None))
 
     manifest = []
+    # Zero-padded to the widest replicate number, so names sort in order.
+    rep_width = len(str(args.replicates - 1))
     for k, (family, pc, bc, nk, nv, n) in enumerate(jobs):
         # Skipped inside the loop rather than dropped from `jobs`, so the
         # index that seeds every other signal is unchanged and the rest
         # of the set stays reproducible.
-        if family == 'erb_native' and bc in EXCLUDED_ERB_BASELINES:
+        if family == 'erb' and bc in EXCLUDED_ERB_BASELINES:
             continue
         for rep in range(args.replicates):
             rng = np.random.default_rng(args.seed + 7919 * (k + 1)
                                         + 104729 * rep)
             if family == 'native':
                 parts = make_signal(n, pc, bc, nv, rng)
-            elif family == 'erb_native':
+            elif family == 'erb':
                 n = draw_record_length(rng)
-                parts = erb_native_signal(n, pc, int(bc[-1]), nv, rng)
+                parts = erb_signal(n, pc, ERB_BASELINE_NAMES[bc], nv,
+                                   rng)
             else:
                 parts = lit_signal(n, pc, bc, nv, rng)
-            stem = f'SYN__{family}__{pc}__{bc}__{nk}__{n}__{rep}'
+            stem = signal_stem(family, pc, bc, nk, rep, n, rep_width)
             with open(os.path.join(sig_dir, f'{stem}.txt'), 'w') as f:
                 for xi, yi in zip(parts['x'], parts['y']):
                     f.write(f'{xi:.6f}\t{yi:.6e}\n')
@@ -1645,12 +1452,10 @@ def main() -> None:
             if not args.no_plot:
                 plot_signal(parts, stem,
                             os.path.join(plot_dir, f'{stem}.png'))
-            manifest.append(
-                f'{stem},{family},{pc},{bc},{nk},{n},{rep},'
-                f'{len(parts["peaks"])}')
+            manifest.append(manifest_row(stem, family, pc, bc, nk, n, rep,
+                                         parts))
     with open(os.path.join(args.output, 'manifest.csv'), 'w') as f:
-        f.write('stem,family,peak_case,baseline_case,noise_case,'
-                'n_points,replicate,n_peaks\n')
+        f.write(','.join(MANIFEST_COLUMNS) + '\n')
         f.write('\n'.join(manifest) + '\n')
     print(f'{len(manifest)} signals -> {args.output}')
 

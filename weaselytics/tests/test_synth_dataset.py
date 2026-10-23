@@ -316,11 +316,40 @@ class TestErbSignal:
             synth.native_peak_component(300, 'blank',
                                         np.random.default_rng(0), 0.02)
 
-    def test_record_lengths_stay_inside_the_range(self):
+    def test_record_durations_stay_inside_the_range(self):
         rng = np.random.default_rng(0)
         lo, hi = synth.ERB_N_RANGE
-        n = [synth.draw_record_length(rng) for _ in range(2000)]
-        assert lo <= min(n) and max(n) <= hi
+        d = [synth.draw_record_duration(rng) for _ in range(2000)]
+        n = np.round(np.array(d) * synth.PTS_PER_MIN)
+        assert lo <= n.min() and n.max() <= hi
+
+
+class TestRate:
+    def test_default_rate_is_120(self):
+        a = synth.erb_signal(1500, 'few', 0, 0.02, np.random.default_rng(5))
+        b = synth.erb_signal(1500, 'few', 0, 0.02, np.random.default_rng(5),
+                             rate=120.)
+        assert synth.PTS_PER_MIN == 120
+        np.testing.assert_array_equal(a['y'], b['y'])
+
+    def test_widths_in_minutes_do_not_depend_on_the_rate(self):
+        t1 = np.arange(1200) / 120.
+        t2 = np.arange(2400) / 240.
+        _, e1 = synth.dead_time_artifact(t1, 4.5, t1[1] - t1[0],
+                                         np.random.default_rng(3))
+        _, e2 = synth.dead_time_artifact(t2, 4.5, t2[1] - t2[0],
+                                         np.random.default_rng(3))
+        for a, b in zip(e1, e2):
+            assert b['sigma'] == pytest.approx(a['sigma'], rel=1e-12)
+            assert b['fwhm_points'] == pytest.approx(2. * a['fwhm_points'],
+                                                     rel=1e-12)
+
+    def test_a_faster_rate_samples_the_same_run_more_densely(self):
+        d = synth.erb_signal(3000, 'single', 1, 0.02,
+                             np.random.default_rng(4), rate=240.)
+        assert d['meta']['points_per_minute'] == 240.
+        assert d['x'][1] - d['x'][0] == pytest.approx(1. / 240.)
+        assert d['meta']['minutes'] == pytest.approx(2999. / 240.)
 
 
 class TestNativeSignal:
@@ -360,3 +389,4 @@ class TestNamesAndManifest:
         # the artifact lobes are not analytes
         assert int(fields['n_analytes']) == d['meta']['n_analytes']
         assert int(fields['n_analytes']) == len(d['peaks']) - 2
+        assert float(fields['points_per_minute']) == synth.PTS_PER_MIN

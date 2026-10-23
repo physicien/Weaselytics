@@ -21,14 +21,13 @@ The families differ in their baseline.
 ``erb``
     The analytic baselines Donald Erb, author of pybaselines, wrote to
     test the cutoff selection of this project. Three are used, a
-    parabola, an exponential decay and a step. Record lengths vary from
-    500 to 40000 points, and the signal is rounded to a detector's
-    voltage step.
+    parabola, an exponential decay and a step. Records last 4.2 to 333
+    min, 500 to 40000 points at 120 pts/min, and the signal is rounded
+    to a detector's voltage step.
 ``native``
     A sum of drawn components, a solvent-front decay, a broad hump, a
     linear drift, a level step at the dead time and a slow random
-    wander. Record lengths are 900, 1800 or 4000 points. This family is
-    deprecated.
+    wander. Records last 7.5, 15 or 33 min. This family is deprecated.
 ``lit``
     The BEADS benchmark of Ning, Selesnick & Duval (2014), §5. Gaussian
     peaks, a dense overlapping case among them, on a polynomial plus a
@@ -81,14 +80,16 @@ BASELINE_CASES = ['exp', 'hump', 'exp_hump_drift']
 # picked for this benchmark. 'typ' is the reference level and 'high',
 # two and a half times larger, gives noisier records.
 NOISE_CASES = {'typ': 0.02, 'high': 0.05}
-# Record lengths of the native family. At `PTS_PER_MIN` these are 7.5,
-# 15 and 33 min, all longer than the 6.5 min upper bound of the dead
-# time, so the analytes have room to elute after it.
-N_CASES = [900, 1800, 4000]
-
-# Points per minute, picked for this benchmark. 120 pts/min is two
-# samples per second.
+# Default points per minute, picked for this benchmark: two samples per
+# second. `--rate` sets another.
 PTS_PER_MIN = 120
+# Durations of the native records, in min: 900, 1800 and 4000 points
+# at the default rate. All are longer than the 6.5 min upper bound of
+# the dead time, so the analytes have room to elute after it.
+NATIVE_DURATIONS_MIN = (7.5, 15., 100. / 3.)
+# Width (FWHM) of the artifact spike, in min: 6 to 10 samples at the
+# default rate, picked for this benchmark.
+ARTIFACT_FWHM_MIN = (6. / PTS_PER_MIN, 10. / PTS_PER_MIN)
 
 _FWHM_PER_SIGMA = 2.3548
 
@@ -363,24 +364,25 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
         the trace shows.
 
     """
-    pos_fwhm = rng.uniform(6., 10.)
+    pos_fwhm = rng.uniform(*ARTIFACT_FWHM_MIN)
     pos_h = rng.uniform(*pos_height)
-    pos_sigma = pos_fwhm * dt / _FWHM_PER_SIGMA
+    pos_sigma = pos_fwhm / _FWHM_PER_SIGMA
     pos_tau = rng.uniform(0.3, 0.8) * pos_sigma
     contrib = emg_peak(t, t0, pos_sigma, pos_tau, pos_h)
     entries = [{'tc': t0, 'sigma': pos_sigma, 'tau': pos_tau,
-                'height': pos_h, 'fwhm_points': pos_fwhm, 'artifact': True}]
+                'height': pos_h, 'fwhm_points': pos_fwhm / dt,
+                'artifact': True}]
 
     neg_fwhm = pos_fwhm * rng.uniform(1.2, 2.5)
     ratio = 2. * rng.beta(1., 3.)
-    neg_sigma = neg_fwhm * dt / _FWHM_PER_SIGMA
+    neg_sigma = neg_fwhm / _FWHM_PER_SIGMA
     neg_tc = t0 + rng.uniform(1.0, 2.0) * pos_sigma
     neg_shape = emg_peak(t, neg_tc, neg_sigma, neg_sigma * 0.5, 1.)
     neg_h = _dip_scale(contrib, neg_shape, ratio)
     contrib = contrib - neg_h * neg_shape
     entries.append({'tc': neg_tc, 'sigma': neg_sigma,
                     'tau': neg_sigma * 0.5, 'height': -neg_h,
-                    'fwhm_points': neg_fwhm, 'dip_ratio': ratio,
+                    'fwhm_points': neg_fwhm / dt, 'dip_ratio': ratio,
                     'artifact': True})
     return contrib, entries
 
@@ -510,7 +512,8 @@ def lit_baseline(t: np.ndarray, kind: str,
 
 
 def native_peak_component(n: int, peak_case: str,
-                          rng: np.random.Generator, noise_sigma: float
+                          rng: np.random.Generator, noise_sigma: float,
+                          rate: float = PTS_PER_MIN
                           ) -> tuple[np.ndarray, np.ndarray, list[dict],
                                      float, dict]:
     """
@@ -521,10 +524,10 @@ def native_peak_component(n: int, peak_case: str,
     peak model can be placed on a different baseline without being
     written a second time.
 
-    The component has 120 points per minute, a dead time between 2.5
-    and 6.5 min carrying the bipolar injection artifact,
-    exponentially-modified Gaussian analytes eluting after it, and
-    widths growing with retention time.
+    The component is sampled at `rate` points per minute and has a dead
+    time between 2.5 and 6.5 min carrying the bipolar injection
+    artifact, exponentially-modified Gaussian analytes eluting after
+    it, and widths growing with retention time.
 
     Parameters
     ----------
@@ -543,6 +546,8 @@ def native_peak_component(n: int, peak_case: str,
         dead time and the analytes are drawn again, with the dead time
         earlier, until all fit; an analyte that still fits nowhere with
         the dead time at 2.5 min is dropped.
+    rate : float, optional
+        Points per minute. Default `PTS_PER_MIN`.
 
     Returns
     -------
@@ -569,7 +574,7 @@ def native_peak_component(n: int, peak_case: str,
         If the record is too short to hold a dead time of 2.5 min.
 
     """
-    dt = 1. / PTS_PER_MIN               # minutes per sample
+    dt = 1. / rate                      # minutes per sample
     t = np.arange(n) * dt
     # Dead time in absolute minutes, drawn between 2.5 and 6.5 min. The
     # range was picked for this benchmark. The dead time depends on the
@@ -983,8 +988,8 @@ def _analyte_meta(t: np.ndarray, peaks: list[dict], t0: float,
 
 
 def make_signal(n: int, peak_case: str, baseline_case: str,
-                noise_sigma: float, rng: np.random.Generator
-                ) -> tuple[np.ndarray, dict]:
+                noise_sigma: float, rng: np.random.Generator,
+                rate: float = PTS_PER_MIN) -> dict:
     """
     Assemble one ``native`` synthetic chromatogram.
 
@@ -1000,6 +1005,8 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
         Standard deviation of the white noise.
     rng : numpy.random.Generator
         Source of randomness.
+    rate : float, optional
+        Points per minute. Default `PTS_PER_MIN`.
 
     Returns
     -------
@@ -1010,13 +1017,14 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
 
     """
     t, signal, peaks, t0, info = native_peak_component(n, peak_case, rng,
-                                                       noise_sigma)
+                                                       noise_sigma, rate)
     baseline = make_baseline(t, baseline_case, rng, t0=t0,
                              is_blank=(info['n_requested'] == 0))
     noise = rng.normal(0., noise_sigma, n)
     return {'x': t, 'y': signal + baseline + noise, 'signal': signal,
             'baseline': baseline, 'noise': noise, 'peaks': peaks,
             'meta': {'family': 'native', 'n_points': n,
+                     'points_per_minute': rate,
                      'peak_case': peak_case,
                      'baseline_case': baseline_case,
                      'noise_sigma': noise_sigma,
@@ -1027,7 +1035,9 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
 # skew-normal distribution, with the shape, location and scale below
 # picked for this benchmark, and draws outside the range are redrawn.
 # Short records are the most common. Half are under about 1500 points
-# and 2% are over 10000.
+# and 2% are over 10000. The length is read at the default rate and
+# turned into a duration, so another `--rate` keeps the run as long and
+# changes only how densely it is sampled.
 #
 # Record length sets the fundamental frequency 1/n_used, which is exactly
 # what `instability_boundary` keys on, so length must vary. A balanced
@@ -1045,12 +1055,13 @@ EXCLUDED_ERB_BASELINES = ('sine',)
 # Names of Erb's baselines in signal names, by `erb_baseline` kind.
 ERB_BASELINE_NAMES = {'parabola': 0, 'exp': 1, 'step': 2, 'sine': 3}
 
-def draw_record_length(rng: np.random.Generator) -> int:
+def draw_record_duration(rng: np.random.Generator) -> float:
     """
-    Draw a record length of the ``erb`` family.
+    Draw a record duration of the ``erb`` family.
 
     log10 of the length is drawn from `ERB_LOG10_N_SKEWNORM` and
-    redrawn until the length falls inside `ERB_N_RANGE`.
+    redrawn until the length falls inside `ERB_N_RANGE`, then divided
+    by `PTS_PER_MIN`.
 
     Parameters
     ----------
@@ -1059,8 +1070,8 @@ def draw_record_length(rng: np.random.Generator) -> int:
 
     Returns
     -------
-    n : int
-        A record length in points, inside `ERB_N_RANGE`.
+    duration : float
+        Record duration, minutes.
 
     """
     lo, hi = ERB_N_RANGE
@@ -1068,12 +1079,13 @@ def draw_record_length(rng: np.random.Generator) -> int:
         n = int(round(10 ** float(skewnorm.rvs(
             *ERB_LOG10_N_SKEWNORM, random_state=rng))))
         if lo <= n <= hi:
-            return n
+            return n / PTS_PER_MIN
 
 
 def erb_signal(n: int, peak_case: str, baseline_type: int,
                noise_sigma: float, rng: np.random.Generator,
-               quantise_output: bool = True) -> dict:
+               quantise_output: bool = True,
+               rate: float = PTS_PER_MIN) -> dict:
     """
     Assemble one ``erb`` chromatogram, the shared peak component on an
     Erb baseline.
@@ -1108,6 +1120,8 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
         and on continuous data is a true noise estimate, so an
         unquantized benchmark exercises a different quantity under
         the same name.
+    rate : float, optional
+        Points per minute. Default `PTS_PER_MIN`.
 
     Returns
     -------
@@ -1135,7 +1149,7 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
 
     """
     t, signal, peaks, t0, info = native_peak_component(n, peak_case, rng,
-                                                       noise_sigma)
+                                                       noise_sigma, rate)
     # Erb's coefficients are written for an abscissa of order 0-1000, so
     # the baseline is evaluated there and mapped onto the record. Its
     # shape is therefore independent of the record's duration in
@@ -1155,7 +1169,7 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
                      'baseline_type': baseline_type,
                      'noise_sigma': noise_sigma,
                      'quantised': quantise_output,
-                     'points_per_minute': PTS_PER_MIN,
+                     'points_per_minute': rate,
                      'minutes': float(t[-1] - t[0]),
                      'baseline_range': float(baseline.max()
                                              - baseline.min()),
@@ -1304,7 +1318,8 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
 MANIFEST_COLUMNS = ('stem', 'family', 'peak_case', 'baseline_case',
                     'noise_case', 'n_points', 'replicate', 'n_analytes',
                     'n_dropped', 'rs_min', 'coverage', 'n_requested',
-                    'n_plates', 'dead_time', 'dead_time_redraws')
+                    'n_plates', 'dead_time', 'dead_time_redraws',
+                    'points_per_minute')
 
 
 def signal_stem(family: str, peak_case: str, baseline_case: str,
@@ -1352,7 +1367,8 @@ def manifest_row(stem: str, family: str, peak_case: str,
         Replicate number.
     parts : dict
         The signal as a family builder returns it; families without
-        ``meta`` leave the placement columns empty.
+        ``meta`` leave the placement columns empty and are recorded at
+        `PTS_PER_MIN`.
 
     Returns
     -------
@@ -1371,7 +1387,8 @@ def manifest_row(stem: str, family: str, peak_case: str,
             f'{meta.get("n_requested", "")},'
             f'{meta.get("n_plates", float("nan")):.0f},'
             f'{meta.get("dead_time", float("nan")):.3f},'
-            f'{meta.get("dead_time_redraws", "")}')
+            f'{meta.get("dead_time_redraws", "")},'
+            f'{meta.get("points_per_minute", PTS_PER_MIN):g}')
 
 
 def main() -> None:
@@ -1397,6 +1414,9 @@ def main() -> None:
                              "native+lit; 'all' = every family")
     parser.add_argument('--replicates', type=int, default=1,
                         help='replicates per case (default: 1)')
+    parser.add_argument('--rate', type=float, default=PTS_PER_MIN,
+                        help='points per minute of the erb and native '
+                             'signals (default: 120); lit stays at 120')
     parser.add_argument('--no-plot', action='store_true',
                         help='skip the per-signal PNG in plots/ '
                              '(rendered by default for review by eye)')
@@ -1418,8 +1438,9 @@ def main() -> None:
         for pc in PEAK_CASES:
             for bc in BASELINE_CASES:
                 for nk, ns in NOISE_CASES.items():
-                    for n in N_CASES:
-                        jobs.append(('native', pc, bc, nk, ns, n))
+                    for d in NATIVE_DURATIONS_MIN:
+                        jobs.append(('native', pc, bc, nk, ns,
+                                     int(round(d * args.rate))))
     if args.family in ('lit', 'both', 'all'):
         for pc in LIT_PEAK_CASES:
             for bc in LIT_BASELINE_CASES:
@@ -1431,7 +1452,7 @@ def main() -> None:
             for bname in ERB_BASELINE_NAMES:
                 for nk, ns in NOISE_CASES.items():
                     # Length is drawn per signal, not crossed: see
-                    # `draw_record_length`.
+                    # `draw_record_duration`.
                     jobs.append(('erb', pc, bname, nk,
                                  ns, None))
 
@@ -1448,11 +1469,11 @@ def main() -> None:
             rng = np.random.default_rng(args.seed + 7919 * (k + 1)
                                         + 104729 * rep)
             if family == 'native':
-                parts = make_signal(n, pc, bc, nv, rng)
+                parts = make_signal(n, pc, bc, nv, rng, rate=args.rate)
             elif family == 'erb':
-                n = draw_record_length(rng)
+                n = int(round(draw_record_duration(rng) * args.rate))
                 parts = erb_signal(n, pc, ERB_BASELINE_NAMES[bc], nv,
-                                   rng)
+                                   rng, rate=args.rate)
             else:
                 parts = lit_signal(n, pc, bc, nv, rng)
             stem = signal_stem(family, pc, bc, nk, rep, n, rep_width)

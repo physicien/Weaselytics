@@ -4,10 +4,11 @@ Aggregate and plot the synthetic diagnostics of ``synth_diag.py``.
 
 Reads ``diag_summary.csv`` and the per-signal ``*__diag.npz`` from the
 diagnostics directory ``synth_diag`` wrote, by default ``DATASET/diag``,
-and answers the test battery: harness validity, the
-accuracy of the current selector, containment of the true optimum, the
-stiff-side instability trim with and without, and the candidate features
-for stage 3.
+and answers the test battery: harness validity, the accuracy of the
+current selector, containment of the true optimum, the stiff-side
+instability trim with and without, the candidate features for stage 3,
+the shape of the error valley, whether r2 brackets the optimum, and
+`baseline._snr` on quantized data.
 
 It measures and plots, and fits nothing: a correlation found here is
 reported as a correlation.

@@ -13,7 +13,8 @@ Two figures for every signal:
 ``images/<stem>.png``
     The chromatogram with the known baseline, the baseline the pipeline
     selected, and the baseline at the true optimum, over the
-    corresponding corrected traces. When the selection raises, the
+    corresponding corrected traces and the baseline error of each. When
+    the selection raises, the
     selected baseline is absent and the figure says so; the true
     optimum is still drawn, so a failure can be read against what the
     method could have achieved.
@@ -79,6 +80,14 @@ SNR_THRESHOLD = 10.0
 STRIDE = 4
 _TRUE = 'tab:green'
 _SEL = 'tab:red'
+# Drawing style per curve, so curves that coincide stay visible. The
+# true optimum is wide and solid at the back, the selection thin on top.
+_BEST_STYLE = dict(ls='-', lw=4.0, alpha=.45, zorder=1)
+_SEL_STYLE = dict(ls='--', lw=1.4, zorder=4)
+# Height of `plot.r2_plots`, 9.6 in at 100 dpi, so the chromatogram
+# beside it in the merged figure is as tall as it.
+_R2_HEIGHT_PX = 960
+_DPI = 115
 
 
 def _beads_at(x, s, fcut, regions, sampling, parabola_len):
@@ -139,14 +148,16 @@ def _curve(stem, path, diag_dir, cache_dir, x, s, b_true, regions,
 def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
                   stem, out_dir, stats, sigma, sig_true=None):
     """Signal with the known, selected and best-achievable baselines."""
-    fig, ax = plt.subplots(2, 1, figsize=(11, 6.5), sharex=True)
+    fig, ax = plt.subplots(3, 1, figsize=(11, _R2_HEIGHT_PX / _DPI),
+                           sharex=True)
     ax[0].plot(x, s, lw=.7, color='0.35', label='signal')
-    ax[0].plot(x, b_true, lw=1.8, color='tab:blue', label='true baseline')
+    ax[0].plot(x, b_true, lw=1.6, color='tab:blue', zorder=3,
+               label='true baseline')
     if bl_best is not None:
-        ax[0].plot(x, bl_best, lw=1.3, color=_TRUE, ls='--',
+        ax[0].plot(x, bl_best, color=_TRUE, **_BEST_STYLE,
                    label=f'at the true optimum {fc_best:.3e}')
     if bl_sel is not None:
-        ax[0].plot(x, bl_sel, lw=1.3, color=_SEL, ls='-.',
+        ax[0].plot(x, bl_sel, color=_SEL, **_SEL_STYLE,
                    label=f'as selected {fcut:.3e}')
     ax[0].axvline(x[min(scut, len(x) - 1)], color='k', ls='dotted', lw=1.1,
                   label=f'scut ({scut})')
@@ -214,22 +225,38 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
     ax[0].set_title(f'{stem}\n{_line("green", "t", bl_best)}\n'
                     f'{_line("red", "s", bl_sel)}', fontsize=8.5)
 
-    ax[1].plot(x, s - b_true, lw=.7, color='tab:blue',
+    ax[1].plot(x, s - b_true, lw=1.2, color='tab:blue', zorder=3,
                label='corrected with the true baseline')
     if bl_best is not None:
-        ax[1].plot(x, s - bl_best, lw=.7, color=_TRUE,
+        ax[1].plot(x, s - bl_best, color=_TRUE, **_BEST_STYLE,
                    label='corrected at the true optimum')
     if bl_sel is not None:
-        ax[1].plot(x, s - bl_sel, lw=.7, color=_SEL,
+        ax[1].plot(x, s - bl_sel, color=_SEL, **_SEL_STYLE,
                    label='corrected as selected')
     ax[1].axhline(0, color='k', lw=.6)
-    ax[1].set_xlabel('time (min)')
     ax[1].set_ylabel('corrected (mV)')
     ax[1].legend(fontsize=8)
-    fig.tight_layout()
+
+    # The baseline error carries no noise, so curves that differ by less
+    # than the noise come apart here; the grey band is +-sigma of it.
+    if np.isfinite(sigma):
+        ax[2].axhspan(-sigma, sigma, color='0.85', zorder=0,
+                      label=f'noise, +-{sigma:.3f} mV')
+    ax[2].axhline(0, color='tab:blue', lw=1.2, zorder=3,
+                  label='true baseline')
+    if bl_best is not None:
+        ax[2].plot(x, bl_best - b_true, color=_TRUE, **_BEST_STYLE,
+                   label='at the true optimum')
+    if bl_sel is not None:
+        ax[2].plot(x, bl_sel - b_true, color=_SEL, **_SEL_STYLE,
+                   label='as selected')
+    ax[2].set_xlabel('time (min)')
+    ax[2].set_ylabel('error (mV)')
+    ax[2].legend(fontsize=8)
+    fig.tight_layout(pad=0.4, h_pad=0.3)
     outdir = os.path.join(out_dir, 'images')
     os.makedirs(outdir, exist_ok=True)
-    fig.savefig(os.path.join(outdir, f'{stem}.png'), dpi=115)
+    fig.savefig(os.path.join(outdir, f'{stem}.png'), dpi=_DPI)
     plt.close(fig)
 
 

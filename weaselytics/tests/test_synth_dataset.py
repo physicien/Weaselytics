@@ -33,10 +33,10 @@ class TestQuantise:
         err = np.abs(synth.quantise(y) - y)
         assert err.max() <= synth.ADC_STEP_MV / 2 + 1e-12
 
-    def test_reproduces_the_real_lattice_signature(self):
-        # Quantized white noise at the real amplitude must show the same
-        # signature as the instrument: consecutive differences that are
-        # exact multiples of the step, and many exact ties.
+    def test_shows_the_lattice_signature(self):
+        # Quantized white noise must show the signature of a digitized
+        # signal: consecutive differences that are exact multiples of the
+        # step, and many exact ties.
         rng = np.random.default_rng(6)
         y = synth.quantise(rng.normal(0., 0.012, 20000))
         d = np.diff(y)
@@ -47,6 +47,32 @@ class TestQuantise:
     def test_rejects_bad_step(self):
         with pytest.raises(ValueError, match="step"):
             synth.quantise(np.zeros(10), step=0.0)
+
+
+class TestDeadTimeArtifact:
+    @pytest.mark.parametrize("ratio", [0.05, 0.5, 1.0, 1.9])
+    def test_trace_shows_the_drawn_ratio(self, ratio):
+        t = np.arange(1200) / 120.
+        pos = synth.emg_peak(t, 4.5, 0.03, 0.015, 2.)
+        neg = synth.emg_peak(t, 4.54, 0.06, 0.03, 1.)
+        c = synth._dip_scale(pos, neg, ratio)
+        y = pos - c * neg
+        assert -y.min() / y.max() == pytest.approx(ratio, rel=1e-6)
+
+    def test_trace_shows_the_recorded_ratio(self):
+        t = np.arange(1200) / 120.
+        for seed in range(50):
+            y, entries = synth.dead_time_artifact(
+                t, 4.5, t[1] - t[0], np.random.default_rng(seed))
+            ratio = entries[1]['dip_ratio']
+            assert 0. <= ratio <= 2.
+            assert -min(y.min(), 0.) / y.max() == pytest.approx(
+                ratio, rel=1e-6, abs=1e-9)
+
+    def test_rejects_an_empty_dip_lobe(self):
+        pos = synth.emg_peak(np.arange(100) / 120., 0.4, 0.03, 0.015, 2.)
+        with pytest.raises(ValueError, match="dip lobe"):
+            synth._dip_scale(pos, np.zeros(100), 0.5)
 
 
 class TestErbBaselines:

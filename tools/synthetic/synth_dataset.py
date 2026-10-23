@@ -2,35 +2,49 @@
 """
 Generate synthetic chromatograms with known ground truth.
 
-Two families are produced, so the algorithm can be tested both on this
-instrument and more generally:
+Each signal is a peak component plus a baseline plus white noise. The
+true baseline is saved beside the signal, so a baseline estimate can be
+scored against it.
 
-* **native**: chosen to match the LPYE dataset
-  (tools/synthetic/synthetic_data.md §2). Exponentially-modified
-  Gaussian peaks; a bipolar dead-time artifact (positive spike + a
-  negative undershoot, the dominant feature of its blanks, and the
-  reason a symmetric BEADS cost is needed); a small baseline (its blanks
-  carry 0.33 mV of baseline structure at the median) built from a solvent-front
-  decay, a broad hump, a drift, a level step across the dead time and
-  a mid-frequency wander; near-constant detector noise (~0.019 mV);
-  120 points/min.
+The ``erb`` and ``native`` families share one peak component. A
+positive spike followed by a negative undershoot marks the injection at
+the dead time. The analytes are exponentially-modified Gaussian peaks
+whose widths follow the plate model, sigma = tR / sqrt(N) (Snyder,
+Kirkland & Dolan 2009, Eqs. 2.9b and 2.10). They elute after the
+injection artifact, return to the noise before the record ends, and
+keep a resolution of at least 1 between neighbours. Blanks hold only
+the artifact. The ranges of plate number, dead time and noise were
+picked for this benchmark.
 
-* **lit**: generic, not tied to this experiment, following the BEADS
-  benchmark of Ning, Selesnick & Duval (2014), §5: superpositions of
-  Gaussian peaks (including a dense, overlapping case) on a large
-  Type-1 (polynomial + sinusoid) or Type-2 (low-pass-filtered noise)
-  baseline, with the noise set by a target SNR spanning 8-25 dB.
+The families differ in their baseline.
 
-Every signal is written in the same two-column text format as the LPYE
-data, so the whole weaselytics pipeline runs on it unchanged; the exact
-baseline/signal/noise decomposition is stored in
-``truth/<stem>__truth.npz``; and a per-signal plot is written to
-``plots/`` (unless ``--no-plot``) so the synthetic data can be reviewed
-against the LPYE chromatograms before it is trusted for scoring.
+``erb``
+    The analytic baselines Donald Erb, author of pybaselines, wrote to
+    test the cutoff selection of this project. Three are used, a
+    parabola, an exponential decay and a step. Record lengths vary from
+    500 to 40000 points, and the signal is rounded to a detector's
+    voltage step.
+``native``
+    A sum of drawn components, a solvent-front decay, a broad hump, a
+    linear drift, a level step at the dead time and a slow random
+    wander. Record lengths are 900, 1800 or 4000 points. This family is
+    deprecated.
+``lit``
+    The BEADS benchmark of Ning, Selesnick & Duval (2014), §5. Gaussian
+    peaks, a dense overlapping case among them, on a polynomial plus a
+    sinusoid or on low-pass-filtered noise, with the noise set by a
+    target SNR of 2-25 dB. None of the rules above apply to it. This
+    family is deprecated.
+
+Every signal is written as a two-column text file the weaselytics
+pipeline reads unchanged. The split into signal, baseline and noise
+goes to ``truth/<stem>__truth.npz``, one row per signal to
+``manifest.csv``, and a plot to ``plots/`` unless ``--no-plot`` is
+given.
 
 Usage
 -----
-python tools/synthetic/synth_dataset.py OUTPUT_DIR [--family both] [--seed 0]
+python tools/synthetic/synth_dataset.py OUTPUT_DIR [--family erb] [--seed 0]
 """
 
 import argparse
@@ -44,6 +58,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from scipy.ndimage import gaussian_filter1d  # noqa: E402
+from scipy.optimize import brentq  # noqa: E402
 from scipy.stats import exponnorm, skewnorm  # noqa: E402
 
 PEAK_CASES = {
@@ -57,49 +72,40 @@ PEAK_CASES = {
     'many': (6, 8),
     'isocratic': (7, 7),
 }
-# Column plate number, drawn once per signal and chosen to match the LPYE
-# dataset. On its peaks above 0.5 mV, N = 5.54 (tR / W1/2)^2 (Snyder,
-# Kirkland & Dolan 2009, §2.4, Eq. 2.9a, p. 35) spans about this range
-# from its 10th to its 90th percentile. The same book calls an
-# N of about 10,000 a good starting point (§2.5, p. 57).
+# Column plate number, drawn once per signal. The range was picked for
+# this benchmark around the N of about 10,000 that Snyder, Kirkland &
+# Dolan (2009, §2.5, p. 57) call a good starting point in many cases.
 PLATE_NUMBER_RANGE = (2000., 14000.)
 BASELINE_CASES = ['exp', 'hump', 'exp_hump_drift']
-# White detector noise. The LPYE noise (MAD of consecutive differences)
-# is nearly constant in absolute terms at ~0.019 mV regardless of
-# amplitude or blank/non-blank, with a maximum of 0.047. 'typ' sits at
-# its median and 'high' just above its maximum.
+# Standard deviation of the white detector noise, in mV, at two levels
+# picked for this benchmark. 'typ' is the reference level and 'high',
+# two and a half times larger, gives noisier records.
 NOISE_CASES = {'typ': 0.02, 'high': 0.05}
-# Record lengths for the native family. LPYE n_points spans 473-39000
-# (median 1180). Analytes elute after the dead time, so a native record
-# must span well beyond it: at 120 pts/min these are 7.5, 15 and 33 min,
-# all past the 6.5 min upper bound of the dead time, and they bracket
-# the LPYE median and the long-run regime (Cyclohexane, Benzene).
+# Record lengths of the native family. At `PTS_PER_MIN` these are 7.5,
+# 15 and 33 min, all longer than the 6.5 min upper bound of the dead
+# time, so the analytes have room to elute after it.
 N_CASES = [900, 1800, 4000]
 
-# Points per minute. 120 pts/min (two samples per second) is the most
-# common rate of the LPYE dataset.
+# Points per minute, picked for this benchmark. 120 pts/min is two
+# samples per second.
 PTS_PER_MIN = 120
 
 _FWHM_PER_SIGMA = 2.3548
 
-# Quantization step of the LPYE dataset, in mV: in all its records
-# every consecutive difference is an exact integer multiple of it to
-# within 1e-9, a ~900-point record holds only 45-60 distinct values, and
-# ~25% of consecutive samples are identical. See
-# tools/synthetic/synthetic_data.md §5.
+# Quantization step of the detector, in mV, picked for this benchmark.
+# A digitized detector signal is an integer multiple of such a step.
 ADC_STEP_MV = 0.008996
 
 def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
     """
     Round a trace onto the detector's quantization lattice.
 
-    The LPYE detector digitizes at `ADC_STEP_MV`; synthetic signals are
-    rounded likewise so the benchmark exercises the same code paths as
-    the LPYE data. `baseline._snr` divides by a MAD of consecutive
-    differences, which on quantized data is pinned to the lattice and on
-    continuous data is a true noise estimate, so an unquantized benchmark
-    measures a different quantity under the same name. See
-    tools/synthetic/synthetic_data.md §5.
+    A digitized detector signal is an integer multiple of its
+    quantization step, so the synthetic signals are rounded likewise.
+    `baseline._snr` divides by a MAD of consecutive differences, which
+    on quantized data is pinned to the lattice and on continuous data is
+    a true noise estimate, so an unquantized benchmark measures a
+    different quantity under the same name.
 
     Parameters
     ----------
@@ -200,8 +206,8 @@ def gauss_peak(t: np.ndarray, tc: float, sigma: float,
 ###############################################################################
 # Erb's test baselines: the analytic baselines of the `make_data` function
 # Donald Erb, author of pybaselines, wrote to test the cutoff-frequency
-# selection of this project. The `erb` family places the LPYE peak
-# component on them.
+# selection of this project. The `erb` family places the plate-model
+# peak component on them.
 ###############################################################################
 
 def _g(x: np.ndarray, height: float, center: float,
@@ -273,19 +279,65 @@ def erb_baseline(x: np.ndarray, kind: int,
     raise ValueError(f"unknown erb baseline kind {kind!r}")
 
 
+def _dip_scale(pos: np.ndarray, neg: np.ndarray, ratio: float) -> float:
+    """
+    Scale the dip so the artifact shows a given dip-to-spike ratio.
+
+    The two lobes overlap, so the dip eats into the spike and a dip
+    drawn at ``ratio`` times the spike height shows a larger ratio on
+    the trace. The depth of ``pos - c * neg`` below zero grows with
+    ``c`` and its height above zero shrinks, so exactly one ``c`` makes
+    the depth ``ratio`` times the height.
+
+    Parameters
+    ----------
+    pos : numpy.ndarray, shape (N,)
+        The positive lobe.
+    neg : numpy.ndarray, shape (N,)
+        The negative lobe, of unit height.
+    ratio : float
+        Dip depth over spike height, as the trace shows them.
+
+    Returns
+    -------
+    c : float
+        The height to give the negative lobe.
+
+    Raises
+    ------
+    ValueError
+        If `neg` is zero everywhere, so no height gives the ratio.
+
+    """
+    if ratio <= 0:
+        return 0.
+    if neg.max() <= 0:
+        raise ValueError("the dip lobe is zero everywhere on this grid.")
+
+    def excess(c):
+        y = pos - c * neg
+        return -y.min() - ratio * y.max()
+
+    hi = pos.max()
+    while excess(hi) < 0:
+        hi *= 2.
+    return brentq(excess, 0., hi)
+
+
 def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
                        rng: np.random.Generator,
-                       pos_height: tuple[float, float] = (1., 4.),
-                       neg_abs: tuple[float, float] | None = None
+                       pos_height: tuple[float, float] = (1., 4.)
                        ) -> tuple[np.ndarray, list[dict]]:
     """
     Bipolar injection artifact at the dead time.
 
     A sharp positive spike at ``t0`` immediately followed by a wider
-    negative undershoot, the dominant feature of the LPYE blanks. The
-    negative lobe is genuine signal, which is why a symmetric BEADS
-    cost (``asymmetry=1``) is required: an asymmetric cost would absorb
-    it into the baseline.
+    negative undershoot. The undershoot is 0 to 2 times as deep as the
+    spike is high, as the trace shows them, drawn as twice a Beta(1, 3)
+    variate so small dips are the most common. This law was picked for
+    this benchmark. The negative lobe is genuine signal, which is why a
+    symmetric BEADS cost (``asymmetry=1``) is required: an asymmetric
+    cost would absorb it into the baseline.
 
     Parameters
     ----------
@@ -298,20 +350,17 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
     rng : numpy.random.Generator
         Source of randomness.
     pos_height : (float, float), optional
-        Range of the positive-spike height. Default ``(1., 4.)``
-        matches the LPYE data.
-    neg_abs : (float, float), optional
-        Absolute range of the negative-lobe depth. If given, the dip is
-        drawn from it directly rather than as a multiple of the positive
-        spike; used to cap the native dip at the deepest dip of the
-        LPYE blanks (~1.2 mV). Default None keeps the 0.5-2x relative scaling.
+        Range of the positive-spike height, mV. Default ``(1., 4.)``,
+        picked for this benchmark.
 
     Returns
     -------
     contribution : numpy.ndarray, shape (N,)
         The artifact, to add to the signal.
     entries : list of dict
-        Per-lobe parameter records for the truth file.
+        Per-lobe parameter records for the truth file. The negative
+        lobe's entry also carries ``dip_ratio``, the dip-to-spike ratio
+        the trace shows.
 
     """
     pos_fwhm = rng.uniform(6., 10.)
@@ -323,15 +372,16 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
                 'height': pos_h, 'fwhm_points': pos_fwhm, 'artifact': True}]
 
     neg_fwhm = pos_fwhm * rng.uniform(1.2, 2.5)
-    neg_h = rng.uniform(*neg_abs) if neg_abs else pos_h * rng.uniform(0.5,
-                                                                      2.0)
+    ratio = 2. * rng.beta(1., 3.)
     neg_sigma = neg_fwhm * dt / _FWHM_PER_SIGMA
     neg_tc = t0 + rng.uniform(1.0, 2.0) * pos_sigma
-    contrib = contrib - emg_peak(t, neg_tc, neg_sigma, neg_sigma * 0.5,
-                                 neg_h)
+    neg_shape = emg_peak(t, neg_tc, neg_sigma, neg_sigma * 0.5, 1.)
+    neg_h = _dip_scale(contrib, neg_shape, ratio)
+    contrib = contrib - neg_h * neg_shape
     entries.append({'tc': neg_tc, 'sigma': neg_sigma,
                     'tau': neg_sigma * 0.5, 'height': -neg_h,
-                    'fwhm_points': neg_fwhm, 'artifact': True})
+                    'fwhm_points': neg_fwhm, 'dip_ratio': ratio,
+                    'artifact': True})
     return contrib, entries
 
 
@@ -341,14 +391,8 @@ def make_baseline(t: np.ndarray, kind: str,
     """
     Build the slowly varying baseline of a ``native`` signal.
 
-    Chosen to match the LPYE dataset. Its blanks (which are baseline +
-    noise + artifact) have a smoothed peak-to-peak baseline structure of
-    only **0.33 mV median, 0.75 mV maximum** over its 67 blanks: this
-    detector's baseline is nearly flat, and the large excursions in its
-    chromatograms are peaks. The
-    component amplitudes below are scaled to that measurement, an order
-    of magnitude smaller than a generic literature baseline (for which
-    see ``lit_baseline``).
+    A sum of components drawn at random. Their amplitudes were picked
+    for this benchmark and keep the baseline small next to the peaks.
 
     Parameters
     ----------
@@ -361,12 +405,11 @@ def make_baseline(t: np.ndarray, kind: str,
         Source of randomness for the component parameters.
     t0 : float, optional
         Dead time. If given, a small step in the baseline level is
-        placed across it, as the LPYE blanks show (the baseline settles
-        at a different level after the injection).
+        placed across it, so the baseline settles at a different level
+        after the injection.
     is_blank : bool, optional
         If True, the large hump is omitted and the exp/drift amplitudes
-        are reduced: the LPYE blanks are nearly flat (smoothed baseline
-        p2p 0.33 mV median, 0.75 max).
+        are reduced, so blanks stay nearly flat.
 
     Returns
     -------
@@ -376,10 +419,9 @@ def make_baseline(t: np.ndarray, kind: str,
     """
     span = t[-1] - t[0]
     b = np.full(len(t), rng.uniform(-0.5, 1.5))
-    # Level step across the dead time: the LPYE baselines settle at a
-    # slightly different level after the injection (a smoothed
-    # Heaviside, not a discontinuity, since the detector has a finite
-    # response time).
+    # Level step across the dead time, so the baseline settles at a
+    # slightly different level after the injection. It is a smoothed
+    # Heaviside, since the detector has a finite response time.
     if t0 is not None:
         step_h = rng.uniform(-0.4, 0.4)
         b += step_h * 0.5 * (1. + np.tanh((t - t0) / (0.05 * span)))
@@ -397,19 +439,19 @@ def make_baseline(t: np.ndarray, kind: str,
         drift = rng.uniform(-0.4, 0.4) if is_blank else rng.uniform(-1., 1.)
         b += drift * (t - t[0]) / span
 
-    # Mid-frequency wander (pump, thermal and detector fluctuations),
-    # which every LPYE baseline carries and the slow components above
-    # cannot represent. Its correlation length sits between the peak
-    # widths and the run length, so it is what decides how flexible the
-    # baseline has to be: on a signal with little analyte, capturing it
-    # is the whole job.
+    # A wander (pump, thermal and detector fluctuations), which the
+    # components above cannot represent. Its correlation length sits
+    # between the peak widths and the run length, so it is what decides
+    # how flexible the baseline has to be: on a signal with little
+    # analyte, capturing it is the whole job.
+    # The range of the correlation length, 1.2-3.2 min, was picked for
+    # this benchmark from plots of the signals.
     dt = t[1] - t[0]
-    corr_len = rng.uniform(0.3, 0.8) / dt
+    corr_len = rng.uniform(1.2, 3.2) / dt
     wander = gaussian_filter1d(rng.normal(size=len(t)), corr_len)
     peak_amp = np.abs(wander).max()
     if peak_amp > 0:
-        # Absolute amplitude 0.1-0.35 mV, matching the baseline structure
-        # of the LPYE blanks (median p2p 0.33 mV).
+        # Absolute amplitude 0.1-0.35 mV, picked for this benchmark.
         wander *= rng.uniform(0.1, 0.35) / peak_amp
         b = b + wander
     return b
@@ -418,7 +460,7 @@ def make_baseline(t: np.ndarray, kind: str,
 def lit_baseline(t: np.ndarray, kind: str,
                  rng: np.random.Generator) -> np.ndarray:
     """
-    Build a generic literature baseline, not tied to the LPYE data.
+    Build a baseline of the ``lit`` family.
 
     The two forms are the BEADS benchmark baselines of Ning, Selesnick
     & Duval (2014), §5:
@@ -428,9 +470,8 @@ def lit_baseline(t: np.ndarray, kind: str,
     - ``lowpass`` (their Type 2): a white Gaussian process low-pass
       filtered to a small band, i.e. a random smooth curve.
 
-    Amplitudes are on the order of the peak heights rather than the
-    tenth-of-a-millivolt of the LPYE baseline, so these exercise the
-    large, structured baselines the instrument does not produce.
+    The peak-to-peak amplitude, drawn from 4 to 20, is on the order of
+    the peak heights.
 
     Parameters
     ----------
@@ -473,17 +514,17 @@ def native_peak_component(n: int, peak_case: str,
                           ) -> tuple[np.ndarray, np.ndarray, list[dict],
                                      float, dict]:
     """
-    Build the LPYE peak component: analytes, artifact and time axis.
+    Build the peak component, with the analytes, artifact and time axis.
 
-    Everything a `native` chromatogram contains except its baseline and
-    its noise. Factored out of `make_signal` so that the peak model can
-    be placed on a different baseline without being written a second
-    time.
+    Everything an `erb` or `native` chromatogram contains except its
+    baseline and its noise. Factored out of `make_signal` so that the
+    peak model can be placed on a different baseline without being
+    written a second time.
 
-    The component is chosen to match the LPYE dataset: 120 points per
-    minute, a dead time between 2.5 and 6.5 min carrying the bipolar
-    injection artifact, exponentially-modified Gaussian analytes
-    eluting after it, and widths growing with retention time.
+    The component has 120 points per minute, a dead time between 2.5
+    and 6.5 min carrying the bipolar injection artifact,
+    exponentially-modified Gaussian analytes eluting after it, and
+    widths growing with retention time.
 
     Parameters
     ----------
@@ -602,14 +643,8 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
     peaks = []
 
     # The dead-time injection artifact (bipolar; see dead_time_artifact).
-    # On many LPYE blanks the negative lobe is the largest excursion in
-    # the whole trace, down to -1.2 mV on a 0.6 mV blank.
-    # The negative dip is capped at the deepest LPYE dip (~1.2 mV);
-    # without the cap the relative scaling produced dips to -2.7 mV,
-    # deeper than any in the dataset.
     contrib, entries = dead_time_artifact(t, t0, dt, rng,
-                                          pos_height=(1., 4.),
-                                          neg_abs=(0.3, 1.4))
+                                          pos_height=(1., 4.))
     signal += contrib
     peaks += entries
     # The dead time is the first thing to leave the column: it is the
@@ -624,8 +659,7 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
     elute_lo = t0 + 0.02 * t[-1]
     elute_hi = 0.9 * t[-1]
 
-    # A blank carries the injection artifact and nothing else: no peak
-    # stands above 0.2 mV after the artifact in any of the LPYE blanks.
+    # A blank carries only the injection artifact.
     if not n_peaks:
         return signal, peaks, float('nan')
     specs, n_plates = _draw_analytes(t, t0, n_peaks,
@@ -952,7 +986,7 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
                 noise_sigma: float, rng: np.random.Generator
                 ) -> tuple[np.ndarray, dict]:
     """
-    Assemble one ``native`` synthetic chromatogram (LPYE instrument).
+    Assemble one ``native`` synthetic chromatogram.
 
     Parameters
     ----------
@@ -989,29 +1023,23 @@ def make_signal(n: int, peak_case: str, baseline_case: str,
                      **_analyte_meta(t, peaks, t0, info)}}
 
 
-# Record length for the `erb` family: log10 of the length follows
-# a skew-normal distribution, shape, location and scale below, chosen to
-# match the LPYE dataset. It follows the broad shape of the dataset,
-# smooths its pile-up near 850 points and makes its longest records
-# rarer. Draws outside the range are redrawn.
+# Record length of the `erb` family. log10 of the length follows a
+# skew-normal distribution, with the shape, location and scale below
+# picked for this benchmark, and draws outside the range are redrawn.
+# Short records are the most common. Half are under about 1500 points
+# and 2% are over 10000.
 #
 # Record length sets the fundamental frequency 1/n_used, which is exactly
-# what `instability_boundary` keys on, so length must vary, but a balanced
-# ladder misrepresents how often each length actually occurs: it would
-# over-weight the long records, which are the most expensive to sweep.
+# what `instability_boundary` keys on, so length must vary. A balanced
+# ladder of lengths would over-weight the long records, which are the
+# most expensive to sweep.
 ERB_LOG10_N_SKEWNORM = (10.02, 2.818, 0.512)
 ERB_N_RANGE = (500, 40000)
 
-# Erb's baseline 3 is a pure sinusoid, ``10 + sin(x/50)``, 2 units
-# peak to peak. Excluded from the benchmark: an HPLC baseline does not
-# oscillate through several full cycles within one run, so scoring
-# against it measures the method on drift it will never meet.
-#
-# It also does not provide a usable target. On the former ``multi_wide``
-# and ``multi_mixed`` cases, the cutoff minimizing the RMSE against it
-# recovers the baseline *worse than a horizontal line* (median ratio 1.19
-# on ``multi_wide``, 1.15 on ``multi_mixed``), so the "true optimum" there
-# is the least bad of a grid of bad fits.
+# Erb's baseline 3 is a pure sinusoid, ``10 + sin(x/50)``, 2 mV peak to
+# peak and about three cycles over the record. It is excluded from the
+# benchmark because an HPLC baseline does not oscillate through several
+# full cycles within one run.
 EXCLUDED_ERB_BASELINES = ('sine',)
 
 # Names of Erb's baselines in signal names, by `erb_baseline` kind.
@@ -1019,7 +1047,7 @@ ERB_BASELINE_NAMES = {'parabola': 0, 'exp': 1, 'step': 2, 'sine': 3}
 
 def draw_record_length(rng: np.random.Generator) -> int:
     """
-    Draw a record length from the skew-normal fit to the LPYE lengths.
+    Draw a record length of the ``erb`` family.
 
     log10 of the length is drawn from `ERB_LOG10_N_SKEWNORM` and
     redrawn until the length falls inside `ERB_N_RANGE`.
@@ -1047,29 +1075,19 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
                noise_sigma: float, rng: np.random.Generator,
                quantise_output: bool = True) -> dict:
     """
-    Assemble a chromatogram: LPYE peak component on an Erb baseline.
+    Assemble one ``erb`` chromatogram, the shared peak component on an
+    Erb baseline.
 
-    It combines the two families that each hold one half of what the
-    benchmark needs.
+    The peak component comes from `native_peak_component`. White noise
+    at one of `NOISE_CASES` is added.
 
-    From `native`, by way of `native_peak_component`, the reviewed peak
-    model chosen to match the LPYE dataset: 120 points per minute, the
-    bipolar injection artifact at a dead time between 2.5 and 6.5 min,
-    exponentially-modified Gaussian analytes eluting after it, widths
-    growing with retention time, and detector noise at the LPYE
-    level.
-
-    From Erb's script, by way of `erb_baseline`: a baseline that is an
-    exact analytic function rather than a sum of drawn components,
-    written by the pybaselines author to exercise cutoff selection. That
-    is what `native`'s own baseline cannot offer.
+    The baseline, from `erb_baseline`, is an exact analytic function
+    written by the pybaselines author to exercise cutoff selection.
 
     **Scales.** The baseline is evaluated on a normalized 0-1000
     abscissa spanning the record, because `erb_baseline`'s coefficients
-    are written for that range; its output is then read as mV. Erb's
-    baselines span roughly 2-12 in his units, and the drift of the LPYE
-    records spans 0.08-12.5 mV, so the two scales coincide to within the
-    spread of the dataset.
+    are written for that range. Its output is read as mV, so the
+    parabola spans 5 mV, the exponential 8.1 mV and the step 12.1 mV.
 
     Parameters
     ----------
@@ -1089,7 +1107,7 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
         differences, which on quantized data is pinned to the lattice
         and on continuous data is a true noise estimate, so an
         unquantized benchmark exercises a different quantity under
-        the same name. See tools/synthetic/synthetic_data.md §5.
+        the same name.
 
     Returns
     -------
@@ -1163,14 +1181,12 @@ def lit_signal(n: int, peak_case: str, baseline_case: str,
                snr_db: float, rng: np.random.Generator
                ) -> tuple[np.ndarray, dict]:
     """
-    Assemble one ``lit`` synthetic chromatogram (generic, literature).
+    Assemble one ``lit`` synthetic chromatogram.
 
-    Not tied to the LPYE instrument: Gaussian peaks of varying
-    amplitude/width/position on a large structured baseline, with the
-    noise set by a target signal-to-noise ratio rather than an absolute
-    detector floor. Follows the BEADS benchmark of Ning, Selesnick &
-    Duval (2014), §5, so the algorithm is also tested on the conditions
-    the method was originally validated against.
+    Gaussian peaks of varying amplitude, width and position on a large
+    structured baseline, with the noise set by a target signal-to-noise
+    ratio. Follows the BEADS benchmark of Ning, Selesnick & Duval
+    (2014), §5.
 
     Parameters
     ----------
@@ -1236,8 +1252,8 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
     """
     Render one synthetic signal against its known ground truth.
 
-    Always produced so the synthetic data can be eyeballed against the
-    LPYE chromatograms before it is trusted for scoring. Shows the raw
+    Produced unless ``--no-plot`` is given, so the synthetic data can be
+    reviewed by eye before it is trusted for scoring. Shows the raw
     measured signal, the true baseline, and the true baseline-corrected
     signal (peaks + noise), with the dead-time region marked.
 
@@ -1372,19 +1388,18 @@ def main() -> None:
     parser.add_argument('--family',
                         choices=('native', 'lit', 'erb', 'both',
                                  'all'),
-                        default='both',
-                        help="'native' = chosen to match the LPYE data; "
-                             "'lit' = generic Ning 2014 benchmark "
-                             "conditions; 'erb' = the LPYE peak "
-                             "component on Erb's four analytic "
-                             "baselines; 'both' (default) = native+lit; "
-                             "'all' = every family")
+                        default='erb',
+                        help="'erb' (default) = the plate-model peak "
+                             "component on Erb's analytic baselines; "
+                             "'native' = the same peaks on a drawn "
+                             "baseline (deprecated); 'lit' = the Ning "
+                             "2014 benchmark (deprecated); 'both' = "
+                             "native+lit; 'all' = every family")
     parser.add_argument('--replicates', type=int, default=1,
                         help='replicates per case (default: 1)')
     parser.add_argument('--no-plot', action='store_true',
                         help='skip the per-signal PNG in plots/ '
-                             '(rendered by default so the synthetic data '
-                             'can be reviewed against the LPYE signals)')
+                             '(rendered by default for review by eye)')
     args = parser.parse_args()
 
     sig_dir = os.path.join(args.output, 'signals')

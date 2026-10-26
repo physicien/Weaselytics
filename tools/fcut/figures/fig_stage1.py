@@ -1,18 +1,16 @@
 """
 Stage 1 figures for segmentation.md: how the segments are identified.
 
-Two panels of one worked example, on the curve of Figures 1 and 3.
+Two figures of one worked example, on the curve of Figures 1 and 3.
 
   stage1_segments  the partition pelt_linear returns, with the straight
-                   line it fits on each segment, so the reader sees what
-                   a "segment" is and where the boundaries land.
+                   line it fits on each segment.
   stage1_features  every segment placed in (rel_slope, rel_noise) with
-                   the classify_segments thresholds drawn on top, so the
-                   rule is visible as a region of the plane rather than
-                   as three numbers in a table.
+                   the classify_segments thresholds drawn on top.
 """
 import argparse
 import glob
+import inspect
 import os
 
 import matplotlib
@@ -21,6 +19,13 @@ import numpy as np
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+from weaselytics.baseline import (  # noqa: E402
+    _log_transform,
+    _relevant_regions,
+    _snr,
+    auto_beads,
+)
+from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
     classify_segments,
     pelt_linear,
@@ -37,19 +42,28 @@ REL_NOISE_MAX, CLIFF_MIN = 0.006, 1.0
 CURVE, FLAT, NOTFLAT, CLIFF = '#1f4e79', '#1a7a44', '#c2521f', '#7a3fa0'
 
 
+def production_inputs(data):
+    """`n_used` and the past-drop gate, as `_fcutoff` derives them."""
+    src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
+    x, y = ParsedData(src).data
+    _, _, scut = _relevant_regions(y, x)
+    gate = inspect.signature(auto_beads).parameters[
+        'snr_threshold'].default
+    return len(_log_transform(y[:scut])), bool(_snr(y) >= gate)
+
+
 def load(cache):
     f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     return d['fcut_range'], d['r2_val']
 
 
-def fig_segments(fr, r2, segs):
+def fig_segments(fr, r2, segs, n_used):
     """Two panels: the partition, and the residual it leaves behind.
 
-    The residual panel is the point of the figure. The boundaries inside
-    the initial plateau are not there because the mean moves, it does
-    not; they are there because the noise level changes, and a segment
-    cost that fits its own variance sees that.
+    In the residual panel, the boundaries inside the initial plateau
+    follow changes of the noise level, which a segment cost fitting its
+    own variance detects; the mean does not move there.
     """
     fig, axes = plt.subplots(2, 1, figsize=(11.0, 6.8), sharex=True,
                              gridspec_kw={'height_ratios': [2.0, 1.0]})
@@ -92,7 +106,7 @@ def fig_segments(fr, r2, segs):
     ax.text(fr[0] * 1.3, REL_NOISE_MAX * 1.4,
             r'$rel\_noise\_max$ = 0.006', fontsize=8.5, color='#b3402f',
             va='bottom')
-    ax.axvline(1.0 / 400, color='#b3402f', lw=1.2, ls=':', zorder=2)
+    ax.axvline(1.0 / n_used, color='#b3402f', lw=1.2, ls=':', zorder=2)
     ax.set_xscale('log')
     ax.set_yscale('log')
     ax.set_xlim(fr[0], fr[-1])
@@ -163,17 +177,21 @@ def fig_features(segs):
     print(p)
 
 
-def main(cache):
+def main(data, cache):
     fr, r2 = load(cache)
     segs = classify_segments(segment_features(fr, r2, pelt_linear(r2)))
     print(f"  {len(segs)} segments, {sum(s['flat'] for s in segs)} flat")
-    fig_segments(fr, r2, segs)
+    fig_segments(fr, r2, segs, production_inputs(data)[0])
     fig_features(segs)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--data', required=True,
+                        help='raw data directory, holding '
+                             '<Molecule>/<stem>.txt')
     parser.add_argument('--cache', required=True,
                         help='r2_cache directory of a production run, '
                              'e.g. runs/PROD_<date>_<job>/r2_cache')
-    main(parser.parse_args().cache)
+    args = parser.parse_args()
+    main(args.data, args.cache)

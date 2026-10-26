@@ -4,6 +4,7 @@ exclusions, and the stage 3 pick. One worked example throughout.
 """
 import argparse
 import glob
+import inspect
 import os
 
 import matplotlib
@@ -12,6 +13,13 @@ import numpy as np
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+from weaselytics.baseline import (  # noqa: E402
+    _log_transform,
+    _relevant_regions,
+    _snr,
+    auto_beads,
+)
+from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
     _rolling_std,
     classify_segments,
@@ -25,9 +33,19 @@ from weaselytics.segmentation import (  # noqa: E402
 
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
-N_USED, DPI = 400, 200
+DPI = 200
 CURVE, KEEP, CUT, ORANGE, RED = (
     '#1f4e79', '#4c9f70', '#b3402f', '#d9a441', '#b3402f')
+
+
+def production_inputs(data):
+    """`n_used` and the past-drop gate, as `_fcutoff` derives them."""
+    src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
+    x, y = ParsedData(src).data
+    _, _, scut = _relevant_regions(y, x)
+    gate = inspect.signature(auto_beads).parameters[
+        'snr_threshold'].default
+    return len(_log_transform(y[:scut])), bool(_snr(y) >= gate)
 
 
 def shade(ax, fr, mask, color, label, alpha=.30):
@@ -39,13 +57,14 @@ def shade(ax, fr, mask, color, label, alpha=.30):
                    label=label if k == 0 else None, zorder=1)
 
 
-def main(cache):
+def main(data, cache):
     f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     fr, r2, sens = d['fcut_range'], d['r2_val'], d['sensitivity']
     segs = classify_segments(segment_features(fr, r2, pelt_linear(r2)))
     dips = detect_dips(fr, r2)
-    tr = trim_plateaus(fr, segs, dips, N_USED, exclude_past_drop=True,
+    n_used, past_drop = production_inputs(data)
+    tr = trim_plateaus(fr, segs, dips, n_used, exclude_past_drop=past_drop,
                        sensitivity=sens)
     flat = np.zeros(len(r2), bool)
     for s in segs:
@@ -154,7 +173,11 @@ def main(cache):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--data', required=True,
+                        help='raw data directory, holding '
+                             '<Molecule>/<stem>.txt')
     parser.add_argument('--cache', required=True,
                         help='r2_cache directory of a production run, '
                              'e.g. runs/PROD_<date>_<job>/r2_cache')
-    main(parser.parse_args().cache)
+    args = parser.parse_args()
+    main(args.data, args.cache)

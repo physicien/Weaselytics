@@ -1,5 +1,5 @@
 """
-Figure 2 for segmentation.md: the three stages on one curve.
+Figure 3 for segmentation.md: the three stages on one curve.
 
 Same signal as the vocabulary figure, so the reader follows a curve they
 already know. Top: what stage 1 detects. Middle: what stage 2 leaves.
@@ -8,6 +8,7 @@ Bottom: where stage 3 commits.
 
 import argparse
 import glob
+import inspect
 import os
 
 import matplotlib
@@ -17,6 +18,13 @@ matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
 import matplotlib.pyplot as plt  # noqa: E402
 
+from weaselytics.baseline import (  # noqa: E402
+    _log_transform,
+    _relevant_regions,
+    _snr,
+    auto_beads,
+)
+from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
     classify_segments,
     detect_dips,
@@ -28,12 +36,20 @@ from weaselytics.segmentation import (  # noqa: E402
 
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
-N_USED = 400
-SNR_OK = True          # this signal scores far above the threshold
 
 CURVE = '#1f4e79'
 KEEP = '#4c9f70'
 CUT = '#b3402f'
+
+
+def production_inputs(data):
+    """`n_used` and the past-drop gate, as `_fcutoff` derives them."""
+    src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
+    x, y = ParsedData(src).data
+    _, _, scut = _relevant_regions(y, x)
+    gate = inspect.signature(auto_beads).parameters[
+        'snr_threshold'].default
+    return len(_log_transform(y[:scut])), bool(_snr(y) >= gate)
 
 
 def mask_from_flat(segments, n):
@@ -54,7 +70,7 @@ def shade(ax, fr, mask, color, label, alpha=.30):
                    label=label if k == 0 else None, zorder=1)
 
 
-def main(cache):
+def main(data, cache):
     f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     fr, r2, sens = d['fcut_range'], d['r2_val'], d['sensitivity']
@@ -63,8 +79,9 @@ def main(cache):
         segment_features(fr, r2, pelt_linear(r2)))
     flat = mask_from_flat(segments, len(r2))
     dips = detect_dips(fr, r2)
-    trim = trim_plateaus(fr, segments, dips, N_USED,
-                         exclude_past_drop=SNR_OK, sensitivity=sens)
+    n_used, past_drop = production_inputs(data)
+    trim = trim_plateaus(fr, segments, dips, n_used,
+                         exclude_past_drop=past_drop, sensitivity=sens)
     surviving = trim['surviving']
     fcut = select_center(fr, surviving)
     print(f"  flat points      {flat.sum():4d}/{len(r2)}")
@@ -116,7 +133,11 @@ def main(cache):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--data', required=True,
+                        help='raw data directory, holding '
+                             '<Molecule>/<stem>.txt')
     parser.add_argument('--cache', required=True,
                         help='r2_cache directory of a production run, '
                              'e.g. runs/PROD_<date>_<job>/r2_cache')
-    main(parser.parse_args().cache)
+    args = parser.parse_args()
+    main(args.data, args.cache)

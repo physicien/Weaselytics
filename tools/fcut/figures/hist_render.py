@@ -33,21 +33,13 @@ def main():
         os.makedirs(os.path.join(outdir, sub), exist_ok=True)
     os.chdir(outdir)
 
-    # The old plot code writes PNG to a fixed relative path. Wrap the
-    # call so the same figure is also written as vector.
     _orig = plt.savefig
 
-    # The old code writes `fill_between(..., color="none", ec="white",
-    # fc="purple", hatch="//")`. `color="none"` suppresses the hatch: the
-    # bands render as solid purple, which is what the figures in issue #4
-    # show. It also leaves the hatch colour unresolvable, so matplotlib's
-    # SVG writer raises while emitting the pattern; Agg does not, which is
-    # why the PNG always worked and the vector export never did.
-    #
-    # Dropping `hatch` therefore removes something that was already not
-    # drawn, and keeps the figure faithful to what the author saw. The
-    # alternative, dropping `color`, makes the hatch appear and changes
-    # the image. Verified by comparing PNGs both ways.
+    # The old code passes `color="none"` with `hatch="//"` to
+    # `fill_between`. Matplotlib then draws solid purple bands with no
+    # hatch, as in the figures of issue #4, but its SVG writer raises on
+    # the unresolved hatch colour. Dropping `hatch` keeps the figure as it
+    # was drawn.
     _orig_fb = Axes.fill_between
 
     def fill_between(self, *a, **k):

@@ -12,12 +12,13 @@ text makes about every curve.
 Label convention: every label is a bold term with its explanatory
 comment set underneath in smaller type, and every block is left-aligned
 on the same edge, so a term is never confused with its comment. The
-"initial plateau" block sits above the half-drop line and the "half the
-total drop" block below it, so neither crosses the other's arrow.
+"initial plateau" block sits above the drop-level line and the "the drop
+level" block below it, so neither crosses the other's arrow.
 """
 
 import argparse
 import glob
+import inspect
 import os
 
 import matplotlib
@@ -27,6 +28,13 @@ matplotlib.use('Agg')
 matplotlib.rcParams['savefig.dpi'] = 200
 import matplotlib.pyplot as plt  # noqa: E402
 
+from weaselytics.baseline import (  # noqa: E402
+    _log_transform,
+    _relevant_regions,
+    _snr,
+    auto_beads,
+)
+from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
     classify_segments,
     pelt_linear,
@@ -35,7 +43,6 @@ from weaselytics.segmentation import (  # noqa: E402
 
 OUT = os.path.dirname(os.path.abspath(__file__))
 STEM = 'Chlorobenzene__LPYE__60-70__2'
-N_USED = 400
 DROP_LEVEL = 0.5
 
 TERM_SIZE = 10.5
@@ -46,15 +53,24 @@ GREEN, ORANGE, PURPLE, BLUE, RED = (
 GREY = '#7a7a7a'
 
 
-def main(cache):
+def production_inputs(data):
+    """`n_used` and the past-drop gate, as `_fcutoff` derives them."""
+    src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
+    x, y = ParsedData(src).data
+    _, _, scut = _relevant_regions(y, x)
+    gate = inspect.signature(auto_beads).parameters[
+        'snr_threshold'].default
+    return len(_log_transform(y[:scut])), bool(_snr(y) >= gate)
+
+
+def main(data, cache):
     f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     fr, r2 = d['fcut_range'], d['r2_val']
-    fund = 1.0 / N_USED
-    # The drop level is taken from the SEGMENT MEANS, the same scale
-    # `trim_candidates` compares against, so the drawn line is the
-    # threshold the code actually applies rather than a second one
-    # built on the raw curve.
+    fund = 1.0 / production_inputs(data)[0]
+    # The drop level is taken from the segment means, the scale
+    # `trim_candidates` compares against, so the line drawn is the
+    # threshold the code applies.
     means = [s['mean'] for s in
              classify_segments(segment_features(fr, r2, pelt_linear(r2)))]
     lo, hi = float(min(means)), float(max(means))
@@ -201,7 +217,11 @@ def main(cache):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--data', required=True,
+                        help='raw data directory, holding '
+                             '<Molecule>/<stem>.txt')
     parser.add_argument('--cache', required=True,
                         help='r2_cache directory of a production run, '
                              'e.g. runs/PROD_<date>_<job>/r2_cache')
-    main(parser.parse_args().cache)
+    args = parser.parse_args()
+    main(args.data, args.cache)

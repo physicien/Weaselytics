@@ -24,7 +24,6 @@ def _load(name):
 
 
 diag = _load("synth_diag")
-report = _load("synth_report")
 synth = _load("synth_dataset")
 
 
@@ -85,48 +84,6 @@ class TestRegionOf:
         assert rel == pytest.approx(0.5)
 
 
-class TestLocalMinima:
-    def test_finds_interior_minima_only(self):
-        v = np.array([5., 4., 3., 4., 5., 2., 6., 7.])
-        idx = report.local_minima(v)
-        assert set(idx.tolist()) == {2, 5}
-
-    def test_monotone_curve_has_none(self):
-        assert report.local_minima(np.arange(50.)).size == 0
-        assert report.local_minima(np.arange(50.)[::-1]).size == 0
-
-    def test_too_short_returns_empty(self):
-        assert report.local_minima(np.array([1., 2.])).size == 0
-
-    def test_distance_is_measured_in_decades(self):
-        fr = np.geomspace(1e-4, 1e-1, 4)      # 1e-4,1e-3,1e-2,1e-1
-        minima = np.array([1])                 # at 1e-3
-        assert report.nearest_min_distance(fr, minima, 1e-2) == \
-            pytest.approx(1.0)
-        assert report.nearest_min_distance(fr, minima, 1e-3) == \
-            pytest.approx(0.0)
-
-    def test_no_minima_gives_nan(self):
-        fr = np.geomspace(1e-4, 1e-1, 4)
-        assert np.isnan(report.nearest_min_distance(
-            fr, np.array([], dtype=int), 1e-2))
-
-    def test_the_null_control_is_not_degenerate(self):
-        # If a curve is dense in minima, a random cutoff is also close to
-        # one. This pins that the null control can detect that case;
-        # without it, "the optimum is near a minimum" is true by
-        # construction.
-        rng = np.random.default_rng(1)
-        fr = np.geomspace(1e-5, 0.5, 1000)
-        noisy = rng.normal(0., 1., 1000)        # minima everywhere
-        mins = report.local_minima(noisy)
-        assert len(mins) > 200
-        d = [report.nearest_min_distance(fr, mins, f)
-             for f in 10 ** rng.uniform(-5, np.log10(0.5), 100)]
-        # every random cutoff is within a hair of some minimum
-        assert np.median(d) < 0.01
-
-
 class TestSummaryFields:
     def test_every_reported_field_is_declared(self):
         assert 'penalty' in diag.SUMMARY_FIELDS
@@ -174,7 +131,7 @@ class TestHarnessMatchesProduction:
         assert "'parabola_len': 3" in src
 
     def test_past_drop_gate_matches_production(self):
-        # The synthetic tools hold three copies of production's gate.
+        # The synthetic tools hold two copies of production's gate.
         # synth_figs is parsed rather than imported, since it imports
         # synth_diag by module name.
         import ast
@@ -185,7 +142,6 @@ class TestHarnessMatchesProduction:
             'snr_threshold'].default
         assert inspect.signature(diag.diag_one).parameters[
             'snr_threshold'].default == gate
-        assert report.SNR_GATE == gate
         tree = ast.parse((_TOOLS / "synth_figs.py").read_text())
         figs = [node.value.value for node in tree.body
                 if isinstance(node, ast.Assign)

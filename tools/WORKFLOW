@@ -16,4 +16,3 @@ Workflow:
   - merged figures: tools/merger.sh <run>
   - sorted merged figures: tools/fcut/figures/potential/qo_all.py
       --run <run> --dataset DATASET --out MERGED/MERGED_<run>
-  - report: tools/synthetic/synth_report.py DATASET --diag-dir <run>/diag

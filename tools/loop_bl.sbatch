@@ -15,8 +15,8 @@
 
 # Submit from the repository root (the directory containing `data`):
 #     sbatch -J PROD_2026-10-19 tools/loop_bl.sbatch
-#     sbatch -J SYNTH_2026-10-19 --export=ALL,MODE=synth,\
-# DATASET=$HOME/links/scratch/SYNTH_ERB_2026-08-18 tools/loop_bl.sbatch
+#     sbatch -J SYNTH_ERB_2026-10-23 --export=ALL,MODE=synth,\
+# DATASET=$PWD/../SYNTH_ERB_2026-10-23 tools/loop_bl.sbatch
 
 #######################################
 # Job variables and settings:
@@ -53,6 +53,9 @@ if [ "$mode" = synth ]; then
   python $LAUNCHDIR/tools/synthetic/synth_diag.py $DATASET \
       --cache-dir $WORKDIR/$cachedir --diag-dir $WORKDIR/diag \
       --workers ${SLURM_CPUS_PER_TASK:-1}
+  python $LAUNCHDIR/tools/synthetic/synth_figs.py $DATASET \
+      --cache-dir $WORKDIR/$cachedir --diag-dir $WORKDIR/diag \
+      --out-dir $WORKDIR --workers ${SLURM_CPUS_PER_TASK:-1}
 else
   for filename in $DATADIR/*/*.txt; do
     python -m weaselytics $filename $flags \

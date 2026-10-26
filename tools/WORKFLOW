@@ -14,5 +14,5 @@ Workflow:
   - sweep, scoring and review figures:
       MODE=synth DATASET=... sbatch tools/loop_bl.sbatch
   - merged figures: tools/merger.sh <run>
-  - sorted merged figures: tools/fcut/figures/potential/qo_all.py
+  - sorted merged figures: tools/synthetic/qo_all.py
       --run <run> --dataset DATASET --out MERGED/MERGED_<run>

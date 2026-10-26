@@ -6,41 +6,33 @@ For every signal of a dataset produced by
 ``tools/synthetic/synth_dataset.py``:
 
 * run ``auto_beads`` as production does, which fills the r2 cache;
-* read the **production** selection back through ``baseline._fcutoff``,
+* read the production selection back through ``baseline._fcutoff``,
   which returns the selected cutoff together with every intermediate
-  mask, so the harness cannot drift from what ships;
+  mask;
 * recompute the stage-2 trimming twice, with the stiff-side instability
   exclusion on and off, giving every signal a matched pair;
-* compute the TRUE error curve ``E(fcut)``: the RMSE between the
+* compute the true error curve ``E(fcut)``: the RMSE between the
   baseline fitted with the final-correction configuration of
   ``auto_beads`` and the known true baseline, on a subsampled fcut grid.
 
-The minimum of ``E`` is the objective optimal cutoff frequency. It is
-defined by baseline fit alone: peak-area error is not computed and
-enters no decision here.
+The minimum of ``E`` is the optimal cutoff frequency. It is defined by
+the baseline fit alone; the peak-area error is reported but enters no
+decision.
 
-Accuracy is reported in units of the record's own noise, which is the
-scale on which a difference in the corrected chromatogram is visible:
+Accuracy is also reported in units of the record's noise:
 
 ``target_noise = e_min / sigma``
     How far the best fit on the whole grid sits from the true baseline.
-    Near 1, the grid holds a fit indistinguishable from the truth and
-    ``fc_best`` is worth aiming at. Large, and no cutoff recovers this
-    baseline: there is no optimum to find, and any accuracy figure for
-    that signal describes the benchmark rather than the method.
+    Near 1, the grid holds a fit within the noise of the truth. Large,
+    and no cutoff recovers this baseline, so an accuracy figure for that
+    signal describes the benchmark rather than the method.
 
 ``excess_noise = (e_at_selected - e_min) / sigma``
     What the selection costs over that best fit.
 
-These replace ``d_decades`` and ``penalty`` as the reported figures.
-``d_decades`` measures a distance along the parameter rather than in
-the corrected signal, and two cutoffs two decades apart can move the
-baseline by a few percent of the noise; ``penalty`` is a ratio that
-diverges as ``e_min`` approaches zero, when both fits are far below the
-noise. Both columns are still written, for the report battery.
-
-``sigma`` is the generator's own noise array, so these figures exist on
-synthetic data only.
+No source uses the noise units, and they mislead when the signal towers
+over the noise. ``sigma`` is the generator's own noise array, so these
+figures exist on synthetic data only.
 
 Writes one ``<stem>__diag.npz`` per signal and a summary CSV to the
 diagnostics directory, ``DATASET/diag`` unless ``--diag-dir`` is given.
@@ -112,17 +104,13 @@ def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
 
     Mirrors the final-correction configuration of ``auto_beads``
     (custom_beads, per-region sampling, ``alpha=1``, ``parabola_len=3``,
-    asymmetry 1). `auto_beads` only substitutes ``end_window(s)`` when a
-    caller passes ``parabola_len=None``, which no caller does; that
-    branch predates pybaselines exposing `parabola_len` on BEADS and is
-    a fallback, not the production setting.
+    asymmetry 1). `auto_beads` substitutes ``end_window(s)`` only when
+    passed ``parabola_len=None``, which no caller does.
 
-    The error is the RMSE against the known baseline on the **original**
-    scale, which is Niezen et al. (2022) Eq. (15). The production sweep
-    instead fits on ``_log_transform(s[:scut])``: the error curve
-    and the r2 curve are therefore computed on different signals over
-    the same grid, which is intended: the baseline is a physical
-    quantity in mV, while the log scale is an artifact of the method.
+    The error is the RMSE against the known baseline on the original
+    scale, in mV, Niezen et al. (2022) Eq. (15). The production sweep
+    fits on ``_log_transform(s[:scut])`` instead, so the error curve and
+    the r2 curve come from different signals over the same grid.
 
     Parameters
     ----------
@@ -170,9 +158,8 @@ def _err_key(s: np.ndarray, x: np.ndarray, b_true: np.ndarray,
     The curve depends on the signal, the true baseline, the grid, and
     the fit configuration `error_curve` uses, which includes
     `_relevant_regions`, so a change there must invalidate it. It does
-    NOT depend on the trimming, the selection or the reported metrics,
-    which is what makes reuse worth having: those are what change from
-    run to run.
+    not depend on the trimming, the selection or the reported metrics,
+    which change from run to run.
 
     Arrays are hashed at float32 as in `baseline._r2_cache_key`, since
     neither `np.geomspace` nor the signal is bit-reproducible across
@@ -211,8 +198,8 @@ def _region_of(fcut_range: np.ndarray, mask: np.ndarray
     """
     Bounds of the last contiguous run of a boolean mask.
 
-    The last run rather than the first, matching `select_center`, which
-    takes the last surviving region per Navarro-Huerta §3.4.
+    The last run, as `select_center` takes the last surviving region,
+    Navarro-Huerta et al. (2017) §3.4.
 
     Parameters
     ----------
@@ -238,37 +225,30 @@ def _region_of(fcut_range: np.ndarray, mask: np.ndarray
 def _err_stats(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
                sig_true: np.ndarray, fcut: float | None) -> dict:
     """
-    Departure of one fitted baseline from the true one, five ways.
-
-    All five normalizations are reported, and the choice is left to the
-    reader.
+    Departure of one fitted baseline from the true one, four ways.
 
     ``rms``
         Plain RMSE against the known baseline, in the signal's units,
         dividing only by the point count. Niezen et al. (2022) Eq. (15).
     ``peak``
-        Maximum absolute departure. No source uses this; it is here
-        because the RMS averages a local defect over the whole record,
-        so the same defect scores lower in a long run than a short one.
-    ``rms_noise``, ``peak_noise``
-        The two above in units of the record's noise. No source uses
-        this either, and it misleads when the signal towers over the
-        noise.
+        Maximum absolute departure. No source uses this. The RMS
+        averages a local defect over the whole record, so the same
+        defect scores lower in a long run than in a short one.
     ``snr_db``
         ``10 log10( energy(b_true) / energy(b_true - fit) )``. Ning,
         Selesnick & Duval (2014) §5.1, the BEADS paper, quoted there as
         "the energy of the generated baseline divided by the energy of
         the difference between the generated and the estimated
-        baselines". NOTE: energy includes the baseline's offset, so a
+        baselines". The energy includes the baseline's offset, so a
         trace sitting far from zero scores high whatever the fit does.
         Their simulated baselines are near zero; ours are not.
     ``area_pct``
         Percent error in recovered peak area against the known one.
         Navarro-Huerta et al. (2017) §3.6; Niezen et al. (2022) §4.3.3
-        uses the same measure. Taken
-        over the whole record rather than per peak, since the region
-        boundaries would otherwise be a choice of ours. NaN when the
-        true area is too small to divide by, which is most blanks.
+        uses the same measure. Taken over the whole record rather than
+        per peak, since the region boundaries would otherwise be a
+        choice of ours. NaN when the true area is too small to divide
+        by, which is most blanks.
 
     Parameters
     ----------
@@ -281,7 +261,7 @@ def _err_stats(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     Returns
     -------
     stats : dict
-        The five figures above; NaN where the fit failed.
+        The four figures above; NaN where the fit failed.
 
     """
     nan = float('nan')
@@ -397,16 +377,11 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     truth = np.load(os.path.join(truth_dir, f'{stem}__truth.npz'))
     b_true = truth['baseline']
 
-    # THE PRODUCTION PATH. `_fcutoff` holds the whole selection, so
-    # reading its plot_data is the only way to score what ships, but it
-    # must be called the way `auto_beads` calls it.
-    #
-    # MIRRORS baseline.auto_beads (the `method_kwargs` block and the
-    # `_fcutoff` call). Called with its own defaults, `_fcutoff` runs
-    # plain `beads` with no peak regions instead of `custom_beads` with
-    # them, a different algorithm on a different signal.
-    # `test_synth_diag.py` pins these against auto_beads' own signature
-    # so they cannot drift.
+    # `_fcutoff` holds the whole selection and is called here as
+    # `auto_beads` calls it (its `method_kwargs` block and `_fcutoff`
+    # call). With its own defaults it runs plain `beads` with no peak
+    # regions instead of `custom_beads` with them. `test_synth_diag.py`
+    # checks these against the signature of `auto_beads`.
     peak_regions, sampling, scut = _relevant_regions(s, x)
     method_kwargs = {
         'asymmetry': 1.0,
@@ -433,9 +408,7 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     n_used = pd['n_used']
     surviving = pd['cp_surviving']
 
-    # Matched pair: the identical chain, with the stiff-side exclusion
-    # on and off. `trim_plateaus` is the single source, so this differs
-    # from production only in the one argument being tested.
+    # The same chain with the stiff-side exclusion on and off.
     segments = classify_segments(
         segment_features(fcut_range, r2, pelt_linear(r2)))
     dips = detect_dips(fcut_range, r2)
@@ -648,9 +621,6 @@ def main() -> None:
               f"sel={row['fcut_selected']:.3e} "
               f"cand={row['in_candidates']}")
 
-    # Beside the diagnostics, never inside the dataset: a run that
-    # writes into its own input overwrites the summary of whatever
-    # produced it. `--diag-dir` defaults to <dataset>/diag.
     if args.nshards > 1:
         out = os.path.join(diag_dir,
                            f'diag_summary.shard{args.shard:03d}.csv')

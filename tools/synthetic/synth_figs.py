@@ -6,18 +6,14 @@ Two figures for every signal:
 
 ``r2_plots/<stem>_r2.png``
     The production autocorrelation figure of ``plot.r2_plots``, with the
-    **true optimum** added as a green dashed line across every panel.
-    The true optimum exists only where the baseline is known, so
-    production has no slot for that marker.
+    true optimum added as a green dashed line across every panel.
 
 ``images/<stem>.png``
     The chromatogram with the known baseline, the baseline the pipeline
     selected, and the baseline at the true optimum, over the
     corresponding corrected traces and the baseline error of each. When
-    the selection raises, the
-    selected baseline is absent and the figure says so; the true
-    optimum is still drawn, so a failure can be read against what the
-    method could have achieved.
+    the selection raises, the selected baseline is absent and the figure
+    says so; the true optimum is still drawn.
 
 Both are rebuilt from ``<stem>__diag.npz`` in the diagnostics directory
 and from the r2 cache, by default ``DATASET/diag`` and
@@ -163,14 +159,9 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
                   label=f'scut ({scut})')
     ax[0].set_ylabel('mV')
     ax[0].legend(fontsize=8)
-    # Accuracy in units of the record's own noise, which is the scale
-      # on which a difference here is visible at all. The decade
-      # distance is kept only as a secondary label: it does not
-      # distinguish a harmless move from a damaging one.
-    # Both reductions, because neither alone describes the curve: the
-    # rms averages the departure over the whole record and so dilutes a
-    # local defect by the record length, while the max is what the eye
-    # reads off the plot.
+    # Departures in units of the record's noise, as the rms over the
+    # whole record, which dilutes a local defect by the record length,
+    # and as the max, which is what the eye reads off the plot.
     def _pair(rms, mx):
         if not (np.isfinite(rms) and np.isfinite(mx)):
             return 'n/a'
@@ -317,9 +308,7 @@ def one(job):
 
         # Production's final correction, see synth_diag.error_curve
         plen = 3
-        # Both curves are fitted with the SAME configuration used for
-        # the numbers in the title, so the plot cannot disagree with
-        # its own labels.
+        # Fitted with the configuration the title's numbers come from.
         truth = np.load(os.path.join(dataset, 'truth',
                                      f'{stem}__truth.npz'))
         _chromatogram(x, s, b_true,
@@ -353,8 +342,7 @@ def main() -> None:
     cache_dir = a.cache_dir or os.path.join(a.dataset, 'r2_cache')
     out_dir = a.out_dir or a.dataset
 
-    # The figures quote the summary's own numbers rather than
-    # recomputing them, so a plot can never disagree with the table.
+    # The title's numbers are read from the summary.
     summary = {}
     spath = os.path.join(diag_dir, 'diag_summary.csv')
     if os.path.isfile(spath):

@@ -1,10 +1,19 @@
 Workflow:
-  - data/filename.txt from Steven
-  - data/filename.txt --> filename_bl.txt (see loop_bl.sbatch)
-    - confirm bl correction with plots and r2 plots
-  - data/filename_bl.txt --> all peak.csv (see loop_extract.sh)
-  - all peak.csv --> solvent_effect_data.csv (using data_aggregator.py)
-  - stats for each species (using stats_analysis.py)
+  Real chromatograms
+  - data/<Molecule>/<stem>.txt from Steven
+  - <stem>.txt --> <stem>_bl.txt, plots and r2 plots (tools/loop_bl.sbatch)
+    - check the baseline corrections: tools/merger.sh <run> sets each
+      r2 plot beside its chromatogram
+  - <stem>_bl.txt --> <stem>_bl_<mol>.csv, one per signal
+      (tools/loop_extract.sh DIR X0 X1 MOL [PATTERN])
+  - all peak .csv --> solvent_effect_data.csv (tools/data_aggregator.py)
+  - stats for each species (tools/stats_analysis.py)
 
-
-
+  Synthetic benchmark
+  - tools/synthetic/synth_dataset.py DATASET --family erb --replicates 12
+  - sweep, scoring and review figures:
+      MODE=synth DATASET=... sbatch tools/loop_bl.sbatch
+  - merged figures: tools/merger.sh <run>
+  - sorted merged figures: tools/fcut/figures/potential/qo_all.py
+      --run <run> --dataset DATASET --out MERGED/MERGED_<run>
+  - report: tools/synthetic/synth_report.py DATASET --diag-dir <run>/diag

@@ -10,7 +10,7 @@ Workflow:
   - stats for each species (tools/stats_analysis.py)
 
   Synthetic benchmark
-  - tools/synthetic/synth_dataset.py DATASET --family erb --replicates 12
+  - tools/synthetic/synth_dataset.py DATASET --replicates 12
   - sweep, scoring and review figures:
       MODE=synth DATASET=... sbatch tools/loop_bl.sbatch
   - merged figures: tools/merger.sh <run>

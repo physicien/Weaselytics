@@ -13,11 +13,7 @@ Niezen et al. \[[1](#niezen)\] resolve this with **hybrid data** made of an expe
 
 A signal is a peak component, a baseline and white noise, summed and rounded to a detector's voltage step (§5). The truth file `truth/<stem>__truth.npz` stores each part separately, and the baseline alone is the truth a baseline estimate is scored against.
 
-Three families share this format:
-
-- `erb` puts the peak component of §3 on the analytic baselines of §4;
-- `native`, deprecated, puts the same peak component on a sum of drawn components;
-- `lit`, deprecated, is the BEADS benchmark of Ning et al. \[[2](#ning)\].
+The `erb` family builds every signal: the peak component of §3 on the analytic baselines of §4.
 
 The ranges below were picked for this benchmark.
 

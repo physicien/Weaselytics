@@ -6,34 +6,20 @@ Each signal is a peak component plus a baseline plus white noise. The
 true baseline is saved beside the signal, so a baseline estimate can be
 scored against it.
 
-The ``erb`` and ``native`` families share one peak component. A
-positive spike followed by a negative undershoot marks the injection at
-the dead time. The analytes are exponentially-modified Gaussian peaks
-whose widths follow the plate model, sigma = tR / sqrt(N) (Snyder,
-Kirkland & Dolan 2009, Eqs. 2.9b and 2.10). They elute after the
-injection artifact, return to the noise before the record ends, and
-keep a resolution of at least 1 between neighbours. Blanks hold only
-the artifact. The ranges of plate number, dead time and noise were
-picked for this benchmark.
+In the peak component, a positive spike followed by a negative
+undershoot marks the injection at the dead time. The analytes are
+exponentially-modified Gaussian peaks whose widths follow the plate
+model, sigma = tR / sqrt(N) (Snyder, Kirkland & Dolan 2009, Eqs. 2.9b
+and 2.10). They elute after the injection artifact, return to the noise
+before the record ends, and keep a resolution of at least 1 between
+neighbours. Blanks hold only the artifact. The ranges of plate number,
+dead time and noise were picked for this benchmark.
 
-The families differ in their baseline.
-
-``erb``
-    The analytic baselines Donald Erb, author of pybaselines, wrote to
-    test the cutoff selection of this project. Three are used, a
-    parabola, an exponential decay and a step. Records last 4.2 to 333
-    min, 500 to 40000 points at 120 pts/min, and the signal is rounded
-    to a detector's voltage step.
-``native``
-    A sum of drawn components, a solvent-front decay, a broad hump, a
-    linear drift, a level step at the dead time and a slow random
-    wander. Records last 7.5, 15 or 33 min. This family is deprecated.
-``lit``
-    The BEADS benchmark of Ning, Selesnick & Duval (2014), §5. Gaussian
-    peaks, a dense overlapping case among them, on a polynomial plus a
-    sinusoid or on low-pass-filtered noise, with the noise set by a
-    target SNR of 2-25 dB. None of the rules above apply to it. This
-    family is deprecated.
+The baseline is one of the analytic baselines Donald Erb, author of
+pybaselines, wrote to test the cutoff selection of this project: a
+parabola, an exponential decay or a step. Records last 4.2 to 333 min,
+500 to 40000 points at 120 pts/min, and the signal is rounded to a
+detector's voltage step.
 
 Every signal is written as a two-column text file the weaselytics
 pipeline reads unchanged. The split into signal, baseline and noise
@@ -43,7 +29,7 @@ given.
 
 Usage
 -----
-python tools/synthetic/synth_dataset.py OUTPUT_DIR [--family erb] [--seed 0]
+python tools/synthetic/synth_dataset.py OUTPUT_DIR [--seed 0]
 """
 
 import argparse
@@ -56,7 +42,6 @@ matplotlib.use('Agg')
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-from scipy.ndimage import gaussian_filter1d  # noqa: E402
 from scipy.optimize import brentq  # noqa: E402
 from scipy.stats import exponnorm, skewnorm  # noqa: E402
 
@@ -75,7 +60,6 @@ PEAK_CASES = {
 # this benchmark around the N of about 10,000 that Snyder, Kirkland &
 # Dolan (2009, §2.5, p. 57) call a good starting point in many cases.
 PLATE_NUMBER_RANGE = (2000., 14000.)
-BASELINE_CASES = ['exp', 'hump', 'exp_hump_drift']
 # Standard deviation of the white detector noise, in mV, at two levels
 # picked for this benchmark. 'typ' is the reference level and 'high',
 # two and a half times larger, gives noisier records.
@@ -83,10 +67,6 @@ NOISE_CASES = {'typ': 0.02, 'high': 0.05}
 # Default points per minute, picked for this benchmark: two samples per
 # second. `--rate` sets another.
 PTS_PER_MIN = 120
-# Durations of the native records, in min: 900, 1800 and 4000 points
-# at the default rate. All are longer than the 6.5 min upper bound of
-# the dead time, so the analytes have room to elute after it.
-NATIVE_DURATIONS_MIN = (7.5, 15., 100. / 3.)
 # Width (FWHM) of the artifact spike, in min: 6 to 10 samples at the
 # default rate, picked for this benchmark.
 ARTIFACT_FWHM_MIN = (6. / PTS_PER_MIN, 10. / PTS_PER_MIN)
@@ -156,52 +136,6 @@ def emg_peak(t: np.ndarray, tc: float, sigma: float, tau: float,
     if peak_max <= 0:
         return np.zeros(len(t))
     return height * shape / peak_max
-
-
-def broadening_factor(tc: float, t0: float, t_end: float,
-                      g: float) -> float:
-    """
-    Peak-width growth factor with retention time.
-
-    At a constant plate number the peak standard deviation grows with
-    the retention time (time since injection at ``t0``): plate theory
-    gives sigma = tR / sqrt(N), so a late eluter is several times
-    broader than an early one. Parametrized here as ``1 + g * r`` with
-    ``r`` the retention fraction from the dead time to the run end, so
-    the factor is 1 at ``t0`` and ``1 + g`` at ``t_end``.
-
-    Parameters
-    ----------
-    tc : float
-        Peak centre (retention time), minutes.
-    t0 : float
-        Dead time, minutes.
-    t_end : float
-        End of the run, minutes.
-    g : float
-        Growth strength; the last eluter is ``1 + g`` times broader
-        than one at the dead time.
-
-    Returns
-    -------
-    factor : float
-        Multiplicative width factor, at least 1.
-
-    """
-    r = np.clip((tc - t0) / max(t_end - t0, 1e-9), 0., 1.)
-    return 1. + g * r
-
-
-def gauss_peak(t: np.ndarray, tc: float, sigma: float,
-               height: float) -> np.ndarray:
-    """
-    Evaluate a plain Gaussian peak of maximum ``height``.
-
-    Used by the ``lit`` family, whose peaks are superpositions of
-    Gaussians per Ning, Selesnick & Duval (2014), §5.
-
-    """
-    return height * np.exp(-0.5 * ((t - tc) / sigma) ** 2)
 
 
 ###############################################################################
@@ -387,142 +321,15 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
     return contrib, entries
 
 
-def make_baseline(t: np.ndarray, kind: str,
-                  rng: np.random.Generator, t0: float | None = None,
-                  is_blank: bool = False) -> np.ndarray:
-    """
-    Build the slowly varying baseline of a ``native`` signal.
-
-    A sum of components drawn at random. Their amplitudes were picked
-    for this benchmark and keep the baseline small next to the peaks.
-
-    Parameters
-    ----------
-    t : array-like, shape (N,)
-        Time axis.
-    kind : str
-        One of ``exp`` (solvent-front decay), ``hump`` (broad hump) or
-        ``exp_hump_drift`` (both plus a linear drift).
-    rng : numpy.random.Generator
-        Source of randomness for the component parameters.
-    t0 : float, optional
-        Dead time. If given, a small step in the baseline level is
-        placed across it, so the baseline settles at a different level
-        after the injection.
-    is_blank : bool, optional
-        If True, the large hump is omitted and the exp/drift amplitudes
-        are reduced, so blanks stay nearly flat.
-
-    Returns
-    -------
-    baseline : numpy.ndarray, shape (N,)
-        The baseline.
-
-    """
-    span = t[-1] - t[0]
-    b = np.full(len(t), rng.uniform(-0.5, 1.5))
-    # Level step across the dead time, so the baseline settles at a
-    # slightly different level after the injection. It is a smoothed
-    # Heaviside, since the detector has a finite response time.
-    if t0 is not None:
-        step_h = rng.uniform(-0.4, 0.4)
-        b += step_h * 0.5 * (1. + np.tanh((t - t0) / (0.05 * span)))
-    if kind in ('exp', 'exp_hump_drift'):
-        tau = rng.uniform(0.10, 0.30) * span
-        exp_amp = rng.uniform(0.1, 0.4) if is_blank else rng.uniform(0.3, 1.5)
-        b += exp_amp * np.exp(-(t - t[0]) / tau)
-    # Blanks do not carry the hump (their baseline is flat plus drift
-    # plus the wander below).
-    if kind in ('hump', 'exp_hump_drift') and not is_blank:
-        center = t[0] + rng.uniform(0.35, 0.70) * span
-        width = rng.uniform(0.15, 0.30) * span
-        b += rng.uniform(0.3, 1.2) * np.exp(-0.5 * ((t - center) / width)**2)
-    if kind == 'exp_hump_drift':
-        drift = rng.uniform(-0.4, 0.4) if is_blank else rng.uniform(-1., 1.)
-        b += drift * (t - t[0]) / span
-
-    # A wander (pump, thermal and detector fluctuations), which the
-    # components above cannot represent. Its correlation length sits
-    # between the peak widths and the run length, so it is what decides
-    # how flexible the baseline has to be: on a signal with little
-    # analyte, capturing it is the whole job.
-    # The range of the correlation length, 1.2-3.2 min, was picked for
-    # this benchmark from plots of the signals.
-    dt = t[1] - t[0]
-    corr_len = rng.uniform(1.2, 3.2) / dt
-    wander = gaussian_filter1d(rng.normal(size=len(t)), corr_len)
-    peak_amp = np.abs(wander).max()
-    if peak_amp > 0:
-        # Absolute amplitude 0.1-0.35 mV, picked for this benchmark.
-        wander *= rng.uniform(0.1, 0.35) / peak_amp
-        b = b + wander
-    return b
-
-
-def lit_baseline(t: np.ndarray, kind: str,
-                 rng: np.random.Generator) -> np.ndarray:
-    """
-    Build a baseline of the ``lit`` family.
-
-    The two forms are the BEADS benchmark baselines of Ning, Selesnick
-    & Duval (2014), §5:
-
-    - ``poly_sine`` (their Type 1): a polynomial of random order plus a
-      sinusoid of random frequency and phase;
-    - ``lowpass`` (their Type 2): a white Gaussian process low-pass
-      filtered to a small band, i.e. a random smooth curve.
-
-    The peak-to-peak amplitude, drawn from 4 to 20, is on the order of
-    the peak heights.
-
-    Parameters
-    ----------
-    t : array-like, shape (N,)
-        Time axis.
-    kind : str
-        ``poly_sine`` or ``lowpass``.
-    rng : numpy.random.Generator
-        Source of randomness.
-
-    Returns
-    -------
-    baseline : numpy.ndarray, shape (N,)
-        The baseline.
-
-    """
-    n = len(t)
-    u = (t - t[0]) / (t[-1] - t[0])         # normalized abscissa in [0, 1]
-    if kind == 'poly_sine':
-        order = rng.integers(2, 6)
-        coeffs = rng.uniform(-1., 1., order + 1)
-        poly = np.polyval(coeffs, 2. * u - 1.)
-        cycles = rng.uniform(0.5, 4.)
-        sine = rng.uniform(0.3, 1.0) * np.sin(2. * np.pi * cycles * u
-                                              + rng.uniform(0, 2 * np.pi))
-        b = poly + sine
-    else:                                    # lowpass
-        corr = rng.uniform(0.08, 0.20) * n
-        b = gaussian_filter1d(rng.normal(size=n), corr)
-    # Normalize to a random peak-to-peak amplitude comparable to the
-    # peaks (set by the caller's height scale, ~1-30).
-    span = b.max() - b.min()
-    if span > 0:
-        b = (b - b.min()) / span * rng.uniform(4., 20.)
-    return b
-
-
-def native_peak_component(n: int, peak_case: str,
-                          rng: np.random.Generator, noise_sigma: float,
-                          rate: float = PTS_PER_MIN
-                          ) -> tuple[np.ndarray, np.ndarray, list[dict],
+def peak_component(n: int, peak_case: str, rng: np.random.Generator,
+                   noise_sigma: float, rate: float = PTS_PER_MIN
+                   ) -> tuple[np.ndarray, np.ndarray, list[dict],
                                      float, dict]:
     """
     Build the peak component, with the analytes, artifact and time axis.
 
-    Everything an `erb` or `native` chromatogram contains except its
-    baseline and its noise. Factored out of `make_signal` so that the
-    peak model can be placed on a different baseline without being
-    written a second time.
+    Everything an `erb` chromatogram contains except its baseline and
+    its noise.
 
     The component is sampled at `rate` points per minute and has a dead
     time between 2.5 and 6.5 min carrying the bipolar injection
@@ -629,7 +436,7 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
     peak_case : str
         Key of `PEAK_CASES`.
     noise_sigma : float
-        Noise standard deviation; see `native_peak_component`.
+        Noise standard deviation; see `peak_component`.
     rng : numpy.random.Generator
         Source of randomness.
 
@@ -955,11 +762,11 @@ def _analyte_meta(t: np.ndarray, peaks: list[dict], t0: float,
     t : numpy.ndarray, shape (N,)
         Time axis, minutes.
     peaks : list of dict
-        Peaks from `native_peak_component`.
+        Peaks from `peak_component`.
     t0 : float
         Dead time, minutes.
     info : dict
-        The ``info`` returned by `native_peak_component`.
+        The ``info`` returned by `peak_component`.
 
     Returns
     -------
@@ -985,50 +792,6 @@ def _analyte_meta(t: np.ndarray, peaks: list[dict], t0: float,
             'n_dropped': info['n_requested'] - len(analytes),
             'n_plates': info['n_plates'], 'dead_time': t0,
             'dead_time_redraws': info['dead_time_redraws']}
-
-
-def make_signal(n: int, peak_case: str, baseline_case: str,
-                noise_sigma: float, rng: np.random.Generator,
-                rate: float = PTS_PER_MIN) -> dict:
-    """
-    Assemble one ``native`` synthetic chromatogram.
-
-    Parameters
-    ----------
-    n : int
-        Number of data points.
-    peak_case : str
-        Key of ``PEAK_CASES``.
-    baseline_case : str
-        Key of ``BASELINE_CASES``.
-    noise_sigma : float
-        Standard deviation of the white noise.
-    rng : numpy.random.Generator
-        Source of randomness.
-    rate : float, optional
-        Points per minute. Default `PTS_PER_MIN`.
-
-    Returns
-    -------
-    components : dict
-        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise``,
-        ``peaks`` (the per-peak parameters) and ``meta`` (see
-        `_analyte_meta`).
-
-    """
-    t, signal, peaks, t0, info = native_peak_component(n, peak_case, rng,
-                                                       noise_sigma, rate)
-    baseline = make_baseline(t, baseline_case, rng, t0=t0,
-                             is_blank=(info['n_requested'] == 0))
-    noise = rng.normal(0., noise_sigma, n)
-    return {'x': t, 'y': signal + baseline + noise, 'signal': signal,
-            'baseline': baseline, 'noise': noise, 'peaks': peaks,
-            'meta': {'family': 'native', 'n_points': n,
-                     'points_per_minute': rate,
-                     'peak_case': peak_case,
-                     'baseline_case': baseline_case,
-                     'noise_sigma': noise_sigma,
-                     **_analyte_meta(t, peaks, t0, info)}}
 
 
 # Record length of the `erb` family. log10 of the length follows a
@@ -1090,7 +853,7 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
     Assemble one ``erb`` chromatogram, the shared peak component on an
     Erb baseline.
 
-    The peak component comes from `native_peak_component`. White noise
+    The peak component comes from `peak_component`. White noise
     at one of `NOISE_CASES` is added.
 
     The baseline, from `erb_baseline`, is an exact analytic function
@@ -1148,8 +911,8 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
         placement.
 
     """
-    t, signal, peaks, t0, info = native_peak_component(n, peak_case, rng,
-                                                       noise_sigma, rate)
+    t, signal, peaks, t0, info = peak_component(n, peak_case, rng,
+                                                noise_sigma, rate)
     # Erb's coefficients are written for an abscissa of order 0-1000, so
     # the baseline is evaluated there and mapped onto the record. Its
     # shape is therefore independent of the record's duration in
@@ -1176,92 +939,6 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
                      **_analyte_meta(t, peaks, t0, info)}}
 
 
-LIT_PEAK_CASES = {
-    # (number of Gaussian peaks, FWHM range in points)
-    'sparse': (6, (10, 40)),
-    'medium': (14, (8, 30)),
-    'dense': (28, (8, 20)),        # crowded: stresses the sparsity and
-                                   # median-estimator assumptions
-    'few_broad': (3, (60, 140)),
-}
-LIT_BASELINE_CASES = ['poly_sine', 'lowpass']
-# Ning et al. used input SNR from -5 to 25 dB; these four span that
-# range from clean to genuinely harsh.
-LIT_SNR_DB = {'clean': 25., 'mid': 15., 'noisy': 8., 'harsh': 2.}
-LIT_N_CASES = [1000, 2500, 6000]
-
-
-def lit_signal(n: int, peak_case: str, baseline_case: str,
-               snr_db: float, rng: np.random.Generator
-               ) -> tuple[np.ndarray, dict]:
-    """
-    Assemble one ``lit`` synthetic chromatogram.
-
-    Gaussian peaks of varying amplitude, width and position on a large
-    structured baseline, with the noise set by a target signal-to-noise
-    ratio. Follows the BEADS benchmark of Ning, Selesnick & Duval
-    (2014), §5.
-
-    Parameters
-    ----------
-    n : int
-        Number of data points.
-    peak_case : str
-        Key of ``LIT_PEAK_CASES``.
-    baseline_case : str
-        Key of ``LIT_BASELINE_CASES``.
-    snr_db : float
-        Target signal-to-noise ratio in decibels; the noise standard
-        deviation is set to ``rms(peaks) / 10**(snr_db / 20)``.
-    rng : numpy.random.Generator
-        Source of randomness.
-
-    Returns
-    -------
-    components : dict
-        Same keys as ``make_signal``.
-
-    """
-    dt = 1. / PTS_PER_MIN
-    t = np.arange(n) * dt
-    n_peaks, fwhm_pts = LIT_PEAK_CASES[peak_case]
-
-    signal = np.zeros(n)
-    peaks = []
-    # Dead-time injection artifact, varied over 3.5-6 min so the
-    # detector step and the artifact are not always at the same place.
-    t0 = rng.uniform(3.5, 6.0)
-    if t[-1] > t0 + 0.5:
-        contrib, entries = dead_time_artifact(t, t0, dt, rng,
-                                              pos_height=(2., 8.))
-        signal += contrib
-        peaks += entries
-    else:
-        t0 = 0.
-
-    # Analytes elute after the dead time.
-    lo = min(t0 + 0.02 * t[-1], 0.9 * t[-1])
-    centers = np.sort(rng.uniform(lo, 0.97 * t[-1], n_peaks))
-    broaden_g = rng.uniform(2., 4.)
-    base_fwhm = rng.uniform(*fwhm_pts) * dt
-    for tc in centers:
-        fwhm = (base_fwhm * broadening_factor(tc, t0, t[-1], broaden_g)
-                * rng.uniform(0.85, 1.15))
-        sigma = fwhm / _FWHM_PER_SIGMA
-        height = np.exp(rng.uniform(np.log(1.), np.log(30.)))
-        signal += gauss_peak(t, tc, sigma, height)
-        peaks.append({'tc': tc, 'sigma': sigma, 'tau': 0.,
-                      'height': height, 'fwhm_points': fwhm / dt,
-                      'artifact': False})
-
-    baseline = lit_baseline(t, baseline_case, rng)
-    rms = np.sqrt(np.mean(signal ** 2))
-    noise_sigma = max(rms, 1e-3) / 10. ** (snr_db / 20.)
-    noise = rng.normal(0., noise_sigma, n)
-    return {'x': t, 'y': signal + baseline + noise, 'signal': signal,
-            'baseline': baseline, 'noise': noise, 'peaks': peaks}
-
-
 def plot_signal(parts: dict, stem: str, out_path: str) -> None:
     """
     Render one synthetic signal against its known ground truth.
@@ -1274,7 +951,7 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
     Parameters
     ----------
     parts : dict
-        The component dictionary returned by ``make_signal``.
+        The component dictionary returned by ``erb_signal``.
     stem : str
         Signal identifier, used as the title.
     out_path : str
@@ -1366,9 +1043,7 @@ def manifest_row(stem: str, family: str, peak_case: str,
     replicate : int
         Replicate number.
     parts : dict
-        The signal as a family builder returns it; families without
-        ``meta`` leave the placement columns empty and are recorded at
-        `PTS_PER_MIN`.
+        The signal as `erb_signal` returns it.
 
     Returns
     -------
@@ -1402,21 +1077,10 @@ def main() -> None:
     parser.add_argument('output', help='output directory')
     parser.add_argument('--seed', type=int, default=0,
                         help='base random seed (default: 0)')
-    parser.add_argument('--family',
-                        choices=('native', 'lit', 'erb', 'both',
-                                 'all'),
-                        default='erb',
-                        help="'erb' (default) = the plate-model peak "
-                             "component on Erb's analytic baselines; "
-                             "'native' = the same peaks on a drawn "
-                             "baseline (deprecated); 'lit' = the Ning "
-                             "2014 benchmark (deprecated); 'both' = "
-                             "native+lit; 'all' = every family")
     parser.add_argument('--replicates', type=int, default=1,
                         help='replicates per case (default: 1)')
     parser.add_argument('--rate', type=float, default=PTS_PER_MIN,
-                        help='points per minute of the erb and native '
-                             'signals (default: 120); lit stays at 120')
+                        help='points per minute (default: 120)')
     parser.add_argument('--no-plot', action='store_true',
                         help='skip the per-signal PNG in plots/ '
                              '(rendered by default for review by eye)')
@@ -1430,53 +1094,30 @@ def main() -> None:
     if not args.no_plot:
         os.makedirs(plot_dir, exist_ok=True)
 
-    # One flat list of (family, peak_case, baseline_case, noise_key,
-    # noise_value_or_snr, n) jobs, so the two families share the writing,
-    # plotting and manifest code below.
     jobs = []
-    if args.family in ('native', 'both', 'all'):
-        for pc in PEAK_CASES:
-            for bc in BASELINE_CASES:
-                for nk, ns in NOISE_CASES.items():
-                    for d in NATIVE_DURATIONS_MIN:
-                        jobs.append(('native', pc, bc, nk, ns,
-                                     int(round(d * args.rate))))
-    if args.family in ('lit', 'both', 'all'):
-        for pc in LIT_PEAK_CASES:
-            for bc in LIT_BASELINE_CASES:
-                for nk, snr in LIT_SNR_DB.items():
-                    for n in LIT_N_CASES:
-                        jobs.append(('lit', pc, bc, nk, snr, n))
-    if args.family in ('erb', 'all'):
-        for pc in PEAK_CASES:
-            for bname in ERB_BASELINE_NAMES:
-                for nk, ns in NOISE_CASES.items():
-                    # Length is drawn per signal, not crossed: see
-                    # `draw_record_duration`.
-                    jobs.append(('erb', pc, bname, nk,
-                                 ns, None))
+    for pc in PEAK_CASES:
+        for bname in ERB_BASELINE_NAMES:
+            for nk, ns in NOISE_CASES.items():
+                # Length is drawn per signal, not crossed: see
+                # `draw_record_duration`.
+                jobs.append((pc, bname, nk, ns))
 
     manifest = []
     # Zero-padded to the widest replicate number, so names sort in order.
     rep_width = len(str(args.replicates - 1))
-    for k, (family, pc, bc, nk, nv, n) in enumerate(jobs):
+    for k, (pc, bc, nk, ns) in enumerate(jobs):
         # Skipped inside the loop rather than dropped from `jobs`, so the
         # index that seeds every other signal is unchanged and the rest
         # of the set stays reproducible.
-        if family == 'erb' and bc in EXCLUDED_ERB_BASELINES:
+        if bc in EXCLUDED_ERB_BASELINES:
             continue
         for rep in range(args.replicates):
             rng = np.random.default_rng(args.seed + 7919 * (k + 1)
                                         + 104729 * rep)
-            if family == 'native':
-                parts = make_signal(n, pc, bc, nv, rng, rate=args.rate)
-            elif family == 'erb':
-                n = int(round(draw_record_duration(rng) * args.rate))
-                parts = erb_signal(n, pc, ERB_BASELINE_NAMES[bc], nv,
-                                   rng, rate=args.rate)
-            else:
-                parts = lit_signal(n, pc, bc, nv, rng)
-            stem = signal_stem(family, pc, bc, nk, rep, n, rep_width)
+            n = int(round(draw_record_duration(rng) * args.rate))
+            parts = erb_signal(n, pc, ERB_BASELINE_NAMES[bc], ns, rng,
+                               rate=args.rate)
+            stem = signal_stem('erb', pc, bc, nk, rep, n, rep_width)
             with open(os.path.join(sig_dir, f'{stem}.txt'), 'w') as f:
                 for xi, yi in zip(parts['x'], parts['y']):
                     f.write(f'{xi:.6f}\t{yi:.6e}\n')
@@ -1488,7 +1129,7 @@ def main() -> None:
             if not args.no_plot:
                 plot_signal(parts, stem,
                             os.path.join(plot_dir, f'{stem}.png'))
-            manifest.append(manifest_row(stem, family, pc, bc, nk, n, rep,
+            manifest.append(manifest_row(stem, 'erb', pc, bc, nk, n, rep,
                                          parts))
     with open(os.path.join(args.output, 'manifest.csv'), 'w') as f:
         f.write(','.join(MANIFEST_COLUMNS) + '\n')

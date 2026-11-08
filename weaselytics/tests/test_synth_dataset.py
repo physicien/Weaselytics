@@ -137,11 +137,11 @@ class TestErbSignal:
                              np.random.default_rng(3))
         np.testing.assert_array_equal(a['y'], b['y'])
 
-    def test_peak_component_matches_the_native_family_exactly(self):
-        # The peaks of `erb` are native's own: same seed, same
-        # draws.
+    def test_signal_is_the_shared_peak_component(self):
+        # The peaks of `erb` are the peak component's own: same seed,
+        # same draws.
         n, case = 1800, 'many'
-        t1, sig1, pk1, t01, _ = synth.native_peak_component(
+        t1, sig1, pk1, t01, _ = synth.peak_component(
             n, case, np.random.default_rng(11), 0.02)
         d = synth.erb_signal(n, case, 2, 0.02,
                              np.random.default_rng(11))
@@ -313,8 +313,8 @@ class TestErbSignal:
 
     def test_a_record_too_short_for_the_dead_time_is_refused(self):
         with pytest.raises(ValueError, match='dead time'):
-            synth.native_peak_component(300, 'blank',
-                                        np.random.default_rng(0), 0.02)
+            synth.peak_component(300, 'blank',
+                                 np.random.default_rng(0), 0.02)
 
     def test_record_durations_stay_inside_the_range(self):
         rng = np.random.default_rng(0)
@@ -352,31 +352,13 @@ class TestRate:
         assert d['meta']['minutes'] == pytest.approx(2999. / 240.)
 
 
-class TestNativeSignal:
-    def test_reports_its_placement_like_erb(self):
-        d = synth.make_signal(900, 'many', 'exp', 0.02,
-                              np.random.default_rng(2))
-        m = d['meta']
-        assert m['family'] == 'native'
-        lo, hi = synth.PEAK_CASES['many']
-        assert lo <= m['n_requested'] <= hi
-        assert m['n_analytes'] + m['n_dropped'] == m['n_requested']
-        assert m['n_analytes'] == sum(not p['artifact'] for p in d['peaks'])
-
-    def test_a_blank_holds_only_the_injection_artifact(self):
-        d = synth.make_signal(1800, 'blank', 'hump', 0.02,
-                              np.random.default_rng(0))
-        assert len(d['peaks']) == 2
-        assert all(p['artifact'] for p in d['peaks'])
-
-
 class TestNamesAndManifest:
     def test_stem_puts_the_padded_replicate_before_the_length(self):
         stem = synth.signal_stem('erb', 'many', 'step', 'typ', 3, 1874, 2)
         assert stem == 'SYN__erb__many__step__typ__03__1874'
 
     def test_padding_follows_the_widest_replicate(self):
-        assert synth.signal_stem('native', 'few', 'exp', 'high', 3, 900,
+        assert synth.signal_stem('erb', 'few', 'exp', 'high', 3, 900,
                                  1).endswith('__3__900')
 
     def test_manifest_row_matches_its_columns(self):

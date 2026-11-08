@@ -16,8 +16,8 @@ baseline is fitted on every tenth cutoff of the production grid, the
 rms change between neighbouring fits is accumulated, and the cutoffs
 are taken at equal shares of the total. Stretches where the fit barely
 moves get one curve and the stretches where it changes fast get
-several. A flat stretch around the optimum
-can therefore hold no curve at all.
+several. A flat stretch around the optimum can therefore hold no curve
+at all.
 
 The signal's r2 cache entry is copied into a temporary directory before
 it is read. A cache miss in ``_r2_array_cached`` deletes every entry of

@@ -25,6 +25,7 @@ STEM = 'Chlorobenzene__LPYE__60-70__2'
 
 
 def main(data, cache):
+    """Draw Figure 9 with `auto_beads`, on a copy of the cache."""
     src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
     d = ParsedData(src).data
     x, y = np.asarray(d[0], float), np.asarray(d[1], float)
@@ -32,6 +33,7 @@ def main(data, cache):
     _orig = plt.savefig
 
     def savefig(fname, *a, **k):
+        """Save the figure, then a vector copy beside it."""
         out = _orig(fname, *a, **k)
         root, _ = os.path.splitext(str(fname))
         _orig(root + '.svg', format='svg', bbox_inches='tight')

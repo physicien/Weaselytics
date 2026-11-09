@@ -116,6 +116,7 @@ def overlay(dataset, run, stem, out, n_curves, work):
         exclude_past_drop=sf._snr(s) >= sf.SNR_THRESHOLD, sensitivity=sens)
 
     def fit(fc):
+        """Baseline at cutoff `fc`, fitted as production's final correction."""
         return sf._beads_at(x, s, fc, regions, sampling, 3)
 
     grid = _stiffness_spaced(fcut_range, fit, n_curves)
@@ -128,6 +129,10 @@ def overlay(dataset, run, stem, out, n_curves, work):
     real_savefig = sf.plt.savefig
 
     def savefig(*a, **kw):
+        """
+        Draw one line per cutoff and the true optimum on every panel,
+        then save.
+        """
         for axis in sf.plt.gcf().axes:
             for (fc, _), c in zip(fits, cols):
                 axis.axvline(fc, color=c, lw=1.6, zorder=6)

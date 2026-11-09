@@ -53,6 +53,7 @@ def production_inputs(data):
 
 
 def load(cache):
+    """Cutoff grid and autocorrelation curve of the signal, from the cache."""
     f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     return d['fcut_range'], d['r2_val']
@@ -125,6 +126,7 @@ def fig_segments(fr, r2, segs, n_used):
 
 
 def fig_features(segs):
+    """Draw Figure 5, every segment against the flatness rule."""
     fig, ax = plt.subplots(figsize=(8.6, 5.6))
     rs = np.array([s['rel_slope'] for s in segs])
     # A perfectly level segment has rel_slope 0, which a log axis cannot
@@ -178,6 +180,7 @@ def fig_features(segs):
 
 
 def main(data, cache):
+    """Draw Figures 4 and 5 from the signal and its cached curve."""
     fr, r2 = load(cache)
     segs = classify_segments(segment_features(fr, r2, pelt_linear(r2)))
     print(f"  {len(segs)} segments, {sum(s['flat'] for s in segs)} flat")

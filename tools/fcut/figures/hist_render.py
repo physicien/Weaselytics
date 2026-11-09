@@ -24,6 +24,9 @@ from matplotlib.axes import Axes  # noqa: E402
 
 
 def main():
+    """
+    Render the diagnostic of one signal with the package at a given commit.
+    """
     worktree, signal, outdir = sys.argv[1], sys.argv[2], sys.argv[3]
     pkg = os.path.join(worktree, 'weaselytics')
     sys.path.insert(0, pkg)
@@ -43,6 +46,7 @@ def main():
     _orig_fb = Axes.fill_between
 
     def fill_between(self, *a, **k):
+        """Draw the band without the hatch the SVG writer cannot resolve."""
         if k.get('hatch') and k.get('color') == 'none':
             k = {kk: vv for kk, vv in k.items()
                  if kk not in ('hatch', 'hatch_linewidth')}
@@ -51,6 +55,7 @@ def main():
     Axes.fill_between = fill_between
 
     def savefig(fname, *a, **k):
+        """Save the figure, then a vector copy beside it."""
         out = _orig(fname, *a, **k)
         root, _ = os.path.splitext(str(fname))
         _orig(root + '.svg', format='svg', bbox_inches='tight')

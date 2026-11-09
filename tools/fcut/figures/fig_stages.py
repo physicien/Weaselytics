@@ -53,6 +53,7 @@ def production_inputs(data):
 
 
 def mask_from_flat(segments, n):
+    """Mask of the grid points inside flat segments."""
     m = np.zeros(n, dtype=bool)
     for s in segments:
         if s['flat']:
@@ -71,6 +72,7 @@ def shade(ax, fr, mask, color, label, alpha=.30):
 
 
 def main(data, cache):
+    """Draw Figure 3 from the signal and its cached curve."""
     f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     fr, r2, sens = d['fcut_range'], d['r2_val'], d['sensitivity']

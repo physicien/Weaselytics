@@ -115,6 +115,7 @@ def despike(s):
 
 
 def bucket(e_min):
+    """The `by_rmse/` folder that `e_min` falls in."""
     if e_min is None or not np.isfinite(e_min):
         return 'no_error_curve'
     for hi, name in EDGES:
@@ -232,6 +233,7 @@ def analyse(stem):
 
 
 def render(a, work):
+    """Draw the merged figure of one signal and return its path."""
     os.makedirs(work, exist_ok=True)
     stem = a['stem']
     path = os.path.join(work, f'{stem}.txt')
@@ -359,6 +361,10 @@ def render(a, work):
 
 
 def main():
+    """
+    Render every signal of the dataset and file each figure under both
+    classifications.
+    """
     stems = sorted(os.path.basename(f)[:-4] for f in
                    glob.glob(os.path.join(DS, 'signals', '*.txt')))
     print(f'{len(stems)} generated signals')

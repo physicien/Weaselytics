@@ -64,6 +64,7 @@ def production_inputs(data):
 
 
 def main(data, cache):
+    """Draw Figure 1 from the signal and its cached curve."""
     f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     fr, r2 = d['fcut_range'], d['r2_val']

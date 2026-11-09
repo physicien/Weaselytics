@@ -49,6 +49,7 @@ def production_inputs(data):
 
 
 def shade(ax, fr, mask, color, label, alpha=.30):
+    """Shade the grid points a boolean mask selects."""
     if not mask.any():
         return
     idx = np.flatnonzero(mask)
@@ -58,6 +59,7 @@ def shade(ax, fr, mask, color, label, alpha=.30):
 
 
 def main(data, cache):
+    """Draw Figures 6, 7 and 8 from the signal and its cached curve."""
     f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     fr, r2, sens = d['fcut_range'], d['r2_val'], d['sensitivity']

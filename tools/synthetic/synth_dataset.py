@@ -252,6 +252,10 @@ def _dip_scale(pos: np.ndarray, neg: np.ndarray, ratio: float) -> float:
         raise ValueError("the dip lobe is zero everywhere on this grid.")
 
     def excess(c):
+        """
+        Dip depth minus `ratio` times spike height, with the dip lobe
+        at height `c`.
+        """
         y = pos - c * neg
         return -y.min() - ratio * y.max()
 
@@ -572,6 +576,7 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
         jitter = 1. if isocratic else rng.uniform(0.85, 1.15)
 
         def sigma_at(x, jitter=jitter):
+            """Sigma of this analyte at retention time `x`, minutes."""
             return jitter * x / np.sqrt(n_plates)
         specs.append({'tc': tc, 'sigma_at': sigma_at,
                       'tau_ratio': rng.uniform(0.3, 1.2),
@@ -723,6 +728,10 @@ def _place_peak(t: np.ndarray, tc: float, sigma_at, tau_ratio: float,
     front = t <= t_front
 
     def fitting(c):
+        """
+        The candidate centres `c` where the peak fits, each with its
+        apex and half-maximum crossings.
+        """
         sigma = np.array([sigma_at(x) for x in c])
         shape = exponnorm.pdf(t[None, :], K=max(tau_ratio, 1e-3),
                               loc=c[:, None], scale=sigma[:, None])

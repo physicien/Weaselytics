@@ -163,6 +163,7 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
     # whole record, which dilutes a local defect by the record length,
     # and as the max, which is what the eye reads off the plot.
     def _pair(rms, mx):
+        """The rms and max departures, in units of the noise."""
         if not (np.isfinite(rms) and np.isfinite(mx)):
             return 'n/a'
         return f'rms {rms:.1f}, max {mx:.1f} sigma'
@@ -199,6 +200,7 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
             stats['t_' + k] = v
 
     def _line(tag, pre, drawn):
+        """Title line comparing one fitted baseline with the true one."""
         if drawn is None:
             return f'{tag}: nothing selected'
         rms, mx = stats[pre + '_rms'], stats[pre + '_max']
@@ -282,6 +284,10 @@ def one(job):
         real_savefig = plt.savefig
 
         def savefig(*a, **k):
+            """
+            Mark the true optimum on every panel, then save as
+            production does.
+            """
             if np.isfinite(fc_best):
                 for axis in plt.gcf().axes:
                     axis.axvline(x=fc_best, c=_TRUE, ls=(0, (6, 3)), lw=1.6,
@@ -350,6 +356,7 @@ def main() -> None:
         summary = {r['stem']: r for r in csv.DictReader(open(spath))}
 
     def _num(stem, key):
+        """One summary value of a signal, NaN when it has none."""
         r = summary.get(stem)
         try:
             return float(r[key])

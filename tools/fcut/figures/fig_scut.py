@@ -38,6 +38,7 @@ KEEP, DROP = '#1f4e79', '#b3402f'
 
 
 def sweep(z, x_used, regions, sampling):
+    """Autocorrelation curve of `z` on a grid of `N_GRID` cutoffs."""
     fitter = Baseline(x_data=x_used)
     fcuts = np.geomspace(1e-5, 0.45, N_GRID)
     out = np.full(N_GRID, np.nan)
@@ -54,6 +55,7 @@ def sweep(z, x_used, regions, sampling):
 
 
 def main(data):
+    """Draw Figure 2 for the two signals of `STEMS`."""
     fig, axes = plt.subplots(2, 2, figsize=(12.4, 6.6),
                              gridspec_kw={'width_ratios': [1, 1.25]})
     for row, (stem, tag) in enumerate(zip(STEMS, TAGS)):

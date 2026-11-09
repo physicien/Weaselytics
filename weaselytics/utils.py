@@ -468,19 +468,12 @@ def merge_intervals(intervals: list[list[int]]) -> np.ndarray:
     -------
     merged_intervals : numpy.ndarray, shape (M,2) for M <= N
         Start and stop indices of the non-overlapping intervals, sorted
-        by start. Empty input returns an empty array of shape ``(0,)``
-        rather than ``(0,2)``.
+        by start. Empty input returns an empty array of shape ``(0, 2)``.
 
     Notes
     -----
     Intervals that merely touch are merged: a stop equal to the next
     start counts as an overlap.
-
-    **The input is modified in place.** The surviving rows are the
-    caller's own objects, not copies, and extending one writes the new
-    stop index through to the caller. This holds for a list of lists
-    and for a two-dimensional array alike. Pass a copy if the original
-    is needed afterwards.
 
     """
     sortedIntervals = sorted(intervals, key=lambda x: x[0])
@@ -488,10 +481,12 @@ def merge_intervals(intervals: list[list[int]]) -> np.ndarray:
 
     for interval in sortedIntervals:
         if not merged or interval[0] > merged[-1][1]:
-            merged.append(interval)
+            merged.append(list(interval))
         else:
             merged[-1][1] = max(interval[1], merged[-1][1])
 
+    if not merged:
+        return np.empty((0, 2), dtype=int)
     merged_intervals = np.array(merged)
     return merged_intervals
 

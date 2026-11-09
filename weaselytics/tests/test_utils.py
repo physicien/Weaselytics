@@ -116,6 +116,18 @@ class TestMergeIntervals:
         result = merge_intervals(intervals)
         np.testing.assert_array_equal(result, [[1, 4]])
 
+    def test_input_is_left_unchanged(self):
+        for intervals in ([[0, 5], [3, 9], [20, 25]],
+                          np.array([[0, 5], [3, 9], [20, 25]])):
+            before = np.array(intervals).copy()
+            result = merge_intervals(intervals)
+            np.testing.assert_array_equal(result, [[0, 9], [20, 25]])
+            np.testing.assert_array_equal(intervals, before)
+
+    def test_empty_input_has_two_columns(self):
+        assert merge_intervals([]).shape == (0, 2)
+        assert merge_intervals(np.empty((0, 2), dtype=int)).shape == (0, 2)
+
 
 class TestRollingStd:
     def test_constant_data(self):

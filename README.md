@@ -101,14 +101,11 @@ Contributed by Emmanuel Bourret
 - Ground `trigger` and `settled` in `segmentation.instability_boundary`, including how far they move across numpy/scipy versions.
 - Stop `utils.peaks_params` from returning a negative peak when the signal has none.
 - Remove `utils.smooth_SG` and the `-sm/--dosmoothing` flag.
-- Stop `utils.merge_intervals` from modifying its input.
-- Use one convention for `end` in dips and segments (exclusive, as in segments).
-- Express the `sigma` of `segmentation.dip_curve` in decades instead of grid points, and declare it once.
+- Express the `sigma` of `segmentation.dip_curve` in decades instead of grid points.
 - Forward `**kwargs` in `baseline._beads` and `_custom_beads`, or drop it.
 - Give the `A`, `x0` and `sigma` columns of `export_dist` the same meaning for every distribution.
 - Decide what `-e` exports: the denoised peak component (now) or `y - baseline`.
 - Investigate computing the decimation parameters of `baseline._relevant_regions` from the peak broadening, under isocratic elution.
-- Rename the `plot` function or the `weaselytics.plot` module: the function shadows the module.
 - Generalize hardcoded `__LPYE__` pattern in `export_dist`
 - Make `ParsedData` parser more general (support different delimiters, extra columns, headers)
 - Clean up `#@EB`, `#@TEMP`, `#TODO` markers

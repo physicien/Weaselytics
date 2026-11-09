@@ -5,29 +5,27 @@ Renders the merged figure for every signal of a synthetic dataset
 (``--dataset``) against its run (``--run``), then files each image
 twice:
 
-  by_rmse/    Emmanuel's edges on `e_min`, the RMSE between the baseline
+  by_rmse/    edges on `e_min`, the RMSE between the baseline
               at the optimal cutoff and the true baseline:
               <= 0.05 | 0.05 to 0.1 | 0.1 to 0.2 | the rest.
               The signals whose fit failed have no error curve and so
               no RMSE to classify by; they go to `no_error_curve/`.
 
-  by_reach/   whether the OPTIMAL fcut falls inside the FINAL
+  by_reach/   whether the optimal fcut falls inside the final
               surviving region, and where it went if not. Only there can
               a stage-3 rule reach the optimum at all.
 
-The image is rendered once and copied, not drawn twice.
+The image is rendered once and copied into both.
 
 Three cutoffs on one figure: the package's `select_center`, the
 quasi-optimal argmin of the sensitivity curve inside the surviving
-region (Bauer & Kindermann 2008 Def. 1.1), and the OPTIMAL one, the
-cutoff minimising the RMSE against the true baseline. On the failed
+region (Bauer & Kindermann 2008 Def. 1.1), and the optimal one, the
+cutoff minimizing the RMSE against the true baseline. On the failed
 signals only the first two exist.
 
-"optimal" is not a ground-truth parameter: the manifest records no
-generating cutoff, so it is the best achievable choice, not a value the
-generator used. Only `TRUE baseline` and `TRUE correction` on the right
-panels are ground truth, and the baseline error, which is measured
-against it.
+The optimal cutoff is the best achievable choice against the known
+baseline. On the right panels, `TRUE baseline`, `TRUE correction` and
+the baseline error are ground truth.
 """
 
 import argparse  # noqa: I001
@@ -139,10 +137,10 @@ class KeepOpen:
 
 def fit_at(x, y, f):
     """
-    The baseline auto_beads returns at this cutoff: the RAW record over
-    its full length (baseline.py:1259). The log transform belongs to
-    cutoff SELECTION only; fitting it here and inverting with Eq. (11)
-    gives a baseline that climbs into the peaks.
+    The baseline auto_beads returns at this cutoff, fitted on the raw
+    record over its full length. The log transform belongs to cutoff
+    selection only; fitting it here and inverting with Navarro-Huerta et
+    al. (2017) Eq. (11) gives a baseline that climbs into the peaks.
     """
     regions, sampling, _ = _relevant_regions(y, x)
     bl, _ = _custom_beads(Baseline(x_data=x), y, regions=regions,
@@ -161,8 +159,6 @@ def analyse(stem):
     fcut, r2, sens = c['fcut_range'], c['r2_val'], c['sensitivity']
     x, y = ParsedData(sig).data
     # The baseline the generator used, which `err` is measured against.
-    # It was missing from the figures, so the ranking could not be
-    # checked by eye against the thing it was scored on.
     truth = np.load(os.path.join(DS, 'truth', f'{stem}__truth.npz'))
     b_true = truth['baseline']
     # The generator's own noise, the scale of the baseline-error panel.

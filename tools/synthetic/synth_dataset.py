@@ -74,8 +74,8 @@ ARTIFACT_FWHM_MIN = (6. / PTS_PER_MIN, 10. / PTS_PER_MIN)
 _FWHM_PER_SIGMA = 2.3548
 
 # Quantization step of the detector, in mV, picked for this benchmark.
-# A digitized detector signal is an integer multiple of such a step.
 ADC_STEP_MV = 0.008996
+
 
 def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
     """
@@ -142,7 +142,8 @@ def emg_peak(t: np.ndarray, tc: float, sigma: float, tau: float,
 # Erb's test baselines: the analytic baselines of the `make_data` function
 # Donald Erb, author of pybaselines, wrote to test the cutoff-frequency
 # selection of this project. The `erb` family places the plate-model
-# peak component on them.
+# peak component on them. Posted in issue #4:
+# https://github.com/physicien/Weaselytics/issues/4#issuecomment-4158610986
 ###############################################################################
 
 def _g(x: np.ndarray, height: float, center: float,
@@ -152,7 +153,7 @@ def _g(x: np.ndarray, height: float, center: float,
 
     Evaluated with pybaselines' own expression,
     ``h * exp(-0.5 * (x - c)**2 / s**2)``, so `erb_baseline` uses the
-    same expression as Erb's script.
+    same expression as `make_data`.
 
     """
     return height * np.exp(-0.5 * ((x - center) ** 2) / sigma ** 2)
@@ -173,7 +174,7 @@ def erb_baseline(x: np.ndarray, kind: int,
     3      sinusoidal
     =====  ==================================================
 
-    Kind 2 is the one his three plateau-count cases use.
+    Kind 2 is the one the three plateau-count cases of `make_data` use.
 
     Parameters
     ----------
@@ -182,15 +183,16 @@ def erb_baseline(x: np.ndarray, kind: int,
     kind : int
         One of 0, 1, 2, 3.
     exact_integral : bool, optional
-        Only affects `kind` 2. False (default) reproduces his
-        expression exactly, a bare ``cumsum`` of the Gaussian. True
+        Only affects `kind` 2. False (default) reproduces `make_data`
+        exactly, a bare ``cumsum`` of the Gaussian. True
         multiplies by the sample spacing, making it the actual integral.
 
         A bare ``cumsum`` is a Riemann sum missing its ``dx``, so the
         baseline's amplitude scales with the sampling density: at fixed
         span, doubling the point count doubles the drift. That is harmless
-        for his three fixed cases, which all use 1000 points, and wrong
-        for a population that varies the record length. Set True there.
+        for those three cases, which all use 1000 points, and wrong for
+        a population that varies the record length, so `erb_signal`
+        sets True.
 
     Returns
     -------
@@ -675,11 +677,9 @@ def _place_peak(t: np.ndarray, tc: float, sigma_at, tau_ratio: float,
     A peak fits when its profile is within the noise at every sample up
     to `t_front`, where the injection artifact has returned to the
     noise, and at the last sample, and when its resolution from every
-    peak in `placed` is at least `MIN_RESOLUTION`. It then neither
-    overlaps the dead time, front tail included, nor runs off the end
-    of the record, nor crowds another peak. The drawn `tc` is kept when
-    it fits; otherwise the peak is drawn uniformly among the samples
-    after `t_front` where it fits, each evaluated with the width
+    peak in `placed` is at least `MIN_RESOLUTION`. The drawn `tc` is
+    kept when it fits; otherwise the peak is drawn uniformly among the
+    samples after `t_front` where it fits, each evaluated with the width
     `sigma_at` gives at that place.
 
     Parameters
@@ -818,6 +818,7 @@ EXCLUDED_ERB_BASELINES = ('sine',)
 # Names of Erb's baselines in signal names, by `erb_baseline` kind.
 ERB_BASELINE_NAMES = {'parabola': 0, 'exp': 1, 'step': 2, 'sine': 3}
 
+
 def draw_record_duration(rng: np.random.Generator) -> float:
     """
     Draw a record duration of the ``erb`` family.
@@ -877,12 +878,8 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
     rng : numpy.random.Generator
         Source of randomness.
     quantise_output : bool, optional
-        Round the assembled signal onto the detector lattice. Default
-        True. `baseline._snr` divides by a MAD of consecutive
-        differences, which on quantized data is pinned to the lattice
-        and on continuous data is a true noise estimate, so an
-        unquantized benchmark exercises a different quantity under
-        the same name.
+        Round the assembled signal onto the detector lattice, see
+        `quantise`. Default True.
     rate : float, optional
         Points per minute. Default `PTS_PER_MIN`.
 
@@ -893,9 +890,10 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
         ``peaks`` and ``meta``.
 
         ``baseline`` alone is the truth a baseline estimator is scored
-        against. The injection artifact is inside ``signal``, not inside
-        ``baseline``: it is a sharp bipolar excursion that a low-pass
-        baseline model is not meant to reproduce, and scoring on it
+        against. The injection artifact is part of ``signal``, and
+        ``baseline`` holds the baseline alone: the artifact is a sharp
+        bipolar excursion that a low-pass baseline model is not meant to
+        reproduce, and scoring on it
         would let one feature dominate the error. Entries of ``peaks``
         with ``artifact=True`` mark it.
 
@@ -916,7 +914,7 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
     # Erb's coefficients are written for an abscissa of order 0-1000, so
     # the baseline is evaluated there and mapped onto the record. Its
     # shape is therefore independent of the record's duration in
-    # minutes, which is what makes the four types comparable across
+    # minutes, which is what makes the types comparable across
     # lengths. exact_integral keeps type 2's amplitude from scaling with
     # the point count.
     u = np.linspace(0., 1000., n)

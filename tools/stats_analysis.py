@@ -6,9 +6,9 @@ Reads ``solvent_effect_data.csv`` from the current directory, as
 ``tools/data_aggregator.py`` writes it, rejects outliers with
 Chauvenet's criterion within each (molecule, solvent, distribution)
 group, and prints for each group the number of replicates kept, the
-1/sigma²-weighted mean of ``x0`` and its weighted spread, first for the
-Gaussian fits and then for the skew-normal ones, each followed by the
-total count.
+1/sigma²-weighted mean of ``x0`` and its weighted spread, for the
+Gaussian, the skew-normal and the Pearson VII fits in turn, each
+followed by the total count.
 
 Usage
 -----
@@ -192,8 +192,8 @@ def main() -> None:
 
     df_clean = chauvenets_criterions(df)
     test = avg_retention_time(df_clean)
-    for dist in ('Gaussian', 'Skew-Normal'):
-        if dist == 'Skew-Normal':
+    for k, dist in enumerate(('Gaussian', 'Skew-Normal', 'Pearson VII')):
+        if k:
             print('')
         print(test[test['distribution'] == dist])
         print(test[test['distribution'] == dist]['n_obs'].sum())

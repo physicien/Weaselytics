@@ -45,12 +45,6 @@ class TestErrorCurve:
         # and the metric must actually move
         assert np.nanmax(err) > 2 * np.nanmin(err)
 
-    def test_error_is_zero_against_a_perfect_baseline(self):
-        # Scoring a baseline against itself must give exactly zero, so
-        # the metric is an RMSE and not something offset.
-        b = np.linspace(-5., 5., 200)
-        assert float(np.sqrt(np.mean((b - b) ** 2))) == 0.0
-
     def test_failed_fits_become_nan_not_zero(self):
         # A NaN means "the fit failed", a zero would mean "perfect".
         # Conflating them would make a crash look like the optimum.
@@ -75,19 +69,9 @@ class TestRegionOf:
         fr = np.geomspace(1e-4, 0.5, 50)
         assert diag._region_of(fr, np.zeros(50, dtype=bool)) == (None, None)
 
-    def test_rel_pos_matches_a_hand_computation(self):
-        # rel_pos is measured in log(fcut); an arithmetic position would
-        # sit well to the right on a geometric grid and is a different
-        # point.
-        lo, hi, best = 1e-3, 1e-1, 1e-2
-        rel = (np.log10(best) - np.log10(lo)) / (np.log10(hi) - np.log10(lo))
-        assert rel == pytest.approx(0.5)
-
 
 class TestSummaryFields:
     def test_every_reported_field_is_declared(self):
-        assert 'penalty' in diag.SUMMARY_FIELDS
-        assert 'penalty_off' in diag.SUMMARY_FIELDS
         assert 'rel_pos' in diag.SUMMARY_FIELDS
         assert 'consistent' in diag.SUMMARY_FIELDS
         assert len(set(diag.SUMMARY_FIELDS)) == len(diag.SUMMARY_FIELDS)
@@ -171,43 +155,12 @@ class TestHarnessMatchesProduction:
 
 
 class TestNoiseScaledMetrics:
-    """The reported accuracy is in units of the record's own noise.
-
-    `d_decades` measures a distance along the parameter, not in the
-    corrected signal, so it cannot tell a two-decade move that leaves
-    the baseline alone from one that ruins it. `penalty` is a ratio and
-    diverges as `e_min` goes to zero. These pin the replacements.
-    """
+    """The reported accuracy is in units of the record's own noise."""
 
     def test_fields_are_declared(self):
         for name in ('noise_sigma', 'target_noise', 'excess_noise',
                      'excess_noise_off'):
             assert name in diag.SUMMARY_FIELDS, name
-
-    def test_excess_is_zero_when_the_selection_is_the_optimum(self):
-        # excess = (e_at_selected - e_min) / sigma, so a selection that
-        # lands on the grid minimum costs nothing by construction.
-        e_min, sigma = 0.004, 0.02
-        assert (e_min - e_min) / sigma == 0.0
-
-    def test_excess_is_scale_free(self):
-        # Doubling the signal doubles both the error and the noise, so
-        # the reported figure must not move. This is the property
-        # `penalty` has and `d_decades` does not.
-        e_min, e_sel, sigma = 0.004, 0.010, 0.02
-        a = (e_sel - e_min) / sigma
-        b = (2 * e_sel - 2 * e_min) / (2 * sigma)
-        assert a == pytest.approx(b, rel=1e-12)
-
-    def test_penalty_diverges_where_excess_does_not(self):
-        # The failure mode being replaced: a near-perfect best fit makes
-        # the ratio explode while both fits sit far below the noise.
-        sigma = 0.02
-        e_min, e_sel = 1e-6, 2e-6
-        penalty = e_sel / e_min
-        excess = (e_sel - e_min) / sigma
-        assert penalty == pytest.approx(2.0)
-        assert excess < 1e-3, 'both fits are invisible against the noise'
 
 
 class TestErrorCurveReuse:

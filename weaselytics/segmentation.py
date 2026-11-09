@@ -522,7 +522,8 @@ def detect_dips(fcut_range: np.ndarray, r2: np.ndarray,
         with keys ``floor`` (grid index of the valley bottom), ``fcut``,
         ``r2``, ``level`` (fraction of the total drop), ``prominence``
         (fraction of the largest cliff), and ``start`` / ``end`` (grid
-        indices bounding the basin at ``rel_height``).
+        indices bounding the basin at ``rel_height``, sliced
+        ``[start:end]`` like a segment).
 
     Notes
     -----
@@ -576,7 +577,7 @@ def detect_dips(fcut_range: np.ndarray, r2: np.ndarray,
             'level': float(level),
             'prominence': float(prom),
             'start': int(np.floor(lo)),
-            'end': min(int(np.ceil(hi)), n - 1),
+            'end': min(int(np.ceil(hi)), n - 1) + 1,
         })
     return dips
 
@@ -599,19 +600,13 @@ def dips_to_mask(fcut_range: np.ndarray, dips: list[dict]) -> np.ndarray:
 
     Notes
     -----
-    **A dip's ``end`` is inclusive, where a segment's ``end`` is
-    exclusive.** ``detect_dips`` clamps it to the last valid index and
-    this function slices with ``end + 1``, while the segments of
-    ``segment_features`` are sliced as ``[start:end]`` throughout. The
-    two dictionaries look alike and are indexed differently.
-
     Overlapping dips are absorbed into one another, since the mask
     records only whether a grid point is covered.
 
     """
     mask = np.zeros(len(fcut_range), dtype=bool)
     for dip in dips:
-        mask[dip['start']:dip['end'] + 1] = True
+        mask[dip['start']:dip['end']] = True
     return mask
 
 

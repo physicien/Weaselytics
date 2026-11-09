@@ -268,7 +268,7 @@ class TestDetectDips:
         assert mask.dtype == bool and len(mask) == len(fcut_range)
         for dip in dips:
             assert mask[dip['floor']]
-            assert mask[dip['start']:dip['end'] + 1].all()
+            assert mask[dip['start']:dip['end']].all()
 
     def test_empty_dips_give_empty_mask(self):
         fcut_range, r2, _ = staircase_curve(shelf=False)

@@ -89,7 +89,7 @@ def main(data, cache):
         ax[2].plot([dp['fcut']], [curve[dp['floor']]], 'v', ms=8,
                    color=CUT, zorder=5,
                    label='accepted proto-plateau' if k == 0 else None)
-        ax[2].axvspan(fr[dp['start']], fr[dp['end']], color=ORANGE,
+        ax[2].axvspan(fr[dp['start']], fr[dp['end'] - 1], color=ORANGE,
                       alpha=.25, lw=0, zorder=1)
     ax[2].set_ylabel('dip curve\n(smoothed, /max)')
     ax[2].set_ylim(bottom=-0.06, top=1.05)

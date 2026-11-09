@@ -167,7 +167,7 @@ class TestPearson7:
         assert abs(got[2]) == pytest.approx(true[2], rel=0.20)
 
     def test_fit_respects_the_published_bounds(self):
-        # Milani 2024 §3.1.1 restricts m to 1-1000 and E to +-0.3.
+        # Milani 2024 §3.1.3 restricts m to 1-1000 and E to +-0.3.
         rng = np.random.default_rng(0)
         x = np.linspace(0., 10., 601)
         y = pearson7(x, np.array([3., 5., 0.5, 12., 0.08]))

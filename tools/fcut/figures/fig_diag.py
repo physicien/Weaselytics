@@ -1,8 +1,8 @@
 """
-Figure 3 for segmentation.md: the real diagnostic, on the same signal.
+Figure 9 for segmentation.md: the diagnostic `auto_beads` writes, on the
+signal of Figure 1.
 
-The last section of the document currently describes this figure in
-prose. `plot.r2_plots` writes PNG, so `plt.savefig` is wrapped to emit a
+`plot.r2_plots` writes PNG, so `plt.savefig` is wrapped to emit a
 vector copy of the same figure.
 """
 
@@ -25,6 +25,7 @@ STEM = 'Chlorobenzene__LPYE__60-70__2'
 
 
 def main(data, cache):
+    """Draw Figure 9 with `auto_beads`, on a copy of the cache."""
     src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
     d = ParsedData(src).data
     x, y = np.asarray(d[0], float), np.asarray(d[1], float)
@@ -32,6 +33,7 @@ def main(data, cache):
     _orig = plt.savefig
 
     def savefig(fname, *a, **k):
+        """Save the figure, then a vector copy beside it."""
         out = _orig(fname, *a, **k)
         root, _ = os.path.splitext(str(fname))
         _orig(root + '.svg', format='svg', bbox_inches='tight')
@@ -40,8 +42,8 @@ def main(data, cache):
 
     plt.savefig = savefig
     try:
-        # The cache is COPIED, never pointed at in place: a miss deletes
-        # the entries of the same stem before writing.
+        # The cache is copied, since a miss deletes the entries of the
+        # same stem before writing.
         import shutil
         work = os.path.join(OUT, 'diag_cache')
         if not os.path.isdir(work):

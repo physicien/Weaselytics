@@ -1,10 +1,7 @@
 """
-Replacement for the `scut` figure, as vector and from current code.
-
-The original is a raster drawn by the derivative-era diagnostic, with
-tolerance bands and a "Case" label that no longer exist. The message it
-carried is still right: truncating the record past the last peak changes
-the autocorrelation curve, because the flat tail dilutes the statistic.
+Figure 2 for segmentation.md: truncating the record past the last peak
+changes the autocorrelation curve, because the flat tail dilutes the
+statistic.
 
 One run per row: (a) a single sharp peak early in a long record, (b) a
 multi-peak run. Left, the raw trace with the cut marked, no baseline
@@ -41,6 +38,7 @@ KEEP, DROP = '#1f4e79', '#b3402f'
 
 
 def sweep(z, x_used, regions, sampling):
+    """Autocorrelation curve of `z` on a grid of `N_GRID` cutoffs."""
     fitter = Baseline(x_data=x_used)
     fcuts = np.geomspace(1e-5, 0.45, N_GRID)
     out = np.full(N_GRID, np.nan)
@@ -57,6 +55,7 @@ def sweep(z, x_used, regions, sampling):
 
 
 def main(data):
+    """Draw Figure 2 for the two signals of `STEMS`."""
     fig, axes = plt.subplots(2, 2, figsize=(12.4, 6.6),
                              gridspec_kw={'width_ratios': [1, 1.25]})
     for row, (stem, tag) in enumerate(zip(STEMS, TAGS)):
@@ -71,8 +70,6 @@ def main(data):
         f_c, r_c = sweep(_log_transform(y[:scut]), x[:scut], regions, sampling)
         f_a, r_a = sweep(_log_transform(y), x, regions, sampling)
 
-        # Raw trace only. No baseline is fitted here: the panel exists to
-        # show where the cut lands and how much it discards.
         ax = axes[row, 0]
         ax.plot(x, y, lw=.6, color='0.45')
         ax.axvspan(x[scut], x[-1], color=DROP, alpha=.10, lw=0)

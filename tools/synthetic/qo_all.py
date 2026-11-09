@@ -1,32 +1,31 @@
 """
 Every generated signal, drawn once and filed under both classifications.
 
-Renders the production merged figure for all 432 signals of
-SYNTH_ERB_2026-08-18 against runs/SYNTH_2026-10-19_23559214, then files each
-image twice:
+Renders the merged figure for every signal of a synthetic dataset
+(``--dataset``) against its run (``--run``), then files each image
+twice:
 
-  by_rmse/    Emmanuel's edges on `e_min`, the RMSE between the baseline
+  by_rmse/    edges on `e_min`, the RMSE between the baseline
               at the optimal cutoff and the true baseline:
               <= 0.05 | 0.05 to 0.1 | 0.1 to 0.2 | the rest.
-              The 13 signals whose fit failed have no error curve and so
+              The signals whose fit failed have no error curve and so
               no RMSE to classify by; they go to `no_error_curve/`.
 
-  by_reach/   whether the OPTIMAL fcut falls inside the FINAL
+  by_reach/   whether the optimal fcut falls inside the final
               surviving region, and where it went if not. Only there can
               a stage-3 rule reach the optimum at all.
 
-The image is rendered once and copied, not drawn twice.
+The image is rendered once and copied into both.
 
 Three cutoffs on one figure: the package's `select_center`, the
 quasi-optimal argmin of the sensitivity curve inside the surviving
-region (Bauer & Kindermann 2008 Def. 1.1), and the OPTIMAL one, the
-cutoff minimising the RMSE against the true baseline. On the failed
+region (Bauer & Kindermann 2008 Def. 1.1), and the optimal one, the
+cutoff minimizing the RMSE against the true baseline. On the failed
 signals only the first two exist.
 
-"optimal" is not a ground-truth parameter: the manifest records no
-generating cutoff, so it is the best achievable choice, not a value the
-generator used. Only `TRUE baseline` and `TRUE correction` on the right
-panels are ground truth.
+The optimal cutoff is the best achievable choice against the known
+baseline. On the right panels, `TRUE baseline`, `TRUE correction` and
+the baseline error are ground truth.
 """
 
 import argparse  # noqa: I001
@@ -57,6 +56,11 @@ from weaselytics.plot import plot, r2_plots  # noqa: E402
 RUN = DS = OUT = None
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
 CQO, COPT = '#1f7a1f', '#7a3fa0'
+# Drawing style per cutoff, so fits that coincide stay visible. The
+# optimal one is wide and solid at the back, the other two thin on top.
+FIT_STYLE = {'package': dict(ls='--', lw=1.6, zorder=4),
+             'quasi-optimal': dict(ls=':', lw=2.0, zorder=5),
+             'optimal': dict(ls='-', lw=4.0, alpha=.45, zorder=1)}
 
 EDGES = ((0.05, 'rmse_le_0.05'), (0.10, 'rmse_0.05_to_0.1'),
          (0.20, 'rmse_0.1_to_0.2'), (np.inf, 'rmse_gt_0.2'))
@@ -85,10 +89,10 @@ def despike(s):
     the appended value is unimportant provided it is constant.
 
     Endpoints. The appending leaves the first and last samples of the
-    interval unchanged, and the argmin lands on one of them on 85 of
-    418 signals. On 82 of those the sensitivity curve falls to the
-    boundary and the minimum is genuinely there; on 3 the endpoint is
-    anomalous against its own interior. Tukey p. 221 gives end-value
+    interval unchanged, so the argmin can land on one of them. Where the
+    sensitivity curve falls to the boundary the minimum is genuinely
+    there; where the endpoint is anomalous against its own interior it
+    is not. Tukey p. 221 gives end-value
     smoothing for this, taking the median of the end input value, the
     next-to-end smoothed value, and a straight-line extrapolation one
     step beyond. It is left out here because it extrapolates a sequence
@@ -111,6 +115,7 @@ def despike(s):
 
 
 def bucket(e_min):
+    """The `by_rmse/` folder that `e_min` falls in."""
     if e_min is None or not np.isfinite(e_min):
         return 'no_error_curve'
     for hi, name in EDGES:
@@ -133,10 +138,10 @@ class KeepOpen:
 
 def fit_at(x, y, f):
     """
-    The baseline auto_beads returns at this cutoff: the RAW record over
-    its full length (baseline.py:1259). The log transform belongs to
-    cutoff SELECTION only; fitting it here and inverting with Eq. (11)
-    gives a baseline that climbs into the peaks.
+    The baseline auto_beads returns at this cutoff, fitted on the raw
+    record over its full length. The log transform belongs to cutoff
+    selection only; fitting it here and inverting with Navarro-Huerta et
+    al. (2017) Eq. (11) gives a baseline that climbs into the peaks.
     """
     regions, sampling, _ = _relevant_regions(y, x)
     bl, _ = _custom_beads(Baseline(x_data=x), y, regions=regions,
@@ -155,10 +160,10 @@ def analyse(stem):
     fcut, r2, sens = c['fcut_range'], c['r2_val'], c['sensitivity']
     x, y = ParsedData(sig).data
     # The baseline the generator used, which `err` is measured against.
-    # It was missing from the figures, so the ranking could not be
-    # checked by eye against the thing it was scored on.
-    b_true = np.load(os.path.join(DS, 'truth',
-                                  f'{stem}__truth.npz'))['baseline']
+    truth = np.load(os.path.join(DS, 'truth', f'{stem}__truth.npz'))
+    b_true = truth['baseline']
+    # The generator's own noise, the scale of the baseline-error panel.
+    sigma = float(np.std(truth['noise']))
 
     dg = os.path.join(RUN, 'diag', f'{stem}__diag.npz')
     if os.path.exists(dg):
@@ -221,13 +226,14 @@ def analyse(stem):
     else:
         f_opt, e_min, reach = np.nan, None, 'no_error_curve'
 
-    return dict(stem=stem, x=x, y=y, b_true=b_true, fcut=fcut, r2=r2, sens=sens,
-                n_used=n_used, t=t, dipc=S.dip_curve(r2),
+    return dict(stem=stem, x=x, y=y, b_true=b_true, sigma=sigma, fcut=fcut,
+                r2=r2, sens=sens, n_used=n_used, t=t, dipc=S.dip_curve(r2),
                 f_pkg=f_pkg, f_qo=f_qo, f_opt=f_opt, e_min=e_min,
                 bucket=bucket(e_min), reach=reach)
 
 
 def render(a, work):
+    """Draw the merged figure of one signal and return its path."""
     os.makedirs(work, exist_ok=True)
     stem = a['stem']
     path = os.path.join(work, f'{stem}.txt')
@@ -262,9 +268,10 @@ def render(a, work):
                            framealpha=.9)
         p_r2 = os.path.join(work, f'{stem}_r2.png')
         fig.savefig(p_r2)
+        r2_height_in, r2_dpi = fig.get_size_inches()[1], fig.dpi
     plt.close(fig)
 
-    # The 13 signals whose fit failed have no surviving region either,
+    # The signals whose fit failed have no surviving region either,
     # so there is no cutoff of any kind and nothing to fit. Draw the raw
     # trace alone rather than handing BEADS a NaN, which it rejects with
     # "cutoff frequency must be between 0 and 0.5".
@@ -277,43 +284,72 @@ def render(a, work):
         if np.isfinite(f):
             fits.append((fit_at(x, y, f), col, name, f))
 
-    # Two panels on the right, not one: the baselines against the true
-    # baseline, and the corrections against the true correction. They
-    # live on different scales and overlaying them hides the residual.
+    # Three panels on the right: the baselines against the true one, the
+    # corrections against the true correction, and the baseline error.
+    # The error carries no noise, so fits that differ by less than the
+    # noise come apart there; the grey band is +-sigma of the noise.
+    # Each panel is a third of the left figure's height, so the column
+    # matches it; only the bottom one keeps its time axis labels.
+    kinds = ('baseline', 'corrected', 'error')
+    w_in = plt.rcParams['figure.figsize'][0]
+    h_in = r2_height_in / len(kinds)
     panels = []
-    for kind in ('baseline', 'corrected'):
+    for kind in kinds:
         with KeepOpen():
             plot(x, y, print_plot=False, path=path, output_dir=work)
             fig = plt.gcf()
             ax = fig.axes[0]
             if kind == 'baseline':
-                ax.plot(x, b_true, lw=2.4, color='k', zorder=2,
+                ax.plot(x, b_true, lw=1.6, color='k', zorder=3,
                         label='TRUE baseline')
                 for b, col, name, f in fits:
-                    ax.plot(x, b, lw=1.3, color=col, ls='--', zorder=3,
+                    ax.plot(x, b, color=col, **FIT_STYLE[name],
                             label='%s, %.4g' % (name, f))
                 ax.set_title('baselines against the true one',
                              fontsize=9, loc='left')
             else:
                 # `plot` always draws the raw trace, and here its full
                 # excursion sets the y-scale and flattens the very
-                # curves this panel exists to show. Drop it and let the
-                # axes rescale to the corrections.
+                # curves these panels exist to show. Drop it and let the
+                # axes rescale.
                 for ln in list(ax.lines):
                     if ln.get_label() == 'raw data':
                         ln.remove()
-                ax.plot(x, y - b_true, lw=2.0, color='k', zorder=2,
-                        label='TRUE correction')
-                for b, col, name, f in fits:
-                    ax.plot(x, y - b, lw=1.1, color=col, zorder=3,
-                            alpha=.85, label='%s, %.4g' % (name, f))
+                if kind == 'corrected':
+                    ax.plot(x, y - b_true, lw=1.4, color='k', zorder=3,
+                            label='TRUE correction')
+                    for b, col, name, f in fits:
+                        ax.plot(x, y - b, color=col, **FIT_STYLE[name],
+                                label='%s, %.4g' % (name, f))
+                    ax.set_title('corrected, y minus baseline',
+                                 fontsize=9, loc='left')
+                else:
+                    ax.axhspan(-a['sigma'], a['sigma'], color='0.85',
+                               zorder=0,
+                               label='noise, +-%.3f mV' % a['sigma'])
+                    ax.axhline(0., lw=1.2, color='k', zorder=3,
+                               label='TRUE baseline')
+                    for b, col, name, f in fits:
+                        rmse = float(np.sqrt(np.mean((b - b_true) ** 2)))
+                        ax.plot(x, b - b_true, color=col,
+                                **FIT_STYLE[name],
+                                label='%s, %.4g, RMSE %.3f'
+                                % (name, f, rmse))
+                    ax.set_title('baseline error, fit minus true',
+                                 fontsize=9, loc='left')
                 ax.relim()
                 ax.autoscale_view()
-                ax.set_title('corrected, y minus baseline',
-                             fontsize=9, loc='left')
+            if kind != kinds[-1]:
+                ax.set_xlabel('')
+                ax.tick_params(labelbottom=False)
             ax.legend(fontsize=7, loc='best', framealpha=.9)
+            fig.set_size_inches(w_in, h_in)
+            fig.tight_layout(pad=0.3)
+            # Same side margins on every panel, so their axes line up
+            # whatever the width of the tick labels.
+            fig.subplots_adjust(left=0.13, right=0.985)
             p = os.path.join(work, f'{stem}_{kind}.png')
-            fig.savefig(p)
+            fig.savefig(p, dpi=r2_dpi)
             panels.append(p)
         plt.close(fig)
 
@@ -325,6 +361,10 @@ def render(a, work):
 
 
 def main():
+    """
+    Render every signal of the dataset and file each figure under both
+    classifications.
+    """
     stems = sorted(os.path.basename(f)[:-4] for f in
                    glob.glob(os.path.join(DS, 'signals', '*.txt')))
     print(f'{len(stems)} generated signals')
@@ -336,7 +376,7 @@ def main():
 
     rows, tally, failed = [], {}, []
     for i, stem in enumerate(stems, 1):
-        # One bad signal must not cost the other four hundred renders.
+        # One bad signal must not cost the other renders.
         try:
             a = analyse(stem)
             if a is None:

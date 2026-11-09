@@ -63,8 +63,8 @@ sync_scripts () {
 if [ "$WHAT" = all ] || [ "$WHAT" = method ]; then
   echo "=== the four method figures ==="
   sync_scripts
-  ( cd "$WORK" && "$PY" fig_vocab.py  --cache "$CACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_vocab.png"  method_vocabulary
-  ( cd "$WORK" && "$PY" fig_stages.py --cache "$CACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_stages.png" method_three_stages
+  ( cd "$WORK" && "$PY" fig_vocab.py  --data "$DATA" --cache "$CACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_vocab.png"  method_vocabulary
+  ( cd "$WORK" && "$PY" fig_stages.py --data "$DATA" --cache "$CACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_stages.png" method_three_stages
   ( cd "$WORK" && "$PY" fig_scut.py   --data "$DATA" >/dev/null 2>&1 ) && conv "$WORK/fig_scut.png"   method_scut
   # fig_diag drives auto_beads, which writes the diagnostic itself under
   # its own output_dir, so the newest PNG there is the one wanted.
@@ -81,8 +81,8 @@ fi
 if [ "$WHAT" = all ] || [ "$WHAT" = stages ]; then
   echo "=== the five stage figures ==="
   sync_scripts
-  run_py fig_stage1.py --cache "$CACHE"
-  run_py fig_stage23.py --cache "$CACHE"
+  run_py fig_stage1.py --data "$DATA" --cache "$CACHE"
+  run_py fig_stage23.py --data "$DATA" --cache "$CACHE"
   for n in stage1_segments stage1_features stage1_fallback \
            stage2_exclusions stage3_select; do
     [ -f "$WORK/$n.png" ] && conv "$WORK/$n.png" "$n" \

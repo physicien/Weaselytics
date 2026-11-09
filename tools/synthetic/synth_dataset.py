@@ -83,10 +83,6 @@ def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
 
     A digitized detector signal is an integer multiple of its
     quantization step, so the synthetic signals are rounded likewise.
-    `baseline._snr` divides by a MAD of consecutive differences, which
-    on quantized data is pinned to the lattice and on continuous data is
-    a true noise estimate, so an unquantized benchmark measures a
-    different quantity under the same name.
 
     Parameters
     ----------

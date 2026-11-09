@@ -35,7 +35,7 @@ Record length sets the fundamental frequency, 1/n_used, which `instability_bound
 
 ## 5. Noise and quantization
 
-White Gaussian noise is **added** at a known level, 0.02 or 0.05 mV, so the noise component is known exactly (Niezen et al. \[[1](#niezen)\]). The assembled signal is then rounded to multiples of a voltage step, q = 0.008996 mV, as a digitized detector signal is. `baseline._snr` divides by a MAD of consecutive differences, which on quantized data is pinned to the lattice and on continuous data is a true noise estimate. Without quantization the benchmark would exercise a different quantity under the same name; see the README TO DO.
+White Gaussian noise is **added** at a known level, 0.02 or 0.05 mV, so the noise component is known exactly (Niezen et al. \[[1](#niezen)\]). The assembled signal is then rounded to multiples of a voltage step, q = 0.008996 mV, as a digitized detector signal is.
 
 ## 6. Scoring
 

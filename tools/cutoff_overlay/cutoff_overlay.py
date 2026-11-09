@@ -113,7 +113,7 @@ def overlay(dataset, run, stem, out, n_curves, work):
     dips = sf.detect_dips(fcut_range, r2_val)
     trim = sf.trim_plateaus(
         fcut_range, segments, dips, n_used,
-        exclude_past_drop=sf._snr(s) >= sf.SNR_THRESHOLD, sensitivity=sens)
+        exclude_past_drop=True, sensitivity=sens)
 
     def fit(fc):
         """Baseline at cutoff `fc`, fitted as production's final correction."""

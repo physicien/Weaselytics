@@ -180,7 +180,7 @@ class TestTrimCandidates:
 
     def test_collapse_exclusion_removes_low_plateau(self):
         # The curve has a high shelf (r2 ~ 0.72) and a low live-tail
-        # plateau (r2 ~ 0.3) past the drop. Without the gate both are
+        # plateau (r2 ~ 0.3) past the drop. Without the exclusion both are
         # candidates; with it, the low plateau is removed as past the
         # collapse while the high shelf survives.
         fcut_range, y, segments = self._curve()
@@ -326,7 +326,7 @@ class TestTrimPlateaus:
 
     def test_collapse_removes_the_low_tail(self):
         # The low live tail (r2 ~ 0.3) is past the drop; with the
-        # gate on it must move into snr_removed and out of surviving.
+        # exclusion on it must move into snr_removed and out of surviving.
         fcut_range, y, segments, dips = self._curve()
         off = trim_plateaus(fcut_range, segments, dips, 1000,
                             exclude_past_drop=False)

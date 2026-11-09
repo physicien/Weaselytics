@@ -59,7 +59,6 @@ from weaselytics.baseline import (
     _custom_beads,
     _fcutoff,
     _relevant_regions,
-    _snr,
     auto_beads,
     )
 from weaselytics.parsers import ParsedData
@@ -79,7 +78,7 @@ _PARABOLA_LEN = 3
 
 SUMMARY_FIELDS = [
     'stem', 'peak_case', 'baseline_case', 'noise_case', 'n_points',
-    'replicate', 'n_used', 'snr',
+    'replicate', 'n_used',
     'fc_best', 'e_min', 'e_med', 'e_max', 'noise_sigma',
     'target_rmse', 'target_max', 'target_snr_db', 'target_area_pct',
     'selected_rmse', 'selected_max', 'selected_snr_db',
@@ -342,7 +341,7 @@ def stem_fields(stem: str) -> dict:
 
 def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
              diag_dir: str, workers: int, stride: int,
-             reuse_err: bool = True, snr_threshold: float = 10.0) -> dict:
+             reuse_err: bool = True) -> dict:
     """
     Run the diagnostics of a single signal.
 
@@ -362,8 +361,6 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
         Reuse a stored error curve when its key matches. Default True.
         The key covers `_relevant_regions`, so a change there
         invalidates it.
-    snr_threshold : float, optional
-        Gate of the past-drop exclusion, as in production. Default 10.
 
     Returns
     -------
@@ -394,13 +391,10 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     # same curve back, so the sweep is paid once.
     with contextlib.redirect_stdout(io.StringIO()):
         auto_beads(s, x, method='custom_beads', cache_dir=cache_dir,
-                   path=path, workers=workers,
-                   snr_threshold=snr_threshold)
+                   path=path, workers=workers)
         fcut_sel, pd = _fcutoff(s, x, scut, method='custom_beads',
                                 cache_dir=cache_dir, path=path,
-                                workers=workers,
-                                snr_threshold=snr_threshold,
-                                **method_kwargs)
+                                workers=workers, **method_kwargs)
     fcut_range = pd['fcut_range']
     r2 = pd['r2_val']
     sens = pd['sensitivity_val']
@@ -411,8 +405,7 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     segments = classify_segments(
         segment_features(fcut_range, r2, pelt_linear(r2)))
     dips = detect_dips(fcut_range, r2)
-    snr_val = float(_snr(s))
-    common = dict(exclude_past_drop=snr_val >= snr_threshold)
+    common = dict(exclude_past_drop=True)
     trim_on = trim_plateaus(fcut_range, segments, dips, n_used,
                             sensitivity=sens, **common)
     trim_off = trim_plateaus(fcut_range, segments, dips, n_used,
@@ -502,7 +495,7 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
 
     return {
         'stem': stem, **stem_fields(stem), 'n_points': len(s),
-        'n_used': n_used, 'snr': snr_val,
+        'n_used': n_used,
         'fc_best': fc_best, 'e_min': e_min,
         'e_med': float(np.nanmedian(err)), 'e_max': float(np.nanmax(err)),
         'noise_sigma': sigma, 'target_noise': target_noise,

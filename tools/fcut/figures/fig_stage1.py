@@ -10,7 +10,6 @@ Two figures of one worked example, on the curve of Figures 1 and 3.
 """
 import argparse
 import glob
-import inspect
 import os
 
 import matplotlib
@@ -22,8 +21,6 @@ import matplotlib.pyplot as plt
 from weaselytics.baseline import (  # noqa: E402
     _log_transform,
     _relevant_regions,
-    _snr,
-    auto_beads,
 )
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
@@ -43,13 +40,11 @@ CURVE, FLAT, NOTFLAT, CLIFF = '#1f4e79', '#1a7a44', '#c2521f', '#7a3fa0'
 
 
 def production_inputs(data):
-    """`n_used` and the past-drop gate, as `_fcutoff` derives them."""
+    """`n_used`, as `_fcutoff` derives it."""
     src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
     x, y = ParsedData(src).data
     _, _, scut = _relevant_regions(y, x)
-    gate = inspect.signature(auto_beads).parameters[
-        'snr_threshold'].default
-    return len(_log_transform(y[:scut])), bool(_snr(y) >= gate)
+    return len(_log_transform(y[:scut]))
 
 
 def load(cache):
@@ -184,7 +179,7 @@ def main(data, cache):
     fr, r2 = load(cache)
     segs = classify_segments(segment_features(fr, r2, pelt_linear(r2)))
     print(f"  {len(segs)} segments, {sum(s['flat'] for s in segs)} flat")
-    fig_segments(fr, r2, segs, production_inputs(data)[0])
+    fig_segments(fr, r2, segs, production_inputs(data))
     fig_features(segs)
 
 

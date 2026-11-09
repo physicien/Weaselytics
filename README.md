@@ -18,7 +18,7 @@ weaselytics [OPTION] filename
 ```console
 weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb]
             [-x0 STARTX] [-x1 ENDX] [-od OUTPUT_DIR] [-cd CACHE_DIR]
-            [-w WORKERS] [-fc FREQ_CUTOFF] [-snr SNR_THRESHOLD]
+            [-w WORKERS] [-fc FREQ_CUTOFF]
             path
 ```
 
@@ -40,7 +40,6 @@ weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb]
 | `-cd` | Cache directory for the autocorrelation curves used to select `freq_cutoff`; reruns on an unchanged signal skip the expensive BEADS sweep. At most one cached curve is kept per data file (default: no caching) |
 | `-w` | Number of worker processes for the autocorrelation sweep (default: 1, serial) |
 | `-fc` | Bypass the automatic selection and use this cutoff frequency, `0 < freq_cutoff < 0.5` (default: automatic selection) |
-| `-snr` | Threshold on `baseline._snr` above which the plateaus past the drop are excluded from the candidate cutoff regions (default: 10.0). **Note:** on quantisation-limited data this statistic is not a signal-to-noise ratio (see the TO DO below) |
 
 ## Library usage
 
@@ -95,8 +94,6 @@ Contributed by Emmanuel Bourret
 
 ## TO DO
 
-- Decide whether the `_snr` gate on the past-drop exclusion is worth keeping: no signal falls below its threshold.
-- Rename or replace `baseline._snr`: on quantised data it is the tallest excursion over a fixed step, not a signal-to-noise ratio.
 - Ground `trigger` and `settled` in `segmentation.instability_boundary`, including how far they move across numpy/scipy versions.
 - Stop `utils.peaks_params` from returning a negative peak when the signal has none.
 - Express the `sigma` of `segmentation.dip_curve` in decades instead of grid points.

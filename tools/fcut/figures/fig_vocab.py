@@ -18,7 +18,6 @@ level" block below it, so neither crosses the other's arrow.
 
 import argparse
 import glob
-import inspect
 import os
 
 import matplotlib
@@ -31,8 +30,6 @@ import matplotlib.pyplot as plt  # noqa: E402
 from weaselytics.baseline import (  # noqa: E402
     _log_transform,
     _relevant_regions,
-    _snr,
-    auto_beads,
 )
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
@@ -54,13 +51,11 @@ GREY = '#7a7a7a'
 
 
 def production_inputs(data):
-    """`n_used` and the past-drop gate, as `_fcutoff` derives them."""
+    """`n_used`, as `_fcutoff` derives it."""
     src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
     x, y = ParsedData(src).data
     _, _, scut = _relevant_regions(y, x)
-    gate = inspect.signature(auto_beads).parameters[
-        'snr_threshold'].default
-    return len(_log_transform(y[:scut])), bool(_snr(y) >= gate)
+    return len(_log_transform(y[:scut]))
 
 
 def main(data, cache):
@@ -68,7 +63,7 @@ def main(data, cache):
     f = glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz'))[0]
     d = np.load(f)
     fr, r2 = d['fcut_range'], d['r2_val']
-    fund = 1.0 / production_inputs(data)[0]
+    fund = 1.0 / production_inputs(data)
     # The drop level is taken from the segment means, the scale
     # `trim_candidates` compares against, so the line drawn is the
     # threshold the code applies.

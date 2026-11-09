@@ -47,7 +47,6 @@ from weaselytics.baseline import (  # noqa: E402
     _custom_beads,
     _log_transform,
     _relevant_regions,
-    _snr,
 )
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.plot import plot_chromatogram, r2_plots  # noqa: E402
@@ -183,7 +182,7 @@ def analyse(stem):
                                                   S.pelt_linear(r2)))
     dips = S.detect_dips(fcut, r2)
     t = dict(S.trim_plateaus(fcut, segs, dips, n_used,
-                             exclude_past_drop=bool(_snr(y) >= 10.0),
+                             exclude_past_drop=True,
                              sensitivity=sens))
     flat = np.zeros(len(fcut), dtype=bool)
     for seg in segs:

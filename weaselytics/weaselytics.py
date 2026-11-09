@@ -120,15 +120,6 @@ def main() -> None:
                             ' cutoff frequency, 0 < freq_cutoff < 0.5'
                             ' (default: automatic selection)'
                         ))
-    parser.add_argument('-snr', '--snr-threshold', type=float, default=10.0,
-                        help=(
-                            'signal-to-noise ratio above which the'
-                            ' plateaus past the drop are excluded'
-                            ' from the candidate cutoff regions: a high-SNR'
-                            ' signal has analyte whose area a cutoff there'
-                            ' would destroy. Below it they are'
-                            ' kept. Default: 10, the limit of quantitation'
-                        ))
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -167,8 +158,7 @@ def main() -> None:
             output_dir=output_dir,
             method="custom_beads",
             cache_dir=args.cache_dir,
-            workers=args.workers,
-            snr_threshold=args.snr_threshold
+            workers=args.workers
         )
         signal = params["signal"]
         mod_ydata = signal

@@ -55,7 +55,6 @@ from weaselytics.baseline import (  # noqa: E402
     _log_transform,
     _r2_array_cached,
     _relevant_regions,
-    _snr,
 )
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.plot import r2_plots  # noqa: E402
@@ -70,7 +69,6 @@ from weaselytics.segmentation import (  # noqa: E402
     trim_plateaus,
 )
 
-SNR_THRESHOLD = 10.0
 # Stride of the error-curve grid, matching `synth_diag` so a recomputed
 # optimum is the one that function would have recorded.
 STRIDE = 4
@@ -273,7 +271,7 @@ def one(job):
                 flat[seg['start']:seg['end']] = True
         dips = detect_dips(fcut_range, r2_val)
         trim = trim_plateaus(fcut_range, segments, dips, n_used,
-                             exclude_past_drop=_snr(s) >= SNR_THRESHOLD,
+                             exclude_past_drop=True,
                              sensitivity=sens)
         fcut = select_center(fcut_range, trim['surviving'])
         selected = np.nan if fcut is None else float(fcut)

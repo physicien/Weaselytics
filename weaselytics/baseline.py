@@ -25,9 +25,6 @@ References
 .. [4] Bauer, F. and Kindermann, S. The quasi-optimality criterion for
    classical inverse problems. Inverse Probl. 24(3), 035002 (2008).
    doi:10.1088/0266-5611/24/3/035002
-.. [5] MacDougall, D. et al. Guidelines for data acquisition and data
-   quality evaluation in environmental chemistry. Anal. Chem. 52(14),
-   2242-2249 (1980). doi:10.1021/ac50064a004
 """
 import hashlib
 import logging
@@ -255,62 +252,6 @@ def _relevant_regions(
     else:
         scut = len(s)
     return peak_regions, sampling, scut
-
-def _snr(s: np.ndarray) -> float:
-    """
-    Robust signal-to-noise ratio of a chromatogram.
-
-    The tallest excursion above the median divided by the noise, with
-    the noise estimated from the median absolute deviation of the
-    consecutive differences, so peaks do not inflate it.
-
-    ``auto_beads`` uses it for one decision: whether the plateaus past
-    the drop of the r2 curve stay candidates, which they do on a signal
-    whose structure is mostly baseline. See `auto_beads` for why that
-    branch is untested.
-
-    Parameters
-    ----------
-    s : array-like, shape (N,)
-        The measured chromatogram.
-
-    Returns
-    -------
-    snr : float
-        The signal-to-noise ratio; ``inf`` when the noise estimate is
-        zero, which happens when over half the consecutive differences
-        are identical.
-
-    Notes
-    -----
-    The two constants in the noise estimate follow from the Gaussian.
-    ``1.4826`` is the reciprocal of the 0.75 quantile of the standard
-    normal, which converts a median absolute deviation into a standard
-    deviation. The ``sqrt(2)`` removes the inflation from differencing:
-    the difference of two independent samples of variance ``v`` has
-    variance ``2v``.
-
-    The numerator is the tallest excursion **above** the median, so a
-    signal whose only features are negative scores near zero however
-    strong they are.
-
-    Fails as a ratio on quantisation-limited data. When the detector
-    digitises in fixed steps, every consecutive difference is a multiple
-    of that step, the denominator collapses onto a handful of values,
-    and the statistic reduces to the tallest excursion in the units of
-    the signal. It is then an absolute amplitude wearing a dimensionless
-    name, and a threshold on it is instrument-specific.
-
-    Whether the threshold separates anything has to be checked on the
-    data at hand: a population whose values all sit far above it makes
-    the gate a constant. See the README TO DO.
-
-    """
-    diffs = np.diff(s)
-    noise = 1.4826 * np.median(np.abs(diffs - np.median(diffs))) / np.sqrt(2)
-    if noise <= 0:
-        return np.inf
-    return float((np.max(s) - np.median(s)) / noise)
 
 def _log_transform(s: np.ndarray, epsilon: float = 1) -> np.ndarray:
     """
@@ -1124,7 +1065,7 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
             num: int = 1000,
             method: str = "custom_beads", param: str = "freq_cutoff",
             cache_dir: str | None = None, path: str = "./file.txt",
-            workers: int = 1, snr_threshold: float = 10.0, **kwargs
+            workers: int = 1, **kwargs
             ) -> tuple[float, dict]:
     """
     Find the optimal cutoff frequency.
@@ -1163,14 +1104,6 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     workers : int, optional
         Number of worker processes used to parallelize the r2 sweep.
         Default is 1 (serial).
-    snr_threshold : float, optional
-        Signal-to-noise ratio above which the plateaus past the drop are
-        excluded from the candidate regions (see `_snr` and
-        `trim_candidates`). Default is 10, the limit of quantitation of
-        MacDougall et al. [1]_ Table I, which puts quantitation above
-        10 and detection between 3 and 10. Their sigma is a blank's
-        standard deviation while `_snr` reads the signal itself, so the
-        value is carried over.
     **kwargs
         Forwarded to the sweep and on to the fitting method, and hashed
         into the cache key.
@@ -1193,12 +1126,6 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
         would bias every area derived from it. The error carries
         `plot_data`, with ``fcut`` and ``fi_r2_val`` set to None, so the
         diagnostic can still be drawn.
-
-    References
-    ----------
-    .. [1] MacDougall, D. et al. Guidelines for data acquisition and
-       data quality evaluation in environmental chemistry.
-       *Analytical Chemistry* **52**, 2242-2249 (1980), Table I.
 
     """
     tic = time.perf_counter()
@@ -1241,11 +1168,11 @@ def _fcutoff(s: np.ndarray, x: np.ndarray, scut: int,
     cp_dips = dips_to_mask(fcut_range, cp_detected_dips)
     # Stage-1 trimming (single source: segmentation.trim_plateaus). The
     # sub-fundamental clip (#1) gives `cp_removed` (drawn red). The
-    # SNR-gated past-drop exclusion (#2) gives
-    # `cp_snr_removed` (dark red) and IS applied to the selection,
-    # unless applying it would leave nothing surviving.
+    # past-drop exclusion (#2) gives `cp_snr_removed` (dark red) and is
+    # applied to the selection, unless applying it would leave nothing
+    # surviving.
     cp_trim = trim_plateaus(fcut_range, cp_segments, cp_detected_dips,
-                            len(z), exclude_past_drop=_snr(s) >= snr_threshold,
+                            len(z), exclude_past_drop=True,
                             sensitivity=sensitivity_val)
     cp_surviving = cp_trim['surviving']
     cp_removed = cp_trim['removed']
@@ -1334,7 +1261,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
                fit_parabola: bool = True, alpha: float | None = None,
                parabola_len: int | None = 3,
                cache_dir: str | None = None,
-               workers: int = 1, snr_threshold: float = 10.0
+               workers: int = 1
                ) -> tuple[np.ndarray, dict]:
     """
     Baseline-correct a chromatogram with BEADS.
@@ -1427,28 +1354,6 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         Number of worker processes used to parallelize the autocorrelation
         sweep that selects `freq_cutoff`. Default is 1 (serial). Only
         relevant when `freq_cutoff` is None.
-    snr_threshold : float, optional
-        Signal-to-noise ratio (see `_snr`) above which the plateaus
-        past the r2 drop are excluded from the candidate cutoff regions.
-        Below it those plateaus are kept, on the reasoning that a signal
-        whose structure is mostly baseline can have its optimum past the
-        drop.
-
-        **That branch is untested and the exclusion itself is in
-        question.** `_snr` reads the tallest excursion above the median
-        against a robust noise estimate, and on a quantised detector the
-        denominator is pinned to the ADC lattice, so the statistic
-        behaves as an absolute amplitude and does not approach the
-        threshold. Peak area is also already being absorbed before the
-        drop, so the boundary the exclusion draws falls after most of
-        the loss rather than before it.
-
-        Default is 10, the limit of quantitation of MacDougall et
-        al. [3]_: below it a peak's area cannot be measured with
-        acceptable precision. Their ratio is built on the standard
-        deviation of a blank, while `_snr` reads the signal itself, so
-        the value is carried over rather than derived. Only relevant
-        when `freq_cutoff` is None.
 
     Returns
     -------
@@ -1479,11 +1384,6 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     .. [2] Navarro-Huerta, J.A., et al. Assisted baseline subtraction in
         complex chromatograms using the BEADS algorithm. Journal of
         Chromatography A, 2017, 1507, 1-10.
-    .. [3] MacDougall, D., et al. Guidelines for data acquisition and
-        data quality evaluation in environmental chemistry. Analytical
-        Chemistry, 1980, 52(14), 2242-2249. Their Table I sets the
-        region of quantitation at a signal-to-noise ratio above 10, and
-        the region of detection between 3 and 10.
 
     """
     if asymmetry <= 0:
@@ -1526,8 +1426,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         try:
             fcut, plot_data = _fcutoff(
                 s, x, scut, method=method, cache_dir=cache_dir, path=path,
-                workers=workers, snr_threshold=snr_threshold,
-                **method_kwargs)
+                workers=workers, **method_kwargs)
         except NoSurvivingRegionError as err:
             # No cutoff, hence no baseline, but the sweep did run: draw
             # its diagnostic and the input signal, so the signal

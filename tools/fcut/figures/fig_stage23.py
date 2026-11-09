@@ -4,7 +4,6 @@ exclusions, and the stage 3 pick. One worked example throughout.
 """
 import argparse
 import glob
-import inspect
 import os
 
 import matplotlib
@@ -16,8 +15,6 @@ import matplotlib.pyplot as plt
 from weaselytics.baseline import (  # noqa: E402
     _log_transform,
     _relevant_regions,
-    _snr,
-    auto_beads,
 )
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
@@ -39,13 +36,11 @@ CURVE, KEEP, CUT, ORANGE, RED = (
 
 
 def production_inputs(data):
-    """`n_used` and the past-drop gate, as `_fcutoff` derives them."""
+    """`n_used`, as `_fcutoff` derives it."""
     src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
     x, y = ParsedData(src).data
     _, _, scut = _relevant_regions(y, x)
-    gate = inspect.signature(auto_beads).parameters[
-        'snr_threshold'].default
-    return len(_log_transform(y[:scut])), bool(_snr(y) >= gate)
+    return len(_log_transform(y[:scut]))
 
 
 def shade(ax, fr, mask, color, label, alpha=.30):
@@ -65,8 +60,8 @@ def main(data, cache):
     fr, r2, sens = d['fcut_range'], d['r2_val'], d['sensitivity']
     segs = classify_segments(segment_features(fr, r2, pelt_linear(r2)))
     dips = detect_dips(fr, r2)
-    n_used, past_drop = production_inputs(data)
-    tr = trim_plateaus(fr, segs, dips, n_used, exclude_past_drop=past_drop,
+    n_used = production_inputs(data)
+    tr = trim_plateaus(fr, segs, dips, n_used, exclude_past_drop=True,
                        sensitivity=sens)
     flat = np.zeros(len(r2), bool)
     for s in segs:
@@ -115,7 +110,7 @@ def main(data, cache):
              detected, KEEP),
             ('removed by the sub-fundamental clip and the region trim',
              tr['removed'], CUT),
-            ('removed by the past-drop exclusion (SNR gate on)',
+            ('removed by the past-drop exclusion',
              tr['snr_removed'], '#7a3fa0'),
             ('removed by the stiff-side instability boundary',
              tr['instab_removed'], ORANGE),

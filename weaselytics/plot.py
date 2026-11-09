@@ -204,9 +204,8 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
         stage-1 trimming, drawn as a red fill. Default is None, which
         disables the overlay.
     cp_snr_removed : array-like, shape (N,), dtype bool, optional
-        Mask of the additional regions the SNR-gated past-drop exclusion
-        would remove (beyond ``cp_removed``), drawn as a dark-red
-        cross-hatch. A preview only; it does not affect the selection.
+        Mask of the additional regions the past-drop exclusion removes
+        (beyond ``cp_removed``), drawn as a dark-red cross-hatch.
         Default is None, which disables the overlay.
     cp_instab_removed : array-like, shape (N,), dtype bool, optional
         Mask of the regions removed by the stiff-side instability
@@ -261,10 +260,10 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
                             color='red', alpha=0.15,
                             label='trimmed',
                             transform=axs[0].get_xaxis_transform())
-    # Dark-red cross-hatch: what the SNR-gated past-drop exclusion (#3)
-    # would additionally remove. A preview; it does not affect selection.
-    # Only drawn (and labelled) when it actually removes something, so
-    # a signal it never fires on carries no phantom legend entry.
+    # Dark-red cross-hatch: what the past-drop exclusion (#2) removes
+    # beyond `cp_removed`. Only drawn (and labelled) when it actually
+    # removes something, so a signal it never fires on carries no
+    # phantom legend entry.
     if cp_snr_removed is not None and np.any(cp_snr_removed):
         # facecolor/edgecolor set explicitly, with the alpha carried in
         # the RGBA edge colour rather than passed as `alpha`. See
@@ -275,7 +274,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
                             facecolor="none",
                             edgecolor=to_rgba("darkred", 0.9),
                             hatch="xxx", hatch_linewidth=1.0,
-                            label='SNR-trimmed',
+                            label='past-drop',
                             transform=axs[0].get_xaxis_transform())
     # The stiff-side instability cut, in the colour of the sensitivity
     # curve below: this region is removed because that curve is still

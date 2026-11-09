@@ -8,7 +8,6 @@ Bottom: where stage 3 commits.
 
 import argparse
 import glob
-import inspect
 import os
 
 import matplotlib
@@ -21,8 +20,6 @@ import matplotlib.pyplot as plt  # noqa: E402
 from weaselytics.baseline import (  # noqa: E402
     _log_transform,
     _relevant_regions,
-    _snr,
-    auto_beads,
 )
 from weaselytics.parsers import ParsedData  # noqa: E402
 from weaselytics.segmentation import (  # noqa: E402
@@ -43,13 +40,11 @@ CUT = '#b3402f'
 
 
 def production_inputs(data):
-    """`n_used` and the past-drop gate, as `_fcutoff` derives them."""
+    """`n_used`, as `_fcutoff` derives it."""
     src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
     x, y = ParsedData(src).data
     _, _, scut = _relevant_regions(y, x)
-    gate = inspect.signature(auto_beads).parameters[
-        'snr_threshold'].default
-    return len(_log_transform(y[:scut])), bool(_snr(y) >= gate)
+    return len(_log_transform(y[:scut]))
 
 
 def mask_from_flat(segments, n):
@@ -81,9 +76,9 @@ def main(data, cache):
         segment_features(fr, r2, pelt_linear(r2)))
     flat = mask_from_flat(segments, len(r2))
     dips = detect_dips(fr, r2)
-    n_used, past_drop = production_inputs(data)
+    n_used = production_inputs(data)
     trim = trim_plateaus(fr, segments, dips, n_used,
-                         exclude_past_drop=past_drop, sensitivity=sens)
+                         exclude_past_drop=True, sensitivity=sens)
     surviving = trim['surviving']
     fcut = select_center(fr, surviving)
     print(f"  flat points      {flat.sum():4d}/{len(r2)}")

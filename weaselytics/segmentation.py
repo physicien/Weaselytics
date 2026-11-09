@@ -686,8 +686,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       baseline has absorbed the analyte-correlated content and r2
       climbing back towards Nyquist reports on the noise it is now
       fitting, not on the quality of the fit. No property of the signal
-      makes a cutoff there admissible, so unlike the past-drop exclusion
-      below this clip is unconditional.
+      makes a cutoff there admissible.
     - **bridging** (optional): a non-flat segment sandwiched between
       candidate regions is absorbed when it is not a cliff
       (``rel_slope < cliff_min``), so drifting connectors do not split
@@ -700,11 +699,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
       a cutoff there destroys peak area (Navarro-Huerta et al. 2017,
       §3.4). This reaches the descent *before* the floor, which the
       rebound clip does not; the two are complementary and neither
-      subsumes the other. The caller decides ``exclude_past_drop`` from
-      the signal-to-noise ratio, so that a signal whose structure is
-      mostly baseline keeps its low shelves as candidates. That gate has
-      not switched on any signal processed so far, so the branch that
-      keeps them is untested.
+      subsumes the other.
 
     Bridging is off by default. See ``bridge`` below.
 
@@ -732,8 +727,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
         between them.
     exclude_past_drop : bool, optional
         If True, remove flat segments past the drop (see the summary
-        above). The caller sets this from the signal-to-noise ratio.
-        Default is False.
+        above). Default is False.
     drop_level : float, optional
         Relative level of the total r2 drop below which a flat segment
         is considered past the drop, in [0, 1] (1 = plateau top,
@@ -1032,12 +1026,10 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     flat test misses). This applies the a-priori exclusions to it:
 
     - the sub-fundamental clip, always;
-    - the SNR-gated past-drop exclusion, only when ``exclude_past_drop``:
-      past the drop a cutoff destroys peak area (Navarro-Huerta et al.
-      2017 §3.4), so the plateaus below ``drop_level`` of the drop are
-      removed. The caller decides it from the signal-to-noise ratio, so
-      that a signal whose structure is mostly baseline keeps them; see
-      `trim_candidates`;
+    - the past-drop exclusion, when ``exclude_past_drop``: past the
+      drop a cutoff destroys peak area (Navarro-Huerta et al. 2017
+      §3.4), so the plateaus below ``drop_level`` of the drop are
+      removed; see `trim_candidates`;
     - the stiff-side instability exclusion, when `sensitivity` is given.
 
     The proto-plateaus are a **fallback**: the flat channel is run
@@ -1066,7 +1058,7 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     n_used : int
         Number of signal points used for the autocorrelation sweep.
     exclude_past_drop : bool, optional
-        If True, apply the SNR-gated past-drop exclusion. Default False.
+        If True, apply the past-drop exclusion. Default False.
     c1 : float, optional
         Safety factor of the sub-fundamental clip. Default is 1.0 (the
         fundamental itself); see ``trim_candidates``.
@@ -1089,14 +1081,6 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
         as unnecessary; ``snr_removed``, the extra cut by the collapse
         exclusion; and ``instab_removed``, the extra cut by the
         instability exclusion, all False when `sensitivity` is None.
-
-    Notes
-    -----
-    The past-drop exclusion is gated on the signal-to-noise ratio, and
-    that gate discriminates only where the population straddles the
-    threshold. On data whose values sit far above it the exclusion is
-    applied to everything and the gate is a constant, which also means
-    such data cannot validate the threshold. See ``baseline._snr``.
 
     """
     masks = _trim_masks(fcut_range, segments, dips, n_used,

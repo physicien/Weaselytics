@@ -1,25 +1,25 @@
 import numpy as np
 
-from weaselytics.plot import plot, r2_plots
+from weaselytics.plot import plot_chromatogram, r2_plots
 
 
 class TestPlot:
     def test_plot_basic(self, sample_data):
         x, y = sample_data
-        plot(x, y)
+        plot_chromatogram(x, y)
 
     def test_plot_with_fits(self, sample_data):
         x, y = sample_data
-        plot(x, y, y_sm=y, s=y, bl=np.zeros_like(y),
+        plot_chromatogram(x, y, y_sm=y, s=y, bl=np.zeros_like(y),
              x_fit=x, y_fit_g=y, y_fit_sn=y)
 
     def test_plot_print_and_show(self, sample_data):
         x, y = sample_data
-        plot(x, y, show_plot=False, print_plot=False, path="/tmp/test.txt")
+        plot_chromatogram(x, y, show_plot=False, print_plot=False, path="/tmp/test.txt")
 
     def test_plot_creates_file_on_print(self, sample_data, tmp_path):
         x, y = sample_data
-        plot(x, y, print_plot=True, path="/tmp/test.txt",
+        plot_chromatogram(x, y, print_plot=True, path="/tmp/test.txt",
              output_dir=str(tmp_path))
         expected = tmp_path / "images" / "test.png"
         assert expected.exists()

@@ -20,7 +20,7 @@ from weaselytics.peakfitting import (
     pearson7,
     skew_norm,
 )
-from weaselytics.plot import plot, r2_plots
+from weaselytics.plot import plot_chromatogram, r2_plots
 from weaselytics.utils import smooth_SG
 
 
@@ -42,6 +42,6 @@ __all__ = [
     "export_txt",
     "export_csv",
     "export_dist",
-    "plot",
+    "plot_chromatogram",
     "r2_plots",
 ]

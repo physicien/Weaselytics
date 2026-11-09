@@ -2,11 +2,11 @@
 """
 Plotting functions.
 
-Two figures: `plot` draws a chromatogram with whichever of the
+Two figures: `plot_chromatogram` draws a chromatogram with whichever of the
 smoothed, corrected, baseline and fitted-peak curves are supplied, and
 `r2_plots` draws the autocorrelation diagnostic the cutoff selection is
-read from. Both write under `output_dir` when asked, `plot` into
-``images`` and `r2_plots` into ``r2_plots``.
+read from. Both write under `output_dir` when asked, `plot_chromatogram`
+into ``images`` and `r2_plots` into ``r2_plots``.
 """
 
 import os
@@ -59,15 +59,16 @@ _SENSITIVITY_YTICK_MINOR = 0.1
 _SENSITIVITY_GRID = True
 
 
-def plot(x: np.ndarray, y: np.ndarray, y_sm: np.ndarray | None = None,
-         s: np.ndarray | None = None, bl: np.ndarray | None = None,
-         x_fit: np.ndarray | None = None,
-         y_fit_g: np.ndarray | None = None,
-         y_fit_sn: np.ndarray | None = None,
-         y_fit_p7: np.ndarray | None = None,
-         show_plot: bool = False, print_plot: bool = False,
-         path: str = "./file.txt",
-         output_dir: str = "results") -> None:
+def plot_chromatogram(x: np.ndarray, y: np.ndarray,
+                      y_sm: np.ndarray | None = None,
+                      s: np.ndarray | None = None, bl: np.ndarray | None = None,
+                      x_fit: np.ndarray | None = None,
+                      y_fit_g: np.ndarray | None = None,
+                      y_fit_sn: np.ndarray | None = None,
+                      y_fit_p7: np.ndarray | None = None,
+                      show_plot: bool = False, print_plot: bool = False,
+                      path: str = "./file.txt",
+                      output_dir: str = "results") -> None:
     """
     Plot the signal alongside whichever derived curves are supplied.
 

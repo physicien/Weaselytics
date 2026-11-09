@@ -23,7 +23,7 @@ from weaselytics.baseline import auto_beads
 from weaselytics.export import export_csv, export_txt
 from weaselytics.parsers import ParsedData
 from weaselytics.peakfitting import fit_peak
-from weaselytics.plot import plot
+from weaselytics.plot import plot_chromatogram
 from weaselytics.utils import smooth_SG
 
 logger = logging.getLogger(__name__)
@@ -211,7 +211,7 @@ def main() -> None:
                 x_fit=x_robust, y_fit_g=y_robust_g,
                 y_fit_sn=y_robust_sn, y_fit_p7=y_robust_p7,
             )
-        plot(xdata, ydata, **plot_kwargs)
+        plot_chromatogram(xdata, ydata, **plot_kwargs)
 
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ import numpy as np
 from pybaselines import Baseline
 from scipy.ndimage import gaussian_filter1d
 
-from weaselytics.plot import plot, r2_plots
+from weaselytics.plot import plot_chromatogram, r2_plots
 from weaselytics.segmentation import (
     classify_segments,
     detect_dips,
@@ -1535,7 +1535,8 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
             if show_plot or print_plot:
                 _draw_r2(err.plot_data, show_plot, print_plot, path,
                          output_dir)
-                plot(x, s, show_plot=show_plot, print_plot=print_plot,
+                plot_chromatogram(x, s, show_plot=show_plot,
+                                  print_plot=print_plot,
                      path=path, output_dir=output_dir)
             raise
     else:

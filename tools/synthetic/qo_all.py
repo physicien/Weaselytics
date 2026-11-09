@@ -50,7 +50,7 @@ from weaselytics.baseline import (  # noqa: E402
     _snr,
 )
 from weaselytics.parsers import ParsedData  # noqa: E402
-from weaselytics.plot import plot, r2_plots  # noqa: E402
+from weaselytics.plot import plot_chromatogram, r2_plots  # noqa: E402
 
 # Set from the command line in __main__.
 RUN = DS = OUT = None
@@ -296,7 +296,8 @@ def render(a, work):
     panels = []
     for kind in kinds:
         with KeepOpen():
-            plot(x, y, print_plot=False, path=path, output_dir=work)
+            plot_chromatogram(x, y, print_plot=False, path=path,
+                              output_dir=work)
             fig = plt.gcf()
             ax = fig.axes[0]
             if kind == 'baseline':
@@ -308,10 +309,9 @@ def render(a, work):
                 ax.set_title('baselines against the true one',
                              fontsize=9, loc='left')
             else:
-                # `plot` always draws the raw trace, and here its full
-                # excursion sets the y-scale and flattens the very
-                # curves these panels exist to show. Drop it and let the
-                # axes rescale.
+                # `plot_chromatogram` always draws the raw trace, and here its
+                # full excursion sets the y-scale and flattens the very curves
+                # these panels exist to show. Drop it and let the axes rescale.
                 for ln in list(ax.lines):
                     if ln.get_label() == 'raw data':
                         ln.remove()

@@ -15,14 +15,16 @@ For every signal of a dataset produced by
   baseline fitted with the final-correction configuration of
   ``auto_beads`` and the known true baseline, on a subsampled fcut grid.
 
-The minimum of ``E`` is the optimal cutoff frequency. It is defined by
-the baseline fit alone; the peak-area error is reported but enters no
+The minimum of ``E`` at or above the fundamental ``1 / n_used`` is the
+optimal cutoff frequency (see `true_optimum`). It is defined by the
+baseline fit alone; the peak-area error is reported but enters no
 decision.
 
 Accuracy is also reported in units of the record's noise:
 
 ``target_noise = e_min / sigma``
-    How far the best fit on the whole grid sits from the true baseline.
+    How far the best fit at or above the fundamental sits from the true
+    baseline.
     Near 1, the grid holds a fit within the noise of the truth. Large,
     and no cutoff recovers this baseline, so an accuracy figure for that
     signal describes the benchmark rather than the method.
@@ -146,6 +148,50 @@ def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
         except Exception:
             pass
     return err
+
+
+def true_optimum(fcuts: np.ndarray, err: np.ndarray,
+                 n_used: int) -> tuple[float, float]:
+    """
+    Cutoff of smallest error, searched from the fundamental up.
+
+    Production never selects below ``1 / n_used``:
+    ``segmentation.trim_candidates`` clips those cutoffs, with
+    ``c1 = 1``. The search covers the same range, so a minimum below
+    it, such as a single grid point where the undetermined fit happens
+    to land near the truth, is not taken as the optimum. Whether the
+    fundamental of the full record, ``1 / N``, is the better bound is
+    open in issue #15.
+
+    Fails as an optimum when the error curve is still falling at the
+    bound: `fc_best` is then the first grid point above it, and `e_min`
+    overstates the best error a cutoff can reach.
+
+    Parameters
+    ----------
+    fcuts : array-like, shape (M,)
+        Cutoff frequencies of the error curve.
+    err : array-like, shape (M,)
+        The error curve, NaN where the fit failed.
+    n_used : int
+        Number of points of the signal the r2 sweep runs on.
+
+    Returns
+    -------
+    fc_best : float
+        The cutoff of smallest finite error at or above ``1 / n_used``,
+        NaN when there is none.
+    e_min : float
+        The error at `fc_best`, NaN when there is none.
+
+    """
+    fcuts = np.asarray(fcuts, dtype=float)
+    err = np.asarray(err, dtype=float)
+    ok = np.isfinite(err) & (fcuts >= 1.0 / n_used)
+    if not ok.any():
+        return float('nan'), float('nan')
+    k = int(np.flatnonzero(ok)[np.argmin(err[ok])])
+    return float(fcuts[k]), float(err[k])
 
 
 def _err_key(s: np.ndarray, x: np.ndarray, b_true: np.ndarray,
@@ -435,9 +481,9 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
             err = None
     if err is None:
         err = error_curve(x, s, b_true, fcuts)
-    k_best = int(np.nanargmin(err))
-    fc_best = float(fcuts[k_best])
-    e_min = float(np.nanmin(err))
+    fc_best, e_min = true_optimum(fcuts, err, n_used)
+    if not np.isfinite(fc_best):
+        raise ValueError('no finite error at or above the fundamental')
 
     e_sel = _err_at(x, s, b_true, fcut_sel)
     e_off = _err_at(x, s, b_true, fcut_off)

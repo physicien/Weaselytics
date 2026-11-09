@@ -48,7 +48,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from pybaselines import Baseline  # noqa: E402
-from synth_diag import error_curve  # noqa: E402
+from synth_diag import error_curve, true_optimum  # noqa: E402
 
 from weaselytics.baseline import (  # noqa: E402
     _custom_beads,
@@ -110,25 +110,21 @@ def _curve(stem, path, diag_dir, cache_dir, x, s, b_true, regions,
     recomputed, which is the path taken by the signals whose selection
     raised.
     """
+    z = _log_transform(s[:scut])
     npz = os.path.join(diag_dir, f'{stem}__diag.npz')
     if os.path.isfile(npz):
         d = np.load(npz)
         if {'fcuts', 'err'} <= set(d.files):
-            err = d['err']
-            fcuts = d['fcuts']
-            fc_best = (float(fcuts[np.nanargmin(err)])
-                       if np.isfinite(err).any() else np.nan)
+            fc_best, _ = true_optimum(d['fcuts'], d['err'], len(z))
         else:
             fc_best = np.nan
     else:
         grid = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)[::STRIDE]
         with contextlib.redirect_stdout(io.StringIO()):
             err = error_curve(x, s, b_true, grid)
-        fc_best = (float(grid[np.nanargmin(err)])
-                   if np.isfinite(err).any() else np.nan)
+        fc_best, _ = true_optimum(grid, err, len(z))
 
     fcut_range = np.geomspace(0.00001, 0.5, num=1000, endpoint=False)
-    z = _log_transform(s[:scut])
     kwargs = {'asymmetry': 1.0, 'fit_parabola': True, 'alpha': 1.0,
               'parabola_len': 3, 'regions': regions, 'sampling': sampling}
     with contextlib.redirect_stdout(io.StringIO()):

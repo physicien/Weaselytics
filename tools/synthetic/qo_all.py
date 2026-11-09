@@ -20,12 +20,13 @@ The image is rendered once and copied into both.
 Three cutoffs on one figure: the package's `select_center`, the
 quasi-optimal argmin of the sensitivity curve inside the surviving
 region (Bauer & Kindermann 2008 Def. 1.1), and the optimal one, the
-cutoff minimizing the RMSE against the true baseline. On the failed
-signals only the first two exist.
+cutoff minimizing the RMSE against the true baseline at or above the
+fundamental `1/n_used`. On the failed signals only the first two exist.
 
-The optimal cutoff is the best achievable choice against the known
-baseline. On the right panels, `TRUE baseline`, `TRUE correction` and
-the baseline error are ground truth.
+The optimal cutoff is the best choice against the known baseline among
+the cutoffs the sub-fundamental clip allows. On the right panels,
+`TRUE baseline`, `TRUE correction` and the baseline error are ground
+truth.
 """
 
 import argparse  # noqa: I001
@@ -41,6 +42,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 from pybaselines import Baseline  # noqa: E402
 from scipy.ndimage import median_filter  # noqa: E402
+from synth_diag import true_optimum  # noqa: E402
 
 import weaselytics.segmentation as S  # noqa: E402,I001
 from weaselytics.baseline import (  # noqa: E402
@@ -208,9 +210,9 @@ def analyse(stem):
                 span = (a, b)
                 f_qo = float(fcut[a:b][int(np.argmin(despike(sr)))])
 
-    if ok.any():
-        f_opt = float(fcuts[ok][int(np.argmin(err[ok]))])
-        e_min = float(np.min(err[ok]))
+    f_opt, e_min = (true_optimum(fcuts, err, n_used) if ok.any()
+                    else (np.nan, np.nan))
+    if np.isfinite(f_opt):
         reach = ('in_surviving' if span and fcut[span[0]] <= f_opt
                  <= fcut[span[1] - 1] else None)
         if reach is None:

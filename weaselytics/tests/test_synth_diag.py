@@ -84,11 +84,50 @@ class TestSummaryFields:
         # baseline error curve and nothing else.
         assert 'target_area_pct' in diag.SUMMARY_FIELDS
         src = inspect.getsource(diag.diag_one)
-        assert 'fc_best = float(fcuts[k_best])' in src
-        assert 'k_best = int(np.nanargmin(err))' in src
-        head = src[:src.index('fc_best = float(fcuts[k_best])')]
+        line = 'fc_best, e_min = true_optimum(fcuts, err, n_used)'
+        assert line in src
+        head = src[:src.index(line)]
         assert 'area' not in head, (
             'a peak-area quantity is computed before fc_best is chosen')
+
+
+class TestTrueOptimum:
+    """The true optimum is searched from the fundamental up (issue #15)."""
+
+    def test_ignores_a_minimum_below_the_fundamental(self):
+        fcuts = np.geomspace(1e-5, 0.5, 250, endpoint=False)
+        n_used = 500
+        err = np.ones(250)
+        err[3] = 0.01                     # far below 1/n_used = 2e-3
+        k_above = int(np.searchsorted(fcuts, 0.01))
+        err[k_above] = 0.5
+        fc, e = diag.true_optimum(fcuts, err, n_used)
+        assert fc == pytest.approx(fcuts[k_above])
+        assert e == pytest.approx(0.5)
+
+    def test_skips_failed_fits_above_the_fundamental(self):
+        fcuts = np.geomspace(1e-5, 0.5, 250, endpoint=False)
+        err = np.ones(250)
+        k = int(np.searchsorted(fcuts, 0.02))
+        err[k] = 0.1
+        err[k + 1] = np.nan
+        assert diag.true_optimum(fcuts, err, 500) == (
+            pytest.approx(fcuts[k]), pytest.approx(0.1))
+
+    def test_the_fundamental_itself_is_allowed(self):
+        # Same side of the bound as the clip in trim_candidates, which
+        # drops only the cutoffs strictly below 1 / n_used.
+        fcuts = np.array([1e-3, 2e-3, 4e-3])
+        err = np.array([0.01, 0.1, 0.2])
+        assert diag.true_optimum(fcuts, err, 500) == (
+            pytest.approx(2e-3), pytest.approx(0.1))
+
+    def test_nothing_finite_above_gives_nan(self):
+        fcuts = np.geomspace(1e-5, 0.5, 50, endpoint=False)
+        err = np.full(50, np.nan)
+        err[0] = 1.0
+        fc, e = diag.true_optimum(fcuts, err, 10)
+        assert np.isnan(fc) and np.isnan(e)
 
 
 class TestHarnessMatchesProduction:

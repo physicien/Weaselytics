@@ -2,8 +2,8 @@
 """
 Plotting functions.
 
-Two figures: `plot_chromatogram` draws a chromatogram with whichever of the
-smoothed, corrected, baseline and fitted-peak curves are supplied, and
+Two figures: `plot_chromatogram` draws a chromatogram with whichever of
+the corrected, baseline and fitted-peak curves are supplied, and
 `r2_plots` draws the autocorrelation diagnostic the cutoff selection is
 read from. Both write under `output_dir` when asked, `plot_chromatogram`
 into ``images`` and `r2_plots` into ``r2_plots``.
@@ -60,7 +60,6 @@ _SENSITIVITY_GRID = True
 
 
 def plot_chromatogram(x: np.ndarray, y: np.ndarray,
-                      y_sm: np.ndarray | None = None,
                       s: np.ndarray | None = None, bl: np.ndarray | None = None,
                       x_fit: np.ndarray | None = None,
                       y_fit_g: np.ndarray | None = None,
@@ -78,9 +77,6 @@ def plot_chromatogram(x: np.ndarray, y: np.ndarray,
         The x-values of the signal.
     y : array-like, shape (N,)
         The raw y-values of the signal.
-    y_sm : array-like, shape (N,), optional
-        The smoothed y-values of the signal. If set to None (default), will
-        not be plotted.
     s : array-like, shape (N,), optional
         The baseline corrected y-values of the signal. If set to None
         (default), will not be plotted.
@@ -120,9 +116,6 @@ def plot_chromatogram(x: np.ndarray, y: np.ndarray,
 
     plt.figure(num="Chromatogram")
     plt.plot(x, y, marker='.', ls='', c=palette[7], label='raw data', ms=3)
-    if y_sm is not None:
-        plt.plot(x, y_sm, ls='-.', c=palette[2], lw=1.5,
-                 label='smoothed data')
     if s is not None:
         plt.plot(x, s, ls='-', c=palette[5], lw=1.5, label='adjusted data')
     if bl is not None:

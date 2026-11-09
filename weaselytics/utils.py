@@ -22,7 +22,7 @@ References
 """
 import numpy as np
 import pandas as pd
-from scipy.signal import find_peaks, peak_widths, savgol_filter
+from scipy.signal import find_peaks, peak_widths
 
 
 def end_window(data: np.ndarray, window_min: int = 3,
@@ -253,39 +253,6 @@ def r2_dw(s: np.ndarray) -> float:
     """
     r2 = ((2-_durbin_watson(s))**2)/4
     return r2
-
-def smooth_SG(x: np.ndarray, window_length: int,
-              polyorder: int) -> np.ndarray:
-    """
-    Apply a Savitzky-Golay filter to an array.
-
-    **Slated for removal; see the TO DO in the README.** The wrapper is
-    an artefact of the abandoned derivative approach, when smoothing
-    the signal was thought to help. Its one production caller passes
-    ``polyorder=0``, which fits a constant to each window and so is a
-    plain moving average rather than the polynomial filter the name
-    promises.
-
-    Parameters
-    ----------
-    x : array-like
-        The data to be filtered. If `x` is not a single or double precision
-        floating point array, it will be converted to type ``numpy.float64``
-        before filtering.
-    window_length : int
-        The length of the filter window (i.e., the number of coefficients).
-    polyorder : int
-        The order of the polynomial used to fit the samples. `polyorder` must
-        be less than `window_length`.
-
-    Returns
-    -------
-    smooth_data : ndarray, same shape as x
-        The filtered data.
-
-    """
-    smooth_data = savgol_filter(x,window_length,polyorder)
-    return smooth_data
 
 def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
                  rel_prom_n: float = 0.8,

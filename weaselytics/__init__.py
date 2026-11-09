@@ -21,7 +21,6 @@ from weaselytics.peakfitting import (
     skew_norm,
 )
 from weaselytics.plot import plot_chromatogram, r2_plots
-from weaselytics.utils import smooth_SG
 
 
 def main() -> None:
@@ -38,7 +37,6 @@ __all__ = [
     "pearson7",
     "main",
     "skew_norm",
-    "smooth_SG",
     "export_txt",
     "export_csv",
     "export_dist",

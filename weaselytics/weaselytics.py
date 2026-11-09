@@ -5,8 +5,8 @@ Command-line entry point for the Weaselytics workflow.
 Parses the arguments, reads the file through `parsers.ParsedData`, and
 runs the stages. Baseline correction through `baseline.auto_beads` and
 peak fitting through `peakfitting.fit_peak` run by default and are
-turned off with ``--nobaseline`` and ``--nofit``; smoothing, plotting
-and the exports stay off until their flags are given.
+turned off with ``--nobaseline`` and ``--nofit``; plotting and the
+exports stay off until their flags are given.
 
 The library emits its progress through the ``logging`` module and is
 silent on import; this module is where that output is turned on.
@@ -24,7 +24,6 @@ from weaselytics.export import export_csv, export_txt
 from weaselytics.parsers import ParsedData
 from weaselytics.peakfitting import fit_peak
 from weaselytics.plot import plot_chromatogram
-from weaselytics.utils import smooth_SG
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +98,6 @@ def main() -> None:
                         help='do not fit the chromatogram')
     parser.add_argument('-nb', '--nobaseline', action='store_true',
                         help='do not correct the baseline')
-    parser.add_argument('-sm', '--dosmoothing', action='store_true',
-                        help='do not smooth the signal')
     parser.add_argument('-x0', '--start-x', type=float,
                         help='start fitting the gaussian at x min')
     parser.add_argument('-x1', '--end-x', type=float,
@@ -137,7 +134,6 @@ def main() -> None:
 
     fit_data: bool = not args.nofit
     do_bl: bool = not args.nobaseline
-    do_sm: bool = args.dosmoothing
 
     if args.start_x is not None and args.end_x is not None:
         if args.start_x == args.end_x:
@@ -162,11 +158,7 @@ def main() -> None:
 
     output_dir: str = args.output_dir
 
-    if do_sm:
-        ydata_sm: np.ndarray = smooth_SG(ydata, 9, 0)
-        mod_ydata: np.ndarray = ydata_sm
-    else:
-        mod_ydata = ydata
+    mod_ydata: np.ndarray = ydata
 
     if do_bl:
         baseline, params = auto_beads(
@@ -202,8 +194,6 @@ def main() -> None:
             "path": path,
             "output_dir": output_dir,
         }
-        if do_sm:
-            plot_kwargs["y_sm"] = ydata_sm
         if do_bl:
             plot_kwargs.update(bl=baseline, s=signal)
         if fit_data:

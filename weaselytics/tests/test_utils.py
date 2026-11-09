@@ -7,20 +7,7 @@ from weaselytics.utils import (
     merge_intervals,
     r2_dw,
     rm_ends_outliers,
-    smooth_SG,
 )
-
-
-class TestSmoothSG:
-    def test_returns_same_length(self):
-        x = np.random.default_rng(0).normal(size=100)
-        result = smooth_SG(x, 9, 2)
-        assert len(result) == len(x)
-
-    def test_smoothes_noisy_data(self):
-        x = np.ones(50) + np.random.default_rng(1).normal(0, 0.5, 50)
-        result = smooth_SG(x, 11, 3)
-        assert np.std(result) < np.std(x)
 
 
 class TestEndWindow:

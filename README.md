@@ -16,7 +16,7 @@ weaselytics [OPTION] filename
 ## CLI usage
 
 ```console
-weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb] [-sm]
+weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb]
             [-x0 STARTX] [-x1 ENDX] [-od OUTPUT_DIR] [-cd CACHE_DIR]
             [-w WORKERS] [-fc FREQ_CUTOFF] [-snr SNR_THRESHOLD]
             path
@@ -34,7 +34,6 @@ weaselytics [-h] [-s] [-p] [-e] [-o] [-os OUTPUT_STATS] [-n] [-nb] [-sm]
 | `-os` | Output fitted stats for the given label to `filename_<label>.csv` |
 | `-n` | Disable peak fitting |
 | `-nb` | Disable baseline correction |
-| `-sm` | Enable signal smoothing |
 | `-x0` | Start fitting at `x0` min |
 | `-x1` | End fitting at `x1` min |
 | `-od` | Output directory for exported files (default: `results`) |
@@ -100,7 +99,6 @@ Contributed by Emmanuel Bourret
 - Rename or replace `baseline._snr`: on quantised data it is the tallest excursion over a fixed step, not a signal-to-noise ratio.
 - Ground `trigger` and `settled` in `segmentation.instability_boundary`, including how far they move across numpy/scipy versions.
 - Stop `utils.peaks_params` from returning a negative peak when the signal has none.
-- Remove `utils.smooth_SG` and the `-sm/--dosmoothing` flag.
 - Express the `sigma` of `segmentation.dip_curve` in decades instead of grid points.
 - Forward `**kwargs` in `baseline._beads` and `_custom_beads`, or drop it.
 - Give the `A`, `x0` and `sigma` columns of `export_dist` the same meaning for every distribution.

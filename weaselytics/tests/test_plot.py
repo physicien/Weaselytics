@@ -10,7 +10,7 @@ class TestPlot:
 
     def test_plot_with_fits(self, sample_data):
         x, y = sample_data
-        plot_chromatogram(x, y, y_sm=y, s=y, bl=np.zeros_like(y),
+        plot_chromatogram(x, y, s=y, bl=np.zeros_like(y),
              x_fit=x, y_fit_g=y, y_fit_sn=y)
 
     def test_plot_print_and_show(self, sample_data):

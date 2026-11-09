@@ -61,17 +61,6 @@ def test_output_dir_is_used(monkeypatch, sample_txt_path, tmp_path):
     assert expected.exists()
 
 
-def test_smoothing_flag(monkeypatch, sample_txt_path, tmp_path):
-    monkeypatch.setattr("sys.argv", [
-        "weaselytics", sample_txt_path, "-nb", "-n",
-        "-sm", "-o", "-od", str(tmp_path),
-    ])
-    main()
-    mobile_phase = os.path.basename(os.path.dirname(sample_txt_path))
-    expected = tmp_path / mobile_phase / "sample_chromato.csv"
-    assert expected.exists()
-
-
 def test_output_stats_flag(monkeypatch, sample_txt_path, tmp_path):
     monkeypatch.setattr("sys.argv", [
         "weaselytics", sample_txt_path, "-nb",

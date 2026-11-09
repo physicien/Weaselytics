@@ -1,7 +1,10 @@
+import inspect
+
 import numpy as np
 import pytest
 
 from weaselytics.segmentation import (
+    DIP_SIGMA,
     classify_segments,
     detect_dips,
     dip_curve,
@@ -563,6 +566,12 @@ class TestDipCurve:
         r2 = np.ones(500)
         assert not dip_curve(r2).any()
         assert detect_dips(fcut_range, r2) == []
+
+    def test_shares_its_smoothing_width_with_detect_dips(self):
+        for func in (dip_curve, detect_dips):
+            default = inspect.signature(func).parameters['sigma'].default
+            assert default is DIP_SIGMA
+        assert DIP_SIGMA == 8.0
 
 
 class TestCollapseFallback:

@@ -37,6 +37,11 @@ from scipy.signal import find_peaks, peak_widths
 
 from weaselytics.utils import _rolling_std
 
+# Standard deviation, in grid points, of the Gaussian smoothing of the
+# rolling standard deviation in `dip_curve`, the default of both
+# `dip_curve` and `detect_dips`.
+DIP_SIGMA = 8.0
+
 
 def _linear_costs(y: np.ndarray) -> Callable[[int, np.ndarray], np.ndarray]:
     """
@@ -404,7 +409,7 @@ def classify_segments(segments: list[dict], rel_slope_max: float = 0.2,
 
 
 def dip_curve(r2: np.ndarray, window: int = 3,
-              sigma: float = 8.0) -> np.ndarray:
+              sigma: float = DIP_SIGMA) -> np.ndarray:
     """
     Curve read by the proto-plateau detector.
 
@@ -421,7 +426,7 @@ def dip_curve(r2: np.ndarray, window: int = 3,
         Window of the rolling standard deviation. Default is 3.
     sigma : float, optional
         Standard deviation of the Gaussian smoothing, in grid points.
-        Default is 8.0.
+        Default is `DIP_SIGMA`, 8.0.
 
     Returns
     -------
@@ -453,7 +458,8 @@ def dip_curve(r2: np.ndarray, window: int = 3,
     return rss / peak
 
 
-def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
+def detect_dips(fcut_range: np.ndarray, r2: np.ndarray,
+                sigma: float = DIP_SIGMA,
                 min_prominence: float = 0.03, level_min: float = 0.08,
                 level_max: float = 0.92, window: int = 3,
                 rel_height: float = 0.5) -> list[dict]:
@@ -487,7 +493,7 @@ def detect_dips(fcut_range: np.ndarray, r2: np.ndarray, sigma: float = 8.0,
         Standard deviation, in grid points, of the Gaussian smoothing
         applied to the rolling standard deviation before the valleys
         are located. What it covers on the cutoff axis depends on the
-        grid density; see `dip_curve`. Default is 8.0.
+        grid density; see `dip_curve`. Default is `DIP_SIGMA`, 8.0.
     min_prominence : float, optional
         Minimum prominence of a valley, as a fraction of the largest
         cliff (the maximum of the normalised rolling standard deviation).

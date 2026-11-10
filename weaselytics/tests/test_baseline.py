@@ -409,6 +409,39 @@ class TestAutoBeads:
         # `noise` is rebuilt only on the custom_bc path.
         assert "noise" in params
 
+    def test_alpha_reaches_the_final_fit(self):
+        x = np.linspace(0, 10, 101)
+        rng = np.random.default_rng(109)
+        y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
+        y += 0.1 * (x - 5.0)
+        y += 0.05 * rng.normal(size=len(x))
+        kw = dict(freq_cutoff=0.01, method="beads")
+        _, p1 = auto_beads(y, x, **kw)
+        _, p10 = auto_beads(y, x, alpha=10.0, **kw)
+        _, ref = _beads(Baseline(x_data=x), y, freq_cutoff=0.01,
+                        asymmetry=1.0, fit_parabola=True, alpha=10.0,
+                        parabola_len=3)
+        np.testing.assert_array_equal(p10["signal"], ref["signal"])
+        assert not np.allclose(p10["signal"], p1["signal"])
+
+    def test_parabola_len_reaches_the_final_fit(self):
+        x = np.linspace(0, 10, 101)
+        rng = np.random.default_rng(110)
+        y = 3.0 * np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
+        y += 0.1 * (x - 5.0) ** 2
+        y += 0.2 * rng.normal(size=len(x))
+        # An outlying endpoint, so the window length changes the
+        # parabola: pybaselines then replaces it with the edge median.
+        y[0] += 5.0
+        kw = dict(freq_cutoff=0.01, method="beads")
+        bl3, _ = auto_beads(y, x, **kw)
+        bl9, _ = auto_beads(y, x, parabola_len=9, **kw)
+        ref, _ = _beads(Baseline(x_data=x), y, freq_cutoff=0.01,
+                        asymmetry=1.0, fit_parabola=True, alpha=1.0,
+                        parabola_len=9)
+        np.testing.assert_array_equal(bl9, ref)
+        assert not np.allclose(bl9, bl3)
+
     def test_raises_on_invalid_asymmetry(self):
         x = np.linspace(0, 10, 50)
         y = np.ones(50)

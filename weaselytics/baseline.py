@@ -1327,8 +1327,8 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
         Ning et al. [1]_ §5.1 in taking ``lam_d = alpha / ||D^d z||_1``,
         so `alpha` scales all three at once and a larger value gives a
         sparser peak component. Default is None, which selects 1.0.
-        Only 1.0 is currently produced, so the value is fixed in
-        practice.
+        The cutoff frequency is always selected at 1.0; `alpha` applies
+        to the final fit only.
 
         Ning et al. §5.1 set this constant "according to the noise
         variance" and tuned it by hand; 1.0 is a starting value, not an
@@ -1450,15 +1450,14 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     method_kwargs = {**method_kwargs, "freq_cutoff": fcut}
 
     # Change alpha for the final baseline correction
-    # @EB TO CHANGE WHEN I KNOW HOW TO DO IT...
     if alpha is None:
-        alpha=1.0
-        method_kwargs["alpha"] = alpha
+        alpha=1.0  # placeholder until a method optimizes alpha
+    method_kwargs["alpha"] = alpha
 
     # Change parabola_len for the final baseline correction
     if parabola_len is None:
         parabola_len=end_window(s)
-        method_kwargs["parabola_len"] = parabola_len
+    method_kwargs["parabola_len"] = parabola_len
 
     logger.info(f"{'Cutoff frequency:':<20}{fcut:0.4E}")
     logger.info(f"{'Asymmetry:':<20}{asymmetry:0.1f}")

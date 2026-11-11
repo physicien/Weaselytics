@@ -71,6 +71,8 @@ def end_window(data: np.ndarray, window_min: int = 3,
     return size
 
 
+# Kept on purpose: no caller, but its endpoint-outlier criterion may still be
+# wanted.
 def rm_ends_outliers(data: np.ndarray, window_min: int = 5,
                      window_max: int = 100) -> np.ndarray:
     """

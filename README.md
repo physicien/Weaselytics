@@ -101,6 +101,3 @@ Contributed by Emmanuel Bourret
 - Add proper sample chromatogram data for demos
 - Improve README with example CLI output images
 
-## Dead code, kept on purpose
-
-- `utils.rm_ends_outliers` has no caller but is kept: its endpoint-outlier criterion may still be wanted.

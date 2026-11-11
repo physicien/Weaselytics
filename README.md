@@ -94,11 +94,6 @@ Contributed by Emmanuel Bourret
 
 ## TO DO
 
-- Ground `trigger` and `settled` in `segmentation.instability_boundary`, including how far they move across numpy/scipy versions.
-- Stop `utils.peaks_params` from returning a negative peak when the signal has none.
-- Express the `sigma` of `segmentation.dip_curve` in decades instead of grid points.
-- Decide what `-e` exports: the denoised peak component (now) or `y - baseline`.
-- Investigate computing the decimation parameters of `baseline._relevant_regions` from the peak broadening, under isocratic elution.
 - Generalize hardcoded `__LPYE__` pattern in `export_dist`
 - Make `ParsedData` parser more general (support different delimiters, extra columns, headers)
 - Clean up `#@EB`, `#@TEMP`, `#TODO` markers

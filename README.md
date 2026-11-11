@@ -1,15 +1,31 @@
 # `Weaselytics`
 
-Python package to extract and analyse chromatographic data.
+[![CI](https://github.com/physicien/Weaselytics/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/physicien/Weaselytics/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://github.com/physicien/Weaselytics/blob/main/pyproject.toml)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)](https://github.com/physicien/Weaselytics/blob/main/LICENSE)
 
-A Python 3 library for (hassle-free) plotting of HPLC chromatograms from output
-files with baseline correction, peak detection and retention time determination
-through curve fitting.
+A Python 3 library to extract and analyse chromatographic data: (hassle-free) plotting of HPLC chromatograms from output files, with baseline correction, peak detection and retention time determination through curve fitting.
+
+* For Python 3.11 or later
+* Open source: BSD 3-Clause License
+* Source code: https://github.com/physicien/Weaselytics
+
+**Contents**
+
+* [Quick start](#quick-start)
+* [CLI usage](#cli-usage)
+* [Library usage](#library-usage)
+* [Install](#install)
+* [Tests](#tests)
+* [Contributing](#contributing)
+* [License](#license)
+* [TO DO](#to-do)
+* [Author](#author)
 
 ## Quick start
 
 ```console
-pip install weaselytics
+pip install git+https://github.com/physicien/Weaselytics.git
 weaselytics [OPTION] filename
 ```
 
@@ -58,15 +74,19 @@ baseline, params = wl.auto_beads(y, x, freq_cutoff=None,
                                  cache_dir="r2_cache")
 ```
 
-## Requirements
-
-See `pyproject.toml` for the full dependency list.
-
 ## Install
+
+From GitHub:
+
+```console
+pip install git+https://github.com/physicien/Weaselytics.git
+```
 
 Editable install (for development):
 
 ```console
+git clone https://github.com/physicien/Weaselytics.git
+cd Weaselytics
 pip install -e .
 ```
 
@@ -82,15 +102,32 @@ With numba, which makes BEADS use its banded solver:
 pip install -e ".[numba]"
 ```
 
+### Dependencies
+
+Weaselytics requires Python 3.11 or later and the following libraries, all installed automatically:
+
+* [NumPy](https://numpy.org)
+* [SciPy](https://scipy.org)
+* [matplotlib](https://matplotlib.org)
+* [seaborn](https://seaborn.pydata.org)
+* [pandas](https://pandas.pydata.org)
+* [pybaselines](https://github.com/derb12/pybaselines), pinned to a commit of its development version
+
+The minimum versions are in `pyproject.toml`. [numba](https://numba.pydata.org) is optional.
+
 ## Tests
 
 ```console
 pytest
 ```
 
-## Contributor
+## Contributing
 
-Contributed by Emmanuel Bourret
+Bug reports, feature requests and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+Weaselytics is open source under the BSD 3-Clause License. See [LICENSE](LICENSE).
 
 ## TO DO
 
@@ -98,3 +135,7 @@ Contributed by Emmanuel Bourret
 - Add `examples/` directory with sample output images
 - Add proper sample chromatogram data for demos
 - Improve README with example CLI output images
+
+## Author
+
+* Emmanuel Bourret ([@physicien](https://github.com/physicien))

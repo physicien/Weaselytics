@@ -59,8 +59,8 @@ class ParsedData:
 
         Anything after the first two columns is ignored, and a file
         whose columns are separated by something other than whitespace
-        yields shape ``(2, 0)`` rather than an error. See the README
-        TO DO on generalising the parser.
+        yields shape ``(2, 0)`` rather than an error. See GitHub issue
+        #17 on generalising the parser.
 
         """
         xlist = list()

@@ -94,10 +94,7 @@ Contributed by Emmanuel Bourret
 
 ## TO DO
 
-- Generalize hardcoded `__LPYE__` pattern in `export_dist`
-- Make `ParsedData` parser more general (support different delimiters, extra columns, headers)
 - Clean up `#@EB`, `#@TEMP`, `#TODO` markers
 - Add `examples/` directory with sample output images
 - Add proper sample chromatogram data for demos
 - Improve README with example CLI output images
-

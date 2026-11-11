@@ -853,7 +853,7 @@ def instability_boundary(fcut_range: np.ndarray, sensitivity: np.ndarray,
     where that tolerance lies. They were adopted provisionally from a
     review of a signal collection. `settled` is the sensitive one,
     setting how far the exclusion reaches; `trigger` only changes how
-    many signals it touches. See the README TO DO.
+    many signals it touches. See GitHub issue #20.
 
     This exclusion is also the least reproducible stage of the chain
     across library versions, because it reads the sensitivity curve at

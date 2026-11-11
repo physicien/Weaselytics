@@ -188,7 +188,7 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
 
     The solvent is recovered from the file name by matching
     ``(^.+)__LPYE``, and any name not carrying that literal yields
-    "unknown". See the README TO DO.
+    "unknown". See GitHub issue #22.
 
     """
     solv_pattern = r"(^.+)__LPYE"   # not general...

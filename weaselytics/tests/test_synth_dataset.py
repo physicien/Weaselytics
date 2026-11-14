@@ -6,8 +6,14 @@ every constant grounded against it: an error here makes a wrong
 *target*.
 """
 
+import argparse
+import datetime
 import importlib.util
 import pathlib
+import re
+import shlex
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -372,3 +378,97 @@ class TestNamesAndManifest:
         assert int(fields['n_analytes']) == d['meta']['n_analytes']
         assert int(fields['n_analytes']) == len(d['peaks']) - 2
         assert float(fields['points_per_minute']) == synth.PTS_PER_MIN
+
+
+class TestProvenance:
+    def _write(self, tmp_path, **overrides):
+        params = dict(output='SET', seed=0, replicates=1,
+                      rate=synth.PTS_PER_MIN, no_plot=False)
+        params.update(overrides)
+        path = tmp_path / 'PROVENANCE.txt'
+        started = datetime.datetime.now().astimezone()
+        synth.write_provenance(str(path), argparse.Namespace(**params),
+                               ['synth_dataset.py', 'SET'], started,
+                               'COMMIT')
+        return path.read_text().splitlines()
+
+    def test_writes_every_line(self, tmp_path):
+        lines = self._write(tmp_path)
+        assert [ln.split()[0] for ln in lines] == [
+            'commit', 'command', 'arguments', 'machine', 'python']
+
+    def test_records_the_commit_it_is_given(self, tmp_path):
+        assert self._write(tmp_path)[0] == 'commit COMMIT'
+
+    def test_records_the_exact_rate(self, tmp_path):
+        line = self._write(tmp_path, rate=1234.5678)[2]
+        assert 'rate=1234.5678' in line.split()
+
+    def test_records_the_defaults(self, tmp_path):
+        args = self._write(tmp_path)[2].split()[1:]
+        assert 'seed=0' in args
+        assert 'replicates=1' in args
+        assert 'rate=120' in args
+        assert 'plot=True' in args
+        output = next(a for a in args if a.startswith('output='))
+        assert pathlib.Path(output.split('=', 1)[1]).is_absolute()
+
+    def test_records_no_plot(self, tmp_path):
+        assert 'plot=False' in self._write(tmp_path, no_plot=True)[2]
+
+    def test_command_starts_with_the_interpreter(self, tmp_path):
+        command = self._write(tmp_path)[1]
+        expected = shlex.join([sys.executable, 'synth_dataset.py', 'SET'])
+        assert command == f'command {expected}'
+
+    def test_commit_is_a_full_hash(self):
+        commit = synth.git_commit()
+        if commit == 'unknown':
+            pytest.skip('not run from a git checkout')
+        # SHA-1 or SHA-256 repositories
+        assert re.fullmatch(r'([0-9a-f]{40}|[0-9a-f]{64})(-dirty|-unknown)?',
+                            commit)
+
+    @pytest.mark.parametrize('code, suffix', [
+        (0, ''), (1, '-dirty'), (128, '-unknown'),
+    ])
+    def test_tree_state_from_the_diff_exit_code(self, monkeypatch, code,
+                                                suffix):
+        def run(cmd, **kwargs):
+            if 'rev-parse' in cmd:
+                return subprocess.CompletedProcess(cmd, 0, 'a' * 40 + '\n')
+            return subprocess.CompletedProcess(cmd, code)
+        monkeypatch.setattr(synth.subprocess, 'run', run)
+        assert synth.git_commit() == 'a' * 40 + suffix
+
+    @pytest.mark.parametrize('error', [
+        OSError('git not found'),
+        subprocess.CalledProcessError(128, 'git'),
+    ])
+    def test_commit_unknown_without_git(self, monkeypatch, error):
+        def fail(*args, **kwargs):
+            raise error
+        monkeypatch.setattr(synth.subprocess, 'run', fail)
+        assert synth.git_commit() == 'unknown'
+
+
+class TestMain:
+    def test_writes_provenance_after_the_manifest(self, tmp_path,
+                                                  monkeypatch):
+        out = tmp_path / 'SET'
+        monkeypatch.setattr(sys, 'argv', [
+            'synth_dataset.py', str(out), '--replicates', '1', '--no-plot'])
+        synth.main()
+        manifest = out / 'manifest.csv'
+        provenance = out / 'PROVENANCE.txt'
+        assert provenance.stat().st_mtime_ns >= manifest.stat().st_mtime_ns
+        n_rows = len(manifest.read_text().splitlines()) - 1
+        assert n_rows == len(list((out / 'signals').glob('*.txt')))
+        assert 'replicates=1' in provenance.read_text()
+
+    def test_refuses_a_non_empty_directory(self, tmp_path, monkeypatch):
+        (tmp_path / 'old.txt').write_text('x')
+        monkeypatch.setattr(sys, 'argv', ['synth_dataset.py', str(tmp_path)])
+        with pytest.raises(SystemExit):
+            synth.main()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ['old.txt']

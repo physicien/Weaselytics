@@ -25,7 +25,9 @@ Every signal is written as a two-column text file the weaselytics
 pipeline reads unchanged. The split into signal, baseline and noise
 goes to ``truth/<stem>__truth.npz``, one row per signal to
 ``manifest.csv``, and a plot to ``plots/`` unless ``--no-plot`` is
-given.
+given. ``PROVENANCE.txt`` records the commit, the exact call with every
+argument, the machine and the library versions. The output directory
+must be new or empty.
 
 Usage
 -----
@@ -33,8 +35,13 @@ python tools/synthetic/synth_dataset.py OUTPUT_DIR [--seed 0]
 """
 
 import argparse
+import datetime
 import json
 import os
+import shlex
+import socket
+import subprocess
+import sys
 
 import matplotlib
 
@@ -42,6 +49,7 @@ matplotlib.use('Agg')
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+import scipy  # noqa: E402
 from scipy.optimize import brentq  # noqa: E402
 from scipy.stats import exponnorm, skewnorm  # noqa: E402
 
@@ -1069,6 +1077,97 @@ def manifest_row(stem: str, family: str, peak_case: str,
             f'{meta.get("points_per_minute", PTS_PER_MIN):g}')
 
 
+def git_commit() -> str:
+    """
+    Commit of the checkout this script runs from.
+
+    Returns
+    -------
+    commit : str
+        The full hash of ``HEAD`` in the script's own checkout,
+        followed by ``-dirty`` when tracked files carry uncommitted
+        changes, or by ``-unknown`` when git cannot tell.
+
+    Notes
+    -----
+    ``-dirty`` covers every tracked file of the repository, including
+    files the generator never reads, and ignores untracked files.
+
+    Fails when git is not installed or the script is not inside a git
+    checkout, for example after being copied elsewhere. The commit then
+    reads ``unknown``.
+
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=here,
+                              capture_output=True, text=True, check=True)
+        diff = subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=here,
+                              capture_output=True)
+    except (OSError, subprocess.CalledProcessError):
+        return 'unknown'
+    # `git diff --quiet` exits with 1 on changes; any other non-zero
+    # code is an error, which says nothing about the tree.
+    state = {0: '', 1: '-dirty'}.get(diff.returncode, '-unknown')
+    return head.stdout.strip() + state
+
+
+def write_provenance(path: str, args: argparse.Namespace,
+                     argv: list[str], started: datetime.datetime,
+                     commit: str) -> None:
+    """
+    Write ``PROVENANCE.txt``, the record of how a dataset was made.
+
+    Parameters
+    ----------
+    path : str
+        File to write.
+    args : argparse.Namespace
+        The parsed arguments, defaults included.
+    argv : list of str
+        The command line as called, ``sys.argv``.
+    started : datetime.datetime
+        Time the generation started, timezone-aware.
+    commit : str
+        The commit, read with `git_commit` when the generation started.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    One line per item, as ``key value``:
+
+    - ``commit``: see `git_commit`;
+    - ``command``: the call, with the interpreter that ran it;
+    - ``arguments``: every argument at its exact value, the output
+      directory made absolute;
+    - ``machine``: the host name, with the start and finish times;
+    - ``python``: the versions of python, numpy, scipy and matplotlib.
+
+    The commit reads ``unknown`` when git cannot be reached, and the
+    record then no longer pins the code.
+
+    """
+    params = dict(vars(args))
+    params['output'] = os.path.abspath(params['output'])
+    params['plot'] = not params.pop('no_plot')
+    finished = datetime.datetime.now().astimezone()
+    lines = [
+        f'commit {commit}',
+        f'command {shlex.join([sys.executable] + list(argv))}',
+        'arguments ' + ' '.join(f'{k}={v}' for k, v in params.items()),
+        f'machine {socket.gethostname()}, '
+        f'started {started.isoformat(timespec="seconds")}, '
+        f'finished {finished.isoformat(timespec="seconds")}',
+        f'python {sys.version.split()[0]} numpy {np.__version__} '
+        f'scipy {scipy.__version__} matplotlib {matplotlib.__version__}',
+    ]
+    with open(path, 'w') as f:
+        f.write('\n'.join(lines) + '\n')
+
+
 def main() -> None:
     """
     CLI entry point of the synthetic dataset generator.
@@ -1088,6 +1187,12 @@ def main() -> None:
                         help='skip the per-signal PNG in plots/ '
                              '(rendered by default for review by eye)')
     args = parser.parse_args()
+    # One set per directory, so PROVENANCE.txt and manifest.csv describe
+    # every file beside them.
+    if os.path.isdir(args.output) and os.listdir(args.output):
+        parser.error(f'output directory {args.output} is not empty')
+    started = datetime.datetime.now().astimezone()
+    commit = git_commit()
 
     sig_dir = os.path.join(args.output, 'signals')
     truth_dir = os.path.join(args.output, 'truth')
@@ -1137,6 +1242,8 @@ def main() -> None:
     with open(os.path.join(args.output, 'manifest.csv'), 'w') as f:
         f.write(','.join(MANIFEST_COLUMNS) + '\n')
         f.write('\n'.join(manifest) + '\n')
+    write_provenance(os.path.join(args.output, 'PROVENANCE.txt'), args,
+                     sys.argv, started, commit)
     print(f'{len(manifest)} signals -> {args.output}')
 
 

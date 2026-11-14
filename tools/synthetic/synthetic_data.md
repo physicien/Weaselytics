@@ -13,6 +13,8 @@ Niezen et al. \[[1](#niezen)\] resolve this with **hybrid data** made of an expe
 
 A signal is a peak component, a baseline and white noise, summed and rounded to a detector's voltage step (§5). The truth file `truth/<stem>__truth.npz` stores each part separately, and the baseline alone is the truth a baseline estimate is scored against.
 
+Beside the signals, a dataset holds `manifest.csv`, one row per signal, and `PROVENANCE.txt`, which records the commit, the exact call with every argument, the machine and the library versions.
+
 The `erb` family builds every signal: the peak component of §3 on the analytic baselines of §4.
 
 The ranges below were picked for this benchmark.

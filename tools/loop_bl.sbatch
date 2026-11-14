@@ -13,9 +13,9 @@
 #SBATCH --output=%x_%j.log            # output .log file
 
 # Submit from the repository root (the directory containing `data`):
-#     sbatch -J PROD_2026-10-19 tools/loop_bl.sbatch
-#     sbatch -J SYNTH_ERB_2026-10-23 --export=ALL,MODE=synth,\
-# DATASET=$PWD/../SYNTH_ERB_2026-10-23 tools/loop_bl.sbatch
+#     sbatch -J PROD_<date> tools/loop_bl.sbatch
+#     sbatch -J <dataset> --export=ALL,MODE=synth,\
+# DATASET=$PWD/../<dataset> tools/loop_bl.sbatch
 
 #######################################
 # Job variables and settings:

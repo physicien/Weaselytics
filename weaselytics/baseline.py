@@ -29,7 +29,7 @@ References
 import hashlib
 import logging
 import os
-import time  #@EB temporary?
+import time
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 
@@ -179,8 +179,8 @@ def _relevant_regions(
     this chain is a half-prominence width: what `tol` filters on, what
     the 0.85 buffer is built from, and what sets the decimation.
 
-    The acetonitrile exception is two numbers written for one sample
-    and carries a ``# TODO`` in the code.
+    The acetonitrile exception is two numbers written for one sample.
+    See GitHub issue #23.
 
     """
     # NOTE: A weak smoothing helps to avoid peak detection in noisy region of
@@ -195,7 +195,6 @@ def _relevant_regions(
     peaks, widths = peaks_params(z, width=3, rel_prom_p=0.01,
                                    adapt=True, drop_enclosing=True)
 
-    # TODO: Find a way to make this part of the code more robust.
     width_per_x = widths/x[peaks]
     # In case of very tall and large peaks (see acetonitrile)
     exception = ((s[peaks] > 20) & (width_per_x < 11))
@@ -241,8 +240,6 @@ def _relevant_regions(
                            /np.min(rel_widths)).astype(int)
 
     # Signal cutoff
-    # TODO: Maybe it would be a good idea to cut the less relevant starting
-    #       segment too.
     arg_last_peak = rel_peaks.argmax()
     pos_last_peak = rel_peaks[arg_last_peak]
     buffer_last_peak = int(np.ceil(2*rel_widths)[arg_last_peak])
@@ -1466,13 +1463,13 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     logger.info(f"{'parabola_len:':<20}{parabola_len:d}")
 
     # Final baseline correction
-    tic = time.perf_counter()                               #@TEMP
+    tic = time.perf_counter()
 
     baseline_fitter = Baseline(x_data=x)
     baseline, params = algo(baseline_fitter, s, **method_kwargs)
 
-    toc = time.perf_counter()                               #@TEMP
+    toc = time.perf_counter()
 
-    logger.info(f"Baseline correction in {toc-tic:0.4f} seconds") #@TEMP
+    logger.info(f"Baseline correction in {toc-tic:0.4f} seconds")
     return baseline, params
 

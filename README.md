@@ -19,7 +19,6 @@ A Python 3 library to extract and analyse chromatographic data: (hassle-free) pl
 * [Tests](#tests)
 * [Contributing](#contributing)
 * [License](#license)
-* [TO DO](#to-do)
 * [Author](#author)
 
 ## Quick start
@@ -128,13 +127,6 @@ Bug reports, feature requests and pull requests are welcome. See [CONTRIBUTING.m
 ## License
 
 Weaselytics is open source under the BSD 3-Clause License. See [LICENSE](LICENSE).
-
-## TO DO
-
-- Clean up `#@EB`, `#@TEMP`, `#TODO` markers
-- Add `examples/` directory with sample output images
-- Add proper sample chromatogram data for demos
-- Improve README with example CLI output images
 
 ## Author
 

@@ -48,7 +48,7 @@ The project's deliverable is peak areas.
 
 ## 7. Limits
 
-Cross-machine reproducibility bounds what can be concluded. The swept `r²` curve is ill-conditioned at low cutoff. A one-ulp difference in the frequency grid reaches 5.6e-2 of `r²` near `fcut` 1e-4, and across a numpy/scipy version change some selected cutoffs move by more than 0.1 decade. No result should rest on a precision finer than ~1e-3 near the fundamental; below that, the benchmark measures the machine. See the README TO DO.
+Cross-machine reproducibility bounds what can be concluded. The swept `r²` curve is ill-conditioned at low cutoff. A one-ulp difference in the frequency grid reaches 5.6e-2 of `r²` near `fcut` 1e-4, and across a numpy/scipy version change some selected cutoffs move by more than 0.1 decade. No result should rest on a precision finer than ~1e-3 near the fundamental; below that, the benchmark measures the machine. See GitHub issue #20.
 
 ## 8. What BEADS assumes
 

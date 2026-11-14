@@ -243,9 +243,6 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     None
 
     """
-    #TODO: Cleanup this function...
-    #@EB
-    #fig = plt.figure(figsize=[6.4,9.6],num="Autocorrelation plots")
     fig = plt.figure(figsize=[9.4,9.6],num="Autocorrelation plots")
     # Three stacked panels at the unchanged figure size: r2 takes half
     # the height, the baseline-sensitivity curve and the rolling-std

@@ -310,7 +310,7 @@ def _log_transform(s: np.ndarray, epsilon: float = 1) -> np.ndarray:
 def _beads(baseline_fitter: Baseline, s: np.ndarray,
            freq_cutoff: float = 0.005, asymmetry: float = 1.0,
            fit_parabola: bool = True, alpha: float = 1.0,
-           parabola_len: int = 3, **kwargs
+           parabola_len: int = 3
            ) -> tuple[np.ndarray, dict]:
     r"""
     Wrap ``pybaselines.Baseline.beads``.
@@ -346,8 +346,6 @@ def _beads(baseline_fitter: Baseline, s: np.ndarray,
     parabola_len : int, optional
         Window at each end used to reject an outlying endpoint before
         the parabola is built. Default is 3, pybaselines' own.
-    **kwargs
-        Accepted and discarded. Nothing here reaches ``beads``.
 
     Returns
     -------
@@ -377,7 +375,7 @@ def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
                   sampling: int | np.ndarray | None = None,
                   freq_cutoff: float = 0.005, asymmetry: float = 1.0,
                   fit_parabola: bool = True, alpha: float = 1.0,
-                  parabola_len: int = 3, **kwargs
+                  parabola_len: int = 3
                   ) -> tuple[np.ndarray, dict]:
     """Customized BEADS with per-region stiffness control.
 
@@ -403,8 +401,6 @@ def _custom_beads(baseline_fitter: Baseline, s: np.ndarray,
     freq_cutoff, asymmetry, fit_parabola, alpha, parabola_len : optional
         The BEADS settings, passed through unchanged. See `_beads` for
         what each controls and where its default comes from.
-    **kwargs
-        Accepted and discarded. Nothing here reaches ``custom_bc``.
 
     Returns
     -------

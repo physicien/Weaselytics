@@ -343,6 +343,19 @@ class TestBeads:
         assert "noise" in params
         assert "signal" in params
 
+    def test_beads_refuses_an_unknown_keyword(self):
+        x = np.linspace(0, 10, 101)
+        y = np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
+        with pytest.raises(TypeError, match="lam_0"):
+            _beads(Baseline(x_data=x), y, freq_cutoff=0.01, lam_0=1.0)
+
+    def test_custom_beads_refuses_an_unknown_keyword(self):
+        x = np.linspace(0, 10, 101)
+        y = np.exp(-0.5 * ((x - 5.0) / 0.8) ** 2)
+        with pytest.raises(TypeError, match="lam_0"):
+            _custom_beads(Baseline(x_data=x), y, freq_cutoff=0.01,
+                          lam_0=1.0)
+
 
 class TestAutoBeads:
     def test_with_explicit_freq_cutoff(self):

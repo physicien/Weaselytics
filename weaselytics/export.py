@@ -21,7 +21,6 @@ References
 """
 
 import os
-import re
 
 import numpy as np
 import pandas as pd
@@ -186,16 +185,17 @@ def export_dist(mol: str, g_fit: np.ndarray, sn_fit: np.ndarray,
     ``b = sqrt(2/pi)`` and ``d = alpha / sqrt(1 + alpha**2)``. See
     `peakfitting.skew_norm`.
 
-    The solvent is recovered from the file name by matching
-    ``(^.+)__LPYE``, and any name not carrying that literal yields
-    "unknown". See GitHub issue #22.
+    The solvent is the first ``__``-separated field of the file name,
+    so ``2-Xylene__LPYE__CS2__1.txt`` gives ``2-Xylene``. This assumes
+    the name starts with the solvent: any other first field is written
+    as the solvent. A name with no ``__``, or one that starts with it,
+    gives "unknown".
 
     """
-    solv_pattern = r"(^.+)__LPYE"   # not general...
     basename = os.path.basename(path)
     outname = os.path.splitext(basename)[0]
-    m = re.match(solv_pattern, basename)
-    solvent = m.group(1) if m else "unknown"
+    head, sep, _ = basename.partition("__")
+    solvent = head if sep and head else "unknown"
     data_gauss = {
             "mol": mol,
             "solvent": solvent,

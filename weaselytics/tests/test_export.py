@@ -90,3 +90,27 @@ class TestExportDist:
         assert sn_row["mol"].iloc[0] == mol
         np.testing.assert_allclose(gauss_row[["A", "x0", "sigma"]].values[0], [1.0, 5.0, 0.5])
         np.testing.assert_allclose(sn_row[["A", "x0", "sigma", "alpha"]].values[0], [1.0, 5.0, 0.5, 3.0])
+
+    @staticmethod
+    def _solvent(tmp_path, name):
+        path = os.path.join(tmp_path, "folder", name)
+        export_dist("t0", np.array([1.0, 5.0, 0.5]),
+                    np.array([1.0, 5.0, 0.5, 0.0]), path,
+                    output_dir=str(tmp_path))
+        stem = os.path.splitext(name)[0]
+        df = pd.read_csv(os.path.join(tmp_path, "folder",
+                                      stem + "_t0.csv"))
+        return set(df["solvent"])
+
+    def test_solvent_is_the_first_field(self, tmp_path):
+        assert self._solvent(tmp_path, "2-Xylene__LPYE__CS2__1.txt") == {
+            "2-Xylene"}
+
+    def test_solvent_without_lpye(self, tmp_path):
+        assert self._solvent(tmp_path, "Toluene__run__1.txt") == {"Toluene"}
+
+    def test_solvent_without_separator(self, tmp_path):
+        assert self._solvent(tmp_path, "sample.txt") == {"unknown"}
+
+    def test_solvent_with_a_leading_separator(self, tmp_path):
+        assert self._solvent(tmp_path, "__LPYE__1.txt") == {"unknown"}

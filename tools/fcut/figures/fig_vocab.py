@@ -5,9 +5,10 @@ Names every term the document uses: the initial plateau, the fundamental
 that ends it, a cliff, a shelf, the drop, the collapse, and which side is
 stiff and which is flexible.
 
-`Chlorobenzene__LPYE__60-70__2` is used because it is a genuine staircase
-and its initial plateau ends at the fundamental, which is the claim the
-text makes about every curve.
+`SYN__erb__single__step__high__01__4615` is used because it is a genuine
+staircase and its initial plateau ends at the fundamental, which is the
+claim the text makes about every curve. At the default drop level, every
+stage 2 exclusion acts on it and the fallback finds a proto-plateau.
 
 Label convention: every label is a bold term with its explanatory
 comment set underneath in smaller type, and every block is left-aligned
@@ -18,6 +19,7 @@ level" block below it, so neither crosses the other's arrow.
 
 import argparse
 import glob
+import inspect
 import os
 
 import matplotlib
@@ -36,11 +38,14 @@ from weaselytics.segmentation import (  # noqa: E402
     classify_segments,
     pelt_linear,
     segment_features,
+    trim_plateaus,
 )
 
 OUT = os.path.dirname(os.path.abspath(__file__))
-STEM = 'Chlorobenzene__LPYE__60-70__2'
-DROP_LEVEL = 0.5
+STEM = 'SYN__erb__single__step__high__01__4615'
+# The default of `trim_plateaus`, the level production applies.
+DROP_LEVEL = inspect.signature(
+    trim_plateaus).parameters['drop_level'].default
 
 TERM_SIZE = 10.5
 NOTE_SIZE = 8.5
@@ -70,7 +75,7 @@ def main(data, cache):
     means = [s['mean'] for s in
              classify_segments(segment_features(fr, r2, pelt_linear(r2)))]
     lo, hi = float(min(means)), float(max(means))
-    half = lo + DROP_LEVEL * (hi - lo)
+    drop_line = lo + DROP_LEVEL * (hi - lo)
 
     fig, ax = plt.subplots(figsize=(11.0, 6.0))
     ax.plot(fr, r2, lw=1.7, color=BLUE, zorder=4)
@@ -163,16 +168,16 @@ def main(data, cache):
 
     # bands
     ax.axvspan(fr[0], fund, color='#4c9f70', alpha=.16, lw=0, zorder=1)
-    ax.axvspan(4.0e-3, 2.4e-2, color='#d9a441', alpha=.26, lw=0, zorder=1)
+    ax.axvspan(1.6e-3, 2.4e-2, color='#d9a441', alpha=.26, lw=0, zorder=1)
 
-    # the half-drop line: its label goes BELOW it, the plateau label ABOVE
-    ax.axhline(half, color=GREY, lw=1.0, ls=':', zorder=2)
+    # the drop-level line: its label goes BELOW it, the plateau label ABOVE
+    ax.axhline(drop_line, color=GREY, lw=1.0, ls=':', zorder=2)
 
     label(7.5e-5, 0.79, 'initial plateau',
           'every cutoff here returns\nan overly rigid baseline',
           color=GREEN, arrow=(None, 0.993), side='up')
 
-    label(1.25e-5, half - 0.085, 'the drop level',
+    label(1.25e-5, drop_line - 0.085, 'the drop level',
           'a plateau below this line counts as "past the drop",\n'
           'where most of the peak area is already gone', color=GREY)
 
@@ -184,24 +189,28 @@ def main(data, cache):
 
     # Dropped straight down onto the cliff: any approach from the left
     # runs along the plateau and crosses the curve repeatedly.
-    label(3.30e-3, 1.050, 'cliff', color=PURPLE,
-          arrow=(3.62e-3, 0.947), side='bottom')
+    label(1.12e-3, 1.050, 'cliff', color=PURPLE,
+          arrow=(1.26e-3, 0.964), side='bottom')
 
     label(3.1e-2, 1.045, 'shelf',
-          'flat against its neighbours,\nnot against the whole curve',
-          color=ORANGE, arrow=(1.05e-2, 0.795), side='left')
+          'a comparatively flat region\nbetween two cliffs',
+          color=ORANGE, arrow=(5.0e-3, 0.900), side='left', gap=8.0)
 
-    label(3.4e-2, 0.40, 'the drop', color=BLUE,
-          arrow=(None, None), side='up', gap=6.0)
+    # Set left of the drop, below the shelf; the arrow meets the drop
+    # from the left, at a point where the swept curve is smooth.
+    label(1.2e-2, 0.555, 'the drop', color=BLUE,
+          arrow=(5.56e-2, 0.554), side='right', gap=6.0)
 
     i_min = int(np.nanargmin(r2))
     ax.plot([fr[i_min]], [r2[i_min]], 'o', ms=6.5, color=RED, zorder=8)
-    # Set in three short lines so the block spans the minimum without
-    # running off the axis, letting the arrow rise straight to it.
-    label(5.0e-3, 0.15, 'the collapse',
-          'the baseline has absorbed everything it can;\n'
-          'past it the tail climbs back, as here, or stays near zero',
-          color=RED, arrow=(fr[i_min], r2[i_min]), side='right',
+    # Set in three short lines under the shelf and above the drop-level
+    # line. The arrow leaves from the bottom of the block, so its shaft
+    # runs low and stays clear of the drop on its way to the minimum.
+    label(2.0e-3, 0.32, 'the collapse',
+          'the baseline has absorbed\n'
+          'everything it can; past it the tail\n'
+          'climbs back, as here, or stays near zero',
+          color=RED, arrow=(fr[i_min], r2[i_min]), side='bottom',
           gap=10.0, pad=1.5)
 
     fig.tight_layout()
@@ -214,10 +223,10 @@ def main(data, cache):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', required=True,
-                        help='raw data directory, holding '
-                             '<Molecule>/<stem>.txt')
+                        help='dataset directory, holding '
+                             '<subdir>/<stem>.txt')
     parser.add_argument('--cache', required=True,
-                        help='r2_cache directory of a production run, '
-                             'e.g. runs/PROD_<date>_<job>/r2_cache')
+                        help='r2_cache directory of the run that swept '
+                             'that dataset')
     args = parser.parse_args()
     main(args.data, args.cache)

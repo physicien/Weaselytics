@@ -21,7 +21,7 @@ from weaselytics.baseline import auto_beads  # noqa: E402
 from weaselytics.parsers import ParsedData  # noqa: E402
 
 OUT = os.path.dirname(os.path.abspath(__file__))
-STEM = 'Chlorobenzene__LPYE__60-70__2'
+STEM = 'SYN__erb__single__step__high__01__4615'
 
 
 def main(data, cache):
@@ -42,12 +42,15 @@ def main(data, cache):
 
     plt.savefig = savefig
     try:
-        # The cache is copied, since a miss deletes the entries of the
-        # same stem before writing.
+        # This signal's entry is copied into a fresh folder on every run:
+        # a miss deletes the entries of the same stem before writing, and
+        # a folder left by an earlier run can hold another signal's curves.
         import shutil
         work = os.path.join(OUT, 'diag_cache')
-        if not os.path.isdir(work):
-            shutil.copytree(cache, work)
+        shutil.rmtree(work, ignore_errors=True)
+        os.makedirs(work)
+        for f in glob.glob(os.path.join(cache, f'{STEM}__r2__*.npz')):
+            shutil.copy2(f, work)
         auto_beads(y, x, print_plot=True, path=src, output_dir=OUT,
                    cache_dir=work)
     finally:
@@ -57,10 +60,10 @@ def main(data, cache):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', required=True,
-                        help='raw data directory, holding '
-                             '<Molecule>/<stem>.txt')
+                        help='dataset directory, holding '
+                             '<subdir>/<stem>.txt')
     parser.add_argument('--cache', required=True,
-                        help='r2_cache directory of a production run, '
-                             'e.g. runs/PROD_<date>_<job>/r2_cache')
+                        help='r2_cache directory of the run that swept '
+                             'that dataset')
     args = parser.parse_args()
     main(args.data, args.cache)

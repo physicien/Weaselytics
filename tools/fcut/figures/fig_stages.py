@@ -32,7 +32,7 @@ from weaselytics.segmentation import (  # noqa: E402
 )
 
 OUT = os.path.dirname(os.path.abspath(__file__))
-STEM = 'Chlorobenzene__LPYE__60-70__2'
+STEM = 'SYN__erb__single__step__high__01__4615'
 
 CURVE = '#1f4e79'
 KEEP = '#4c9f70'
@@ -131,10 +131,10 @@ def main(data, cache):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', required=True,
-                        help='raw data directory, holding '
-                             '<Molecule>/<stem>.txt')
+                        help='dataset directory, holding '
+                             '<subdir>/<stem>.txt')
     parser.add_argument('--cache', required=True,
-                        help='r2_cache directory of a production run, '
-                             'e.g. runs/PROD_<date>_<job>/r2_cache')
+                        help='r2_cache directory of the run that swept '
+                             'that dataset')
     args = parser.parse_args()
     main(args.data, args.cache)

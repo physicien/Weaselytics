@@ -667,7 +667,7 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
                     cliff_min: float = 1.0,
                     bridge: bool = False,
                     exclude_past_drop: bool = False,
-                    drop_level: float = 0.5) -> np.ndarray:
+                    drop_level: float = 0.1) -> np.ndarray:
     """
     Trim the flat segments into a mask of candidate plateau regions.
 
@@ -732,7 +732,8 @@ def trim_candidates(fcut_range: np.ndarray, segments: list[dict],
         Relative level of the total r2 drop below which a flat segment
         is considered past the drop, in [0, 1] (1 = plateau top,
         0 = collapse floor). Only used when ``exclude_past_drop``.
-        Default is 0.5.
+        Default is 0.1, a temporary value until the level is replaced
+        by a rule; see GitHub issue #14.
 
     Returns
     -------
@@ -1014,7 +1015,7 @@ def _trim_masks(fcut_range: np.ndarray, segments: list[dict],
 def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
                   dips: list[dict], n_used: int,
                   exclude_past_drop: bool = False, c1: float = 1.0,
-                  drop_level: float = 0.5,
+                  drop_level: float = 0.1,
                   sensitivity: np.ndarray | None = None
                   ) -> dict[str, np.ndarray]:
     """
@@ -1065,7 +1066,8 @@ def trim_plateaus(fcut_range: np.ndarray, segments: list[dict],
     drop_level : float, optional
         Relative level of the total drop below which a plateau is past
         the collapse, in [0, 1]. Only used when ``exclude_past_drop``.
-        Default is 0.5.
+        Default is 0.1, a temporary value until the level is replaced
+        by a rule; see GitHub issue #14.
     sensitivity : array-like, shape (N,), optional
         The baseline-sensitivity curve. When given, the stiff-side
         instability exclusion of ``instability_boundary`` is applied on

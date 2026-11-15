@@ -135,8 +135,8 @@ class TestClassifySegmentsHysteresis:
 
 
 class TestTrimCandidates:
-    def _curve(self):
-        """p_ini, cliff, shelf, cliff, low live tail, collapse, rebound.
+    def _curve(self, tail=0.06):
+        """p_ini, cliff, shelf, cliff, low live tail, floor, rebound.
 
         The tail is followed by a collapse floor and a rising tail
         because that is what the instrument produces: on all 339
@@ -151,9 +151,10 @@ class TestTrimCandidates:
             np.full(300, 1.0),
             np.linspace(1.0, 0.8, 30),
             np.linspace(0.8, 0.65, 150),
-            np.linspace(0.65, 0.3, 40),
-            np.full(180, 0.3),                 # low live tail
-            np.linspace(0.3, 0.02, 120),       # descent to the floor
+            np.linspace(0.65, tail, 40),
+            np.full(180, tail),                # low live tail
+            # eases to the floor; flat at the default tail (0.06)
+            np.linspace(tail, 0.02, 120),
             np.full(60, 0.02),                 # the collapse floor
             np.linspace(0.02, 0.55, 120),      # the rebound
         ]
@@ -180,7 +181,7 @@ class TestTrimCandidates:
 
     def test_collapse_exclusion_removes_low_plateau(self):
         # The curve has a high shelf (r2 ~ 0.72) and a low live-tail
-        # plateau (r2 ~ 0.3) past the drop. Without the exclusion both are
+        # plateau (r2 ~ 0.06) past the drop. Without the exclusion both are
         # candidates; with it, the low plateau is removed as past the
         # collapse while the high shelf survives.
         fcut_range, y, segments = self._curve()
@@ -190,6 +191,17 @@ class TestTrimCandidates:
                                exclude_past_drop=True)
         assert not excl[600]                  # low live tail, dropped
         assert excl[400]                      # high shelf, survives
+
+    def test_default_level_keeps_a_plateau_above_it(self):
+        # A tail at r2 0.3 sits at 0.29 of the drop: above the default
+        # level (0.1), so it survives, and below 0.5, so it goes.
+        fcut_range, y, segments = self._curve(tail=0.3)
+        kept = trim_candidates(fcut_range, segments, self.N_USED_LONG,
+                               exclude_past_drop=True)
+        cut = trim_candidates(fcut_range, segments, self.N_USED_LONG,
+                              exclude_past_drop=True, drop_level=0.5)
+        assert kept[600] and not cut[600]
+        assert kept[400] and cut[400]         # high shelf, both
 
     def test_shelf_remains_candidate(self):
         fcut_range, y, segments = self._curve()
@@ -277,8 +289,8 @@ class TestDetectDips:
 
 
 class TestTrimPlateaus:
-    def _curve(self):
-        """p_ini, cliff, shelf, cliff, low live tail, collapse, rebound,
+    def _curve(self, tail=0.06):
+        """p_ini, cliff, shelf, cliff, low live tail, floor, rebound,
         with a proto-plateau shelf that detect_dips picks up.
 
         Ends on a rebound rather than a frozen tail; see
@@ -289,9 +301,10 @@ class TestTrimPlateaus:
             np.full(300, 1.0),
             np.linspace(1.0, 0.8, 30),
             np.linspace(0.8, 0.65, 150),
-            np.linspace(0.65, 0.3, 40),
-            np.full(180, 0.3),                 # low live tail
-            np.linspace(0.3, 0.02, 120),       # descent to the floor
+            np.linspace(0.65, tail, 40),
+            np.full(180, tail),                # low live tail
+            # eases to the floor; flat at the default tail (0.06)
+            np.linspace(tail, 0.02, 120),
             np.full(60, 0.02),                 # the collapse floor
             np.linspace(0.02, 0.55, 120),      # the rebound
         ]
@@ -325,7 +338,7 @@ class TestTrimPlateaus:
         assert not masks['surviving'][sub].any()
 
     def test_collapse_removes_the_low_tail(self):
-        # The low live tail (r2 ~ 0.3) is past the drop; with the
+        # The low live tail (r2 ~ 0.06) is past the drop; with the
         # exclusion on it must move into snr_removed and out of surviving.
         fcut_range, y, segments, dips = self._curve()
         off = trim_plateaus(fcut_range, segments, dips, 1000,
@@ -334,6 +347,16 @@ class TestTrimPlateaus:
                            exclude_past_drop=True)
         assert off['surviving'][600] and not on['surviving'][600]
         assert on['snr_removed'][600]
+
+    def test_default_level_keeps_a_plateau_above_it(self):
+        # A tail at r2 0.3 sits at 0.29 of the drop: above the default
+        # level (0.1), so it survives, and below 0.5, so it goes.
+        fcut_range, y, segments, dips = self._curve(tail=0.3)
+        kept = trim_plateaus(fcut_range, segments, dips, 1000,
+                             exclude_past_drop=True)
+        cut = trim_plateaus(fcut_range, segments, dips, 1000,
+                            exclude_past_drop=True, drop_level=0.5)
+        assert kept['surviving'][600] and not cut['surviving'][600]
 
 
 class TestInsensitivityBoundary:
@@ -591,9 +614,10 @@ class TestCollapseFallback:
             np.full(300, 1.0),
             np.linspace(1.0, 0.8, 30),
             np.linspace(0.8, 0.65, 150),
-            np.linspace(0.65, 0.3, 40),
-            np.full(180, 0.3),                 # low live tail
-            np.linspace(0.3, 0.02, 120),       # descent to the floor
+            np.linspace(0.65, 0.06, 40),
+            np.full(180, 0.06),                # low live tail
+            # eases to the floor; flat at this slope
+            np.linspace(0.06, 0.02, 120),
             np.full(60, 0.02),                 # the collapse floor
             np.linspace(0.02, 0.55, 120),      # the rebound
         ]

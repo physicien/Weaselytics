@@ -30,7 +30,7 @@ from weaselytics.segmentation import (  # noqa: E402
 )
 
 OUT = os.path.dirname(os.path.abspath(__file__))
-STEM = 'Chlorobenzene__LPYE__60-70__2'
+STEM = 'SYN__erb__single__step__high__01__4615'
 DPI = 200
 
 REL_SLOPE_MAX, REL_SLOPE_LOOSE = 0.2, 0.6
@@ -110,9 +110,8 @@ def fig_segments(fr, r2, segs, n_used):
     ax.set_ylabel(r'$rel\_noise$')
     ax.grid(alpha=.2, which='both')
     ax.set_title('residual noise of each segment: across the initial '
-                 'plateau the slope stays at zero while this climbs more '
-                 'than three orders of magnitude', fontsize=9.5, loc='left',
-                 pad=6)
+                 'plateau the slope stays at zero while this climbs three '
+                 'orders of magnitude', fontsize=9.5, loc='left', pad=6)
 
     fig.tight_layout()
     p = os.path.join(OUT, 'stage1_segments.png')
@@ -124,8 +123,8 @@ def fig_features(segs):
     """Draw Figure 5, every segment against the flatness rule."""
     fig, ax = plt.subplots(figsize=(8.6, 5.6))
     rs = np.array([s['rel_slope'] for s in segs])
-    # A perfectly level segment has rel_slope 0, which a log axis cannot
-    # place. Park those on the left edge rather than dropping them.
+    # A segment flatter than FLOOR falls off the left of the log axis.
+    # Park those on the left edge rather than dropping them.
     FLOOR = 1e-5
     clamped = rs < FLOOR
     rs = np.maximum(rs, FLOOR * 1.25)
@@ -162,9 +161,10 @@ def fig_features(segs):
     ax.text(ax.get_xlim()[0], REL_NOISE_MAX, ' quiet enough, 0.006',
             fontsize=8.5, color='#b3402f', va='bottom', ha='left')
     if clamped.any():
-        ax.text(FLOOR * 1.35, ax.get_ylim()[0] * 3,
-                f'{int(clamped.sum())} segments with slope 0,\nparked on '
-                'the edge', fontsize=8, color='#2e6b4a', va='bottom')
+        ax.text(FLOOR * 1.6, ax.get_ylim()[0] * 3,
+                f'{int(clamped.sum())} segments flatter than 1e-5,\n'
+                'parked on the edge', fontsize=8, color='#2e6b4a',
+                va='bottom')
     ax.legend(fontsize=8.5, loc='lower right', framealpha=.92)
     ax.set_title('Every segment of one curve, against the flatness rule',
                  fontsize=9.5, loc='left', pad=6)
@@ -186,10 +186,10 @@ def main(data, cache):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', required=True,
-                        help='raw data directory, holding '
-                             '<Molecule>/<stem>.txt')
+                        help='dataset directory, holding '
+                             '<subdir>/<stem>.txt')
     parser.add_argument('--cache', required=True,
-                        help='r2_cache directory of a production run, '
-                             'e.g. runs/PROD_<date>_<job>/r2_cache')
+                        help='r2_cache directory of the run that swept '
+                             'that dataset')
     args = parser.parse_args()
     main(args.data, args.cache)

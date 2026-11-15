@@ -36,7 +36,7 @@ Every portion of the curve referenced explicitly in this document is shown in Fi
 
 ![The vocabulary of the autocorrelation curve](./images/method_vocabulary.jpg)
 
-*Figure 1. A single autocorrelation curve, `Chlorobenzene__LPYE__60-70__2`, annotated to mark each feature used by the method.*
+*Figure 1. A single autocorrelation curve, `SYN__erb__single__step__high__01__4615`, annotated to mark each feature used by the method.*
 
 As illustrated in Figure 1, the cutoff parameter governs a continuous range of baseline behaviours, from stiff on the left to flexible on the right. When the cutoff is small, only the slowest, longest-period oscillations are retained, resulting in an excessively stiff baseline, analogous to a beam buckling under compression. As the cutoff grows, the baseline is allowed to bend more, and increasingly higher curvature is admitted.
 
@@ -127,7 +127,7 @@ The cost of one segment is the Gaussian log-likelihood `m log(SSE/m)`, where `SS
 
 ![The partition and the residual noise it leaves](./images/stage1_segments.jpg)
 
-*Figure 4. Top: the segments of the curve from Figure 1, alternately shaded, with the straight line fitted on each. Bottom: the residual noise of each segment. Across the initial plateau the fitted slope stays at zero while the residual noise climbs by more than three orders of magnitude, and that is what puts the boundaries there.*
+*Figure 4. Top: the segments of the curve from Figure 1, alternately shaded, with the straight line fitted on each. Bottom: the residual noise of each segment. Across the initial plateau the fitted slope stays at zero while the residual noise climbs by three orders of magnitude, and that is what puts the boundaries there.*
 
 #### Step 1.2: describe each segment
 
@@ -143,9 +143,9 @@ Drawn as a region of the plane, the rule is a box: everything quieter than `rel_
 
 ![Every segment against the flatness rule](./images/stage1_features.jpg)
 
-*Figure 5. The segments of the same curve placed in (`rel_slope`, `rel_noise`), with the three slope thresholds and the noise threshold drawn on top. Segments whose fitted slope is exactly zero cannot be placed on a logarithmic axis and are parked on the left edge.*
+*Figure 5. The segments of the same curve placed in (`rel_slope`, `rel_noise`), with the three slope thresholds and the noise threshold drawn on top. Segments flatter than the left edge of the axis (`rel_slope` below 1e-5) are parked on that edge.*
 
-The loose criterion is motivated by the staircase structure in Figure 1, where the total drop is partitioned across several cliffs, causing each intermediate shelf to tilt at a substantial fraction of the global slope scale and rendering any strictly tight cutoff overly conservative. This secondary tier can only expand the set of segments deemed flat, never reduce it.
+The loose criterion is motivated by staircases in which the total drop is partitioned across several cliffs, causing each intermediate shelf to tilt at a substantial fraction of the global slope scale and rendering any strictly tight cutoff overly conservative. On the curve of Figure 1, the shelf passes the tight criterion on its own. This secondary tier can only expand the set of segments deemed flat, never reduce it.
 
 #### The fallback channel
 
@@ -265,7 +265,7 @@ The four frozen constants here answer few signals, and decide the cutoff alone o
 | `c1` | 1.0 | `trim_candidates` | Sub-fundamental clip: everything below `c1 / n_used` is removed | **Derived.** `1/n_used` is the fundamental: no slower oscillation is representable on the signal, so every cutoff below it asks for a baseline the data cannot constrain and returns an overly rigid one. |
 | `bridge` | False | `trim_candidates` | Absorb non-cliff connectors between candidate regions | **Convention.** Off, because bridging merges a plateau with a lower shelf and the selection then lands on the descent between them. Both production call sites pass `False`. |
 | the rebound clip | no constant | `trim_candidates`, via `collapse_floor` | Removes everything at or past the lowest-mean segment | **Derived**, and it takes no value at all, which is the point: the lowest-mean segment is found on the curve rather than set. Beyond the collapse floor the curve rises again, and a cutoff there is wrong by construction. The lowest-mean segment need not be the one holding the r2 minimum, and where it is not, the clip starts below the minimum and can remove admissible candidates. |
-| `drop_level` | 0.5 | `trim_plateaus`, `trim_candidates` | Level, on the range spanned by the segment means, below which a plateau counts as past the drop | **Frozen.** Navarro-Huerta et al. \[[1](#nh)\] state no level at all: their §3.4 rule is ordinal, naming the last horizontal region rather than a height. |
+| `drop_level` | 0.1 | `trim_plateaus`, `trim_candidates` | Level, on the range spanned by the segment means, below which a plateau counts as past the drop | **Frozen, and temporary**, see GitHub issue #14. Lowered from 0.5, which removed the plateau holding the best cutoff on some signals; 0.1 was set by inspecting the synthetic benchmark and the real signals it moves. Navarro-Huerta et al. \[[1](#nh)\] state no level at all: their §3.4 rule is ordinal, naming the last horizontal region rather than a height. A rule that finds the collapse from the shape of the curve would settle it. |
 | `trigger` | 0.10 | `instability_boundary` | Dispersion at the fundamental above which the fit counts as flailing there | **Frozen.** An amplitude of a dimensionless curve, so it reads as a tolerance on baseline movement, but no source fixes where that tolerance lies. It decides how many signals the exclusion touches. |
 | `settled` | 0.05 | `instability_boundary` | Dispersion below which the oscillations count as small enough | **Frozen.** It decides how far the exclusion reaches. No single value serves every signal: on one signal with a known baseline the trim is needed, on another it removes the true optimum. The fix has to be structural rather than a better number. |
 | `win_dec` | 0.2 | `sensitivity_dispersion` | Width of the dispersion window, in decades | **Frozen.** The choice of an interquartile range over a window is argued; the width is not. |

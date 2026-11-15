@@ -9,9 +9,13 @@
 # interpreter. The worktrees are created here if absent and left in place;
 # `git worktree prune` after deleting them clears the registrations.
 #
-# Usage:  ./render_all.sh --data DIR --cache DIR [method|stages|hist|all]
-#   --data   raw data directory, holding <Molecule>/<stem>.txt
-#   --cache  r2_cache directory of a production run
+# Usage:  ./render_all.sh --data DIR --example-data DIR
+#                         --example-cache DIR [method|stages|hist|all]
+#   --data           raw data directory, holding <Molecule>/<stem>.txt;
+#                    read by fig_scut and the history figures
+#   --example-data   synthetic dataset holding signals/<stem>.txt, the
+#                    worked example of segmentation.md
+#   --example-cache  r2_cache directory of that dataset's run
 #   The last argument picks the figures to render (default: all).
 set -u
 
@@ -21,21 +25,23 @@ IMG=$REPO/tools/fcut/images
 WORK=${WEASELYTICS_FIGURE_WORK:-$HERE/.work}
 PY=${WEASELYTICS_PY:-$HOME/virtualenv/DEV_WEASELYTICS_ENV/bin/python}
 HPY=${WEASELYTICS_HIST_PY:-$HOME/virtualenv/WEASELYTICS_HIST_ENV/bin/python}
-DATA= CACHE= WHAT=all
+DATA= EXDATA= EXCACHE= WHAT=all
 while [ $# -gt 0 ]; do
   case $1 in
-    --data)  DATA=$2;  shift 2 ;;
-    --cache) CACHE=$2; shift 2 ;;
-    *)       WHAT=$1;  shift ;;
+    --data)          DATA=$2;    shift 2 ;;
+    --example-data)  EXDATA=$2;  shift 2 ;;
+    --example-cache) EXCACHE=$2; shift 2 ;;
+    *)               WHAT=$1;    shift ;;
   esac
 done
-[ -n "$DATA" ] && [ -n "$CACHE" ] || {
-  echo "usage: $0 --data DIR --cache DIR [method|stages|hist|all]" >&2
+[ -n "$DATA" ] && [ -n "$EXDATA" ] && [ -n "$EXCACHE" ] || {
+  echo "usage: $0 --data DIR --example-data DIR" \
+       "--example-cache DIR [method|stages|hist|all]" >&2
   exit 1
 }
 
 mkdir -p "$IMG" "$WORK"
-for p in "$PY" "$DATA" "$CACHE"; do
+for p in "$PY" "$DATA" "$EXDATA" "$EXCACHE"; do
   [ -e "$p" ] || { echo "missing: $p" >&2; exit 1; }
 done
 
@@ -63,15 +69,15 @@ sync_scripts () {
 if [ "$WHAT" = all ] || [ "$WHAT" = method ]; then
   echo "=== the four method figures ==="
   sync_scripts
-  ( cd "$WORK" && "$PY" fig_vocab.py  --data "$DATA" --cache "$CACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_vocab.png"  method_vocabulary
-  ( cd "$WORK" && "$PY" fig_stages.py --data "$DATA" --cache "$CACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_stages.png" method_three_stages
+  ( cd "$WORK" && "$PY" fig_vocab.py  --data "$EXDATA" --cache "$EXCACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_vocab.png"  method_vocabulary
+  ( cd "$WORK" && "$PY" fig_stages.py --data "$EXDATA" --cache "$EXCACHE" >/dev/null 2>&1 ) && conv "$WORK/fig_stages.png" method_three_stages
   ( cd "$WORK" && "$PY" fig_scut.py   --data "$DATA" >/dev/null 2>&1 ) && conv "$WORK/fig_scut.png"   method_scut
   # fig_diag drives auto_beads, which writes the diagnostic itself under
   # its own output_dir, so the newest PNG there is the one wanted.
   rm -rf "$WORK/diagout" && mkdir -p "$WORK/diagout"
   sed "s|output_dir=OUT|output_dir='$WORK/diagout'|" "$HERE/fig_diag.py" \
       > "$WORK/fig_diag_run.py"
-  ( cd "$WORK" && "$PY" fig_diag_run.py --data "$DATA" --cache "$CACHE" >/dev/null 2>&1 )
+  ( cd "$WORK" && "$PY" fig_diag_run.py --data "$EXDATA" --cache "$EXCACHE" >/dev/null 2>&1 )
   P=$(find "$WORK/diagout" -name '*.png' -printf '%T@ %p\n' 2>/dev/null \
       | sort -rn | head -1 | cut -d' ' -f2)
   [ -n "$P" ] && conv "$P" method_diagnostic \
@@ -81,8 +87,8 @@ fi
 if [ "$WHAT" = all ] || [ "$WHAT" = stages ]; then
   echo "=== the five stage figures ==="
   sync_scripts
-  run_py fig_stage1.py --data "$DATA" --cache "$CACHE"
-  run_py fig_stage23.py --data "$DATA" --cache "$CACHE"
+  run_py fig_stage1.py --data "$EXDATA" --cache "$EXCACHE"
+  run_py fig_stage23.py --data "$EXDATA" --cache "$EXCACHE"
   for n in stage1_segments stage1_features stage1_fallback \
            stage2_exclusions stage3_select; do
     [ -f "$WORK/$n.png" ] && conv "$WORK/$n.png" "$n" \

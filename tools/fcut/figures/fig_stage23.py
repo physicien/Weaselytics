@@ -29,7 +29,7 @@ from weaselytics.segmentation import (  # noqa: E402
 )
 
 OUT = os.path.dirname(os.path.abspath(__file__))
-STEM = 'Chlorobenzene__LPYE__60-70__2'
+STEM = 'SYN__erb__single__step__high__01__4615'
 DPI = 200
 CURVE, KEEP, CUT, ORANGE, RED = (
     '#1f4e79', '#4c9f70', '#b3402f', '#d9a441', '#b3402f')
@@ -149,7 +149,7 @@ def main(data, cache):
     ax.plot([fc], [r2[i]], 'o', ms=7, color=RED, zorder=6)
     ax.annotate(f'geometric midpoint of that region,\nsnapped to a swept '
                 f'grid point\n$f_{{cut}}$ = {fc:.4g}',
-                xy=(fc, r2[i]), xytext=(fc * 0.06, 0.30), fontsize=9,
+                xy=(fc, r2[i]), xytext=(fc * 0.06, 0.50), fontsize=9,
                 color=RED, ha='left', zorder=6,
                 arrowprops=dict(arrowstyle='->', color=RED, lw=1.2,
                                 shrinkA=2, shrinkB=6))
@@ -171,10 +171,10 @@ def main(data, cache):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', required=True,
-                        help='raw data directory, holding '
-                             '<Molecule>/<stem>.txt')
+                        help='dataset directory, holding '
+                             '<subdir>/<stem>.txt')
     parser.add_argument('--cache', required=True,
-                        help='r2_cache directory of a production run, '
-                             'e.g. runs/PROD_<date>_<job>/r2_cache')
+                        help='r2_cache directory of the run that swept '
+                             'that dataset')
     args = parser.parse_args()
     main(args.data, args.cache)

@@ -181,7 +181,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
         (``segmentation.dip_curve``): the rolling standard deviation of
         `r2`, Gaussian-smoothed and normalised to its own maximum.
         ``detect_dips`` marks proto-plateaus at its local minima, so the
-        orange basins above line up with the dips of this panel.
+        orange hatching above lines up with the dips of this panel.
     freq_cutoff : float or None
         Frequency cutoff. None when stage 2 left no region to select
         from: no cutoff line is drawn, and "no surviving region" is
@@ -190,15 +190,16 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
         Value of `r2` at `freq_cutoff`. None when `freq_cutoff` is.
     cp_flat : array-like, shape (N,), dtype bool, optional
         Mask of the full flat set from ``segmentation.classify_segments``
-        (before any trimming), drawn as a light solid blue fill beneath
-        the candidate hatching so the two can be compared. Default is
-        None, which disables the overlay.
+        (before any trimming), drawn as a light purple ``\\`` hatch.
+        Default is None, which disables the overlay.
     cp_dips : array-like, shape (N,), dtype bool, optional
         Mask of the proto-plateau basins from ``segmentation.detect_dips``
         (the relative flattenings the flat test misses), drawn as an
-        orange fill. Together with ``cp_flat`` this shows the detected
-        plateau selection (their union) with its provenance. Default is
-        None, which disables the overlay.
+        orange ``//`` hatch, the opposite slant of ``cp_flat``, so the
+        two stay readable where they overlap and a removal fill beneath
+        keeps its colour. Together with ``cp_flat`` this shows the
+        detected plateau selection (their union) with its provenance.
+        Default is None, which disables the overlay.
     cp_removed : array-like, shape (N,), dtype bool, optional
         Mask of the detected plateaus/proto-plateaus removed by the
         stage-1 trimming, drawn as a red fill. Default is None, which
@@ -295,12 +296,15 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
                             hatch="\\\\", hatch_linewidth=2,
                             label='CP flat',
                             transform=axs[0].get_xaxis_transform())
-    # Proto-plateaus from detect_dips, orange fill: the union of this and
-    # the flat set is the detected plateau selection.
+    # Proto-plateaus from detect_dips, hatched orange on the opposite
+    # slant of the flat set: the union of the two is the detected plateau
+    # selection. See `_HATCH_NOTE` for the facecolor/edgecolor form.
     if cp_dips is not None:
         axs[0].fill_between(x, 0, 1,
                             where=cp_dips,
-                            color="tab:orange", alpha=0.25,
+                            facecolor="none",
+                            edgecolor=to_rgba("tab:orange", 0.6),
+                            hatch="//", hatch_linewidth=2,
                             label='proto-plateau',
                             transform=axs[0].get_xaxis_transform())
     # Middle panel: the baseline-sensitivity curve, on a LINEAR y-axis.

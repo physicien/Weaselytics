@@ -241,6 +241,50 @@ class TestErrorCurveReuse:
         assert other != base
         assert B is not None
 
+    def test_reused_when_the_optimum_is_excluded(self, tmp_path,
+                                                 monkeypatch):
+        # The stored key must be the curve's hash on every signal,
+        # including those whose optimum the trimming removed, where
+        # `excluded_by` is looked up. The selection is replaced by a
+        # stub that excludes every cutoff.
+        x, y, b = self._case()
+        fr = np.geomspace(1e-5, 0.5, 1000, endpoint=False)
+        none = np.zeros(1000, dtype=bool)
+        pd_stub = {'fcut_range': fr,
+                   'r2_val': 0.5 + 0.4 * np.tanh(np.log10(fr) + 2.5),
+                   'sensitivity_val': np.ones(1000), 'n_used': 600,
+                   'cp_surviving': none, 'cp_removed': ~none,
+                   'cp_snr_removed': none, 'cp_instab_removed': none,
+                   'cp_dips': none, 'cp_flat': none}
+        calls = []
+
+        def curve(xx, s, bb, fcuts):
+            if len(fcuts) > 1:
+                calls.append(len(fcuts))
+            return np.linspace(1.0, 0.1, len(fcuts))
+
+        class Parsed:
+            def __init__(self, path):
+                self.data = (x, y)
+
+        monkeypatch.setattr(diag, 'ParsedData', Parsed)
+        monkeypatch.setattr(diag, 'auto_beads', lambda *a, **k: None)
+        monkeypatch.setattr(diag, '_fcutoff',
+                            lambda *a, **k: (fr[500], pd_stub))
+        monkeypatch.setattr(diag, 'error_curve', curve)
+        monkeypatch.setattr(diag, '_err_stats', lambda *a: {
+            'rms': 0., 'peak': 0., 'snr_db': 0., 'area_pct': 0.})
+        np.savez(tmp_path / 's__truth.npz', baseline=b,
+                 noise=np.ones(len(y)), signal=np.zeros(len(y)))
+        args = ('s', str(tmp_path), str(tmp_path), str(tmp_path),
+                str(tmp_path), 1, 4)
+        row = diag.diag_one(*args)
+        assert row['excluded_by'] == 'clip_or_tail'
+        diag.diag_one(*args)
+        assert calls == [250]
+        with np.load(tmp_path / 's__diag.npz') as d:
+            assert str(d['err_key']) == diag._err_key(y, x, b, fr[::4])
+
 
 class TestStemFields:
     def test_reads_back_what_the_generator_writes(self):

@@ -470,12 +470,12 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     # The error curve is 250 BEADS fits and is unchanged by anything
     # downstream of it, so it is reused when its key still matches.
     npz = os.path.join(diag_dir, f'{stem}__diag.npz')
-    key = _err_key(s, x, b_true, fcuts)
+    err_key = _err_key(s, x, b_true, fcuts)
     err = None
     if reuse_err and os.path.isfile(npz):
         try:
             with np.load(npz) as d:
-                if str(d.get('err_key', '')) == key:
+                if str(d.get('err_key', '')) == err_key:
                     err = d['err']
         except Exception:
             err = None
@@ -518,10 +518,10 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
 
     excluded_by = ''
     if not surviving[i_best]:
-        for name, key in (('instability', 'cp_instab_removed'),
-                          ('past_drop', 'cp_snr_removed'),
-                          ('clip_or_tail', 'cp_removed')):
-            if pd[key][i_best]:
+        for name, field in (('instability', 'cp_instab_removed'),
+                            ('past_drop', 'cp_snr_removed'),
+                            ('clip_or_tail', 'cp_removed')):
+            if pd[field][i_best]:
                 excluded_by = name
                 break
         else:
@@ -531,7 +531,7 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     np.savez(os.path.join(diag_dir, f'{stem}__diag.npz'),
              fcut_range=fcut_range, r2=r2, sensitivity=sens,
              candidates=candidates,
-             fcuts=fcuts, err=err, err_key=key, n_used=n_used,
+             fcuts=fcuts, err=err, err_key=err_key, n_used=n_used,
              fcut_selected=fcut_sel,
              fcut_selected_off=(np.nan if fcut_off is None else fcut_off),
              surviving=surviving, surviving_off=trim_off['surviving'],

@@ -392,7 +392,7 @@ def r2_plots(x: np.ndarray, r2: np.ndarray, dip_curve: np.ndarray,
     axs[2].yaxis.set_major_locator(MaxNLocator(nbins=3, prune='upper'))
     axs[2].tick_params(axis='y', labelsize=8)
     #axs[2].ticklabel_format(axis="y", style="sci", scilimits=[0,0])
-    axs[0].legend()
+    axs[0].legend(loc='lower left')
     plt.tight_layout()
     if show_plot:
         plt.show()

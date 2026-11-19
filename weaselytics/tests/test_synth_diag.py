@@ -288,10 +288,18 @@ class TestErrorCurveReuse:
 
 class TestStemFields:
     def test_reads_back_what_the_generator_writes(self):
-        stem = synth.signal_stem('erb', 'many', 'step', 'high', 7, 4312, 2)
+        stem = synth.signal_stem('erb', 'many', 'pearson7', 'step', 'high',
+                                 7, 4312, 2)
         assert diag.stem_fields(stem) == {
-            'peak_case': 'many', 'baseline_case': 'step',
-            'noise_case': 'high', 'replicate': '07'}
+            'peak_case': 'many', 'peak_model': 'pearson7',
+            'baseline_case': 'step', 'noise_case': 'high',
+            'replicate': '07'}
+
+    def test_reads_a_name_without_the_peak_model(self):
+        assert diag.stem_fields('SYN__erb__many__step__high__07__4312') == {
+            'peak_case': 'many', 'peak_model': '',
+            'baseline_case': 'step', 'noise_case': 'high',
+            'replicate': '07'}
 
     def test_short_names_leave_fields_empty(self):
         assert diag.stem_fields('SYN__erb')['replicate'] == ''

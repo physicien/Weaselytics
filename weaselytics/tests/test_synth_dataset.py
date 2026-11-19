@@ -536,16 +536,23 @@ class TestRate:
 
 class TestNamesAndManifest:
     def test_stem_puts_the_padded_replicate_before_the_length(self):
-        stem = synth.signal_stem('erb', 'many', 'step', 'typ', 3, 1874, 2)
-        assert stem == 'SYN__erb__many__step__typ__03__1874'
+        stem = synth.signal_stem('erb', 'many', 'emg', 'step', 'typ', 3,
+                                 1874, 2)
+        assert stem == 'SYN__erb__many__emg__step__typ__03__1874'
+
+    def test_stem_names_the_peak_model_after_the_peak_case(self):
+        stem = synth.signal_stem('erb', 'few', 'pearson7', 'exp', 'high',
+                                 0, 900, 2)
+        assert stem.split('__')[2:4] == ['few', 'pearson7']
 
     def test_padding_follows_the_widest_replicate(self):
-        assert synth.signal_stem('erb', 'few', 'exp', 'high', 3, 900,
-                                 1).endswith('__3__900')
+        assert synth.signal_stem('erb', 'few', 'gaussian', 'exp', 'high', 3,
+                                 900, 1).endswith('__3__900')
 
     def test_manifest_row_matches_its_columns(self):
         d = synth.erb_signal(900, 'few', 0, 0.02, np.random.default_rng(1))
-        stem = synth.signal_stem('erb', 'few', 'parabola', 'typ', 0, 900, 2)
+        stem = synth.signal_stem('erb', 'few', 'emg', 'parabola', 'typ', 0,
+                                 900, 2)
         row = synth.manifest_row(stem, 'erb', 'few', 'parabola', 'typ',
                                  900, 0, d).split(',')
         assert len(row) == len(synth.MANIFEST_COLUMNS)

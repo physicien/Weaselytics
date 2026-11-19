@@ -1578,9 +1578,9 @@ MANIFEST_COLUMNS = ('stem', 'family', 'peak_case', 'baseline_case',
                     'points_per_minute', 'peak_model', 'tf_min', 'tf_max')
 
 
-def signal_stem(family: str, peak_case: str, baseline_case: str,
-                noise_case: str, replicate: int, n: int,
-                rep_width: int) -> str:
+def signal_stem(family: str, peak_case: str, peak_model: str,
+                baseline_case: str, noise_case: str, replicate: int,
+                n: int, rep_width: int) -> str:
     """
     Name one synthetic signal.
 
@@ -1588,6 +1588,8 @@ def signal_stem(family: str, peak_case: str, baseline_case: str,
     ----------
     family, peak_case, baseline_case, noise_case : str
         The case keys of the signal.
+    peak_model : str
+        One of `PEAK_MODELS`.
     replicate : int
         Replicate number.
     n : int
@@ -1598,11 +1600,11 @@ def signal_stem(family: str, peak_case: str, baseline_case: str,
     Returns
     -------
     stem : str
-        ``SYN__family__case__baseline__noise__replicate__n``.
+        ``SYN__family__case__model__baseline__noise__replicate__n``.
 
     """
-    return (f'SYN__{family}__{peak_case}__{baseline_case}__{noise_case}'
-            f'__{replicate:0{rep_width}d}__{n}')
+    return (f'SYN__{family}__{peak_case}__{peak_model}__{baseline_case}'
+            f'__{noise_case}__{replicate:0{rep_width}d}__{n}')
 
 
 def manifest_row(stem: str, family: str, peak_case: str,
@@ -1849,7 +1851,8 @@ def main() -> None:
             n = int(round(draw_record_duration(rng) * args.rate))
             parts = erb_signal(n, pc, ERB_BASELINE_NAMES[bc], ns, rng,
                                rate=args.rate, shapes=shapes)
-            stem = signal_stem('erb', pc, bc, nk, rep, n, rep_width)
+            stem = signal_stem('erb', pc, args.peak_model, bc, nk, rep, n,
+                               rep_width)
             with open(os.path.join(sig_dir, f'{stem}.txt'), 'w') as f:
                 for xi, yi in zip(parts['x'], parts['y']):
                     f.write(f'{xi:.6f}\t{yi:.6e}\n')

@@ -9,6 +9,7 @@ every constant grounded against it: an error here makes a wrong
 import argparse
 import datetime
 import importlib.util
+import json
 import pathlib
 import re
 import shlex
@@ -406,8 +407,8 @@ class TestPeakShapes:
              1.16233298, 1.02971691, 1.09269172], rtol=1e-7)
         np.testing.assert_allclose(
             [p['height'] for p in analytes],
-            [8.5004804825, 2.0798741367, 4.8825064883, 5.4192890078,
-             8.0314742045, 1.0409292344, 10.5248364217, 1.1290264026],
+            [4.1722771142, 1.3642427112, 2.7562284656, 2.9767520474,
+             3.9932397897, 0.3123303581, 4.9543751708, 0.4946019617],
             rtol=1e-9)
         for p in analytes:
             assert p['shape']['model'] == 'emg'
@@ -435,6 +436,68 @@ class TestPeakShapes:
             lo, hi = np.log10(synth.PEARSON7_M_RANGE)
             assert lo <= log_m.min() and log_m.max() <= hi
             assert log_m.mean() == pytest.approx((lo + hi) / 2., abs=0.06)
+
+    def test_default_heights_follow_their_distribution(self):
+        # Log-normal of median HEIGHT_MEDIAN and log-spread
+        # HEIGHT_LOG_SIGMA; at 0.02 mV the floor cuts almost nothing.
+        rng = np.random.default_rng(3)
+        h = np.array([synth.draw_height(rng, 0.02) for _ in range(400)])
+        assert np.median(h) == pytest.approx(synth.HEIGHT_MEDIAN, rel=0.15)
+        assert np.std(np.log(h)) == pytest.approx(synth.HEIGHT_LOG_SIGMA,
+                                                  abs=0.1)
+
+    def test_heights_are_cut_at_the_snr_floor(self):
+        # With a median of 2 mV and a noise of 1 mV the floor, 3 mV, sits
+        # above the median, so most draws land just over it, in the share
+        # the cut log-normal gives: 0.659 of them below twice the floor.
+        rng = np.random.default_rng(5)
+        h = np.array([synth.draw_height(rng, 1., (2., 0.9))
+                      for _ in range(2000)])
+        assert h.min() >= synth.MIN_SNR
+        assert np.mean(h < 2. * synth.MIN_SNR) == pytest.approx(0.659,
+                                                                abs=0.035)
+        d = synth.erb_signal(3000, 'many', 1, 0.05,
+                             np.random.default_rng(9))
+        assert d['meta']['height_min_sigma'] >= synth.MIN_SNR
+        assert d['meta']['height_min_sigma'] == pytest.approx(
+            min(p['height'] for p in d['peaks'][2:]) / 0.05)
+
+    @pytest.mark.parametrize('heights', [(0.01, 0.1), (1., 0.2)])
+    def test_a_floor_far_above_the_median_stays_finite(self, heights):
+        # The floor, 3 mV, sits 57 and 5.5 log-standard deviations above
+        # the median: every height lands just over it.
+        rng = np.random.default_rng(17)
+        h = np.array([synth.draw_height(rng, 1., heights)
+                      for _ in range(200)])
+        assert np.all(np.isfinite(h))
+        assert h.min() >= 3. and h.max() < 4.5
+
+    def test_the_height_draw_reaches_the_analytes(self):
+        d = synth.erb_signal(3000, 'many', 1, 0.02,
+                             np.random.default_rng(9), heights=(30., 0.1))
+        h = [p['height'] for p in d['peaks'][2:]]
+        assert h
+        assert 20. < min(h) and max(h) < 45.
+
+    @pytest.mark.parametrize('args', [
+        ['--height-median', '0'],
+        ['--height-log-sigma', '-1'],
+    ])
+    def test_the_parser_refuses_a_non_positive_height_draw(self, args,
+                                                           tmp_path,
+                                                           monkeypatch):
+        monkeypatch.setattr(sys, 'argv', ['synth_dataset.py',
+                                          str(tmp_path / 'SET')] + args)
+        with pytest.raises(SystemExit):
+            synth.main()
+        assert not (tmp_path / 'SET').exists()
+
+    def test_a_height_takes_one_draw(self):
+        # One uniform per height, so the draws after it do not move.
+        a, b = np.random.default_rng(13), np.random.default_rng(13)
+        synth.draw_height(a, 0.05)
+        b.uniform()
+        assert a.uniform() == b.uniform()
 
     def test_models_share_everything_but_the_shapes(self):
         # Shapes and noise draw from streams of their own, so the same
@@ -668,6 +731,22 @@ class TestMain:
         n_rows = len(manifest.read_text().splitlines()) - 1
         assert n_rows == len(list((out / 'signals').glob('*.txt')))
         assert 'replicates=1' in provenance.read_text()
+
+    def test_height_flags_reach_the_set(self, tmp_path, monkeypatch):
+        out = tmp_path / 'SET'
+        monkeypatch.setattr(sys, 'argv', [
+            'synth_dataset.py', str(out), '--no-plot',
+            '--height-median', '30', '--height-log-sigma', '0.1'])
+        synth.main()
+        heights = [p['height']
+                   for f in (out / 'truth').glob('*__truth.npz')
+                   for p in json.loads(str(np.load(f)['peaks']))
+                   if not p['artifact']]
+        assert heights
+        assert 20. < min(heights) and max(heights) < 45.
+        text = (out / 'PROVENANCE.txt').read_text()
+        assert 'height_median=30' in text
+        assert 'height_log_sigma=0.1' in text
 
     def test_refuses_a_non_empty_directory(self, tmp_path, monkeypatch):
         (tmp_path / 'old.txt').write_text('x')

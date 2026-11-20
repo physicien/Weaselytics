@@ -57,7 +57,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scipy  # noqa: E402
 from scipy.optimize import brentq, minimize_scalar  # noqa: E402
-from scipy.special import erfc, erfcx  # noqa: E402
+from scipy.special import erfc, erfcx, log_ndtr, ndtri_exp  # noqa: E402
 from scipy.stats import exponnorm, skewnorm  # noqa: E402
 
 from weaselytics.peakfitting import pearson7  # noqa: E402
@@ -81,6 +81,24 @@ PLATE_NUMBER_RANGE = (2000., 14000.)
 # picked for this benchmark. 'typ' is the reference level and 'high',
 # two and a half times larger, gives noisier records.
 NOISE_CASES = {'typ': 0.02, 'high': 0.05}
+# Height of an analyte, mV: log-normal, with the median and the standard
+# deviation of its logarithm below, picked for this benchmark;
+# `--height-median` and `--height-log-sigma` set others. Half the heights
+# fall between about 1.5 and 5.9 mV, and one in twenty is above about
+# 16 mV. For reference, Davis (2021, §2.5) builds synthetic
+# chromatograms with log-normal amplitudes of log-standard deviation 0.5
+# and 1.5. No height is drawn below `MIN_SNR` noise standard deviations:
+# MacDougall et al. (1980, Eq. (9)) place the limit of detection three
+# standard deviations of the blank above it. Snyder, Kirkland & Dolan
+# (2009, §11.2.5.1) call S/N = 3 a commonly accepted definition of the
+# limit of detection. They measure the noise peak to peak (§4.2.3.1,
+# Fig. 4.7), which is larger than the standard deviation, so their limit
+# sits above this floor.
+HEIGHT_MEDIAN = 3.0
+HEIGHT_LOG_SIGMA = 1.0
+MIN_SNR = 3.
+# The height draw, as (median, log-standard deviation); see `draw_height`.
+DEFAULT_HEIGHTS = (HEIGHT_MEDIAN, HEIGHT_LOG_SIGMA)
 # Default points per minute, picked for this benchmark: two samples per
 # second. `--rate` sets another.
 PTS_PER_MIN = 120
@@ -700,6 +718,53 @@ def draw_shape(rng: np.random.Generator, shapes: dict) -> dict:
             continue
 
 
+def draw_height(rng: np.random.Generator, noise_sigma: float,
+                heights: tuple[float, float] = DEFAULT_HEIGHTS) -> float:
+    """
+    Draw the height of one analyte.
+
+    A log-normal variate of the median and log-standard deviation in
+    `heights`, cut below at `MIN_SNR` times `noise_sigma`, the limit of
+    detection of MacDougall et al. (1980, Eq. (9)); see `MIN_SNR`. It
+    is drawn by inverting the cumulative distribution of the cut
+    log-normal at one uniform variate, so every height takes exactly one
+    draw from `rng`.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Source of randomness.
+    noise_sigma : float
+        Standard deviation of the signal's noise, mV.
+    heights : (float, float), optional
+        Median, mV, and standard deviation of the logarithm, both
+        positive. Default `DEFAULT_HEIGHTS`.
+
+    Returns
+    -------
+    height : float
+        Peak height, mV, at least ``MIN_SNR * noise_sigma``.
+
+    Notes
+    -----
+    The floor holds for the true height against the nominal noise
+    level. Once a baseline is fitted and subtracted, the S/N measured on
+    a peak can fall below it. When the floor sits many log-standard
+    deviations above the median, nearly every height lands just over
+    the floor.
+
+    """
+    median, log_sigma = heights
+    mu = np.log(median)
+    z_floor = (np.log(MIN_SNR * noise_sigma) - mu) / log_sigma
+    # Inverted in the upper tail, in logs: the share of the log-normal
+    # above the floor, times 1 - U, keeps its digits however far the
+    # floor sits above the median.
+    log_q = log_ndtr(-z_floor) + np.log1p(-rng.uniform())
+    return float(max(np.exp(mu - log_sigma * ndtri_exp(log_q)),
+                     MIN_SNR * noise_sigma))
+
+
 ###############################################################################
 # Erb's test baselines: the analytic baselines of the `make_data` function
 # Donald Erb, author of pybaselines, wrote to test the cutoff-frequency
@@ -892,7 +957,8 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
 def peak_component(n: int, peak_case: str, rng: np.random.Generator,
                    noise_sigma: float, rate: float = PTS_PER_MIN,
                    shapes: dict = DEFAULT_SHAPES,
-                   shape_rng: np.random.Generator | None = None
+                   shape_rng: np.random.Generator | None = None,
+                   heights: tuple[float, float] = DEFAULT_HEIGHTS
                    ) -> tuple[np.ndarray, np.ndarray, list[dict],
                                      float, dict]:
     """
@@ -930,6 +996,9 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
     shape_rng : numpy.random.Generator, optional
         Source of randomness for the peak shapes alone. Default None,
         which draws them from `rng`.
+    heights : (float, float), optional
+        The analyte height draw; see `draw_height`. Default
+        `DEFAULT_HEIGHTS`.
 
     Returns
     -------
@@ -986,7 +1055,7 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
         t0 = rng.uniform(2.5, t0_hi)
         signal, peaks, n_plates = _peak_component_at(
             t, t0, n_peaks, peak_case, noise_sigma, rng, shapes,
-            shape_rng)
+            shape_rng, heights)
         n_placed = sum(not p['artifact'] for p in peaks)
         if n_placed == n_peaks or t0 - 2.5 < dt:
             break
@@ -1000,7 +1069,8 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
                        peak_case: str, noise_sigma: float,
                        rng: np.random.Generator,
                        shapes: dict = DEFAULT_SHAPES,
-                       shape_rng: np.random.Generator | None = None
+                       shape_rng: np.random.Generator | None = None,
+                       heights: tuple[float, float] = DEFAULT_HEIGHTS
                        ) -> tuple[np.ndarray, list[dict], float]:
     """
     Build the artifact and place the analytes for one dead time.
@@ -1024,6 +1094,9 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
     shape_rng : numpy.random.Generator, optional
         Source of randomness for the peak shapes alone. Default None,
         which draws them from `rng`.
+    heights : (float, float), optional
+        The analyte height draw; see `draw_height`. Default
+        `DEFAULT_HEIGHTS`.
 
     Returns
     -------
@@ -1061,7 +1134,8 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
         return signal, peaks, float('nan')
     specs, n_plates = _draw_analytes(t, t0, n_peaks,
                                      peak_case == 'isocratic', elute_lo,
-                                     elute_hi, rng, shapes, shape_rng)
+                                     elute_hi, noise_sigma, rng, shapes,
+                                     shape_rng, heights)
 
     # An analyte has eluted when its trailing edge is back in the noise.
     # A record that stops before that is impossible: the trace ends
@@ -1102,9 +1176,10 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
 
 def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
                    isocratic: bool, elute_lo: float, elute_hi: float,
-                   rng: np.random.Generator,
+                   noise_sigma: float, rng: np.random.Generator,
                    shapes: dict = DEFAULT_SHAPES,
-                   shape_rng: np.random.Generator | None = None
+                   shape_rng: np.random.Generator | None = None,
+                   heights: tuple[float, float] = DEFAULT_HEIGHTS
                    ) -> tuple[list[dict], float]:
     """
     Draw one analyte set: centres, width laws, tails and heights.
@@ -1127,6 +1202,9 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
         without the per-peak jitter.
     elute_lo, elute_hi : float
         Bounds of the window the centres are drawn in, minutes.
+    noise_sigma : float
+        Noise standard deviation, mV, which sets the height floor; see
+        `draw_height`.
     rng : numpy.random.Generator
         Source of randomness.
     shapes : dict, optional
@@ -1134,13 +1212,16 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
     shape_rng : numpy.random.Generator, optional
         Source of randomness for the peak shapes alone. Default None,
         which draws them from `rng`.
+    heights : (float, float), optional
+        The analyte height draw; see `draw_height`. Default
+        `DEFAULT_HEIGHTS`.
 
     Returns
     -------
     specs : list of dict
         One per analyte, sorted by drawn centre: ``tc``, ``sigma_at``
         (retention time to sigma), ``shape`` (see `draw_shape`),
-        ``height`` and ``artifact=False``.
+        ``height`` (see `draw_height`) and ``artifact=False``.
     n_plates : float
         The plate number drawn for the signal.
 
@@ -1175,8 +1256,7 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
         specs.append({'tc': tc, 'sigma_at': sigma_at,
                       'shape': draw_shape(
                           rng if shape_rng is None else shape_rng, shapes),
-                      'height': np.exp(rng.uniform(np.log(1.),
-                                                   np.log(30.))),
+                      'height': draw_height(rng, noise_sigma, heights),
                       'artifact': False})
     return specs, n_plates
 
@@ -1437,7 +1517,8 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
                noise_sigma: float, rng: np.random.Generator,
                quantise_output: bool = True,
                rate: float = PTS_PER_MIN,
-               shapes: dict = DEFAULT_SHAPES) -> dict:
+               shapes: dict = DEFAULT_SHAPES,
+               heights: tuple[float, float] = DEFAULT_HEIGHTS) -> dict:
     """
     Assemble one ``erb`` chromatogram, the shared peak component on an
     Erb baseline.
@@ -1472,6 +1553,9 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
         Points per minute. Default `PTS_PER_MIN`.
     shapes : dict, optional
         The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
+    heights : (float, float), optional
+        The analyte height draw; see `draw_height`. Default
+        `DEFAULT_HEIGHTS`.
 
     Returns
     -------
@@ -1498,7 +1582,9 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
         the run inside their half-maximum widths. Both are measured after
         placement, as are ``meta['tf_min']`` and ``meta['tf_max']``, the
         range of the analytes' tailing factors. ``meta['peak_model']``
-        names their model.
+        names their model. ``meta['height_min_sigma']`` is the lowest
+        analyte height over the nominal `noise_sigma` (NaN without
+        analytes).
 
     """
     # The shapes and the noise draw from streams of their own, split from
@@ -1509,7 +1595,7 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
     shape_rng, noise_rng = rng.spawn(2)
     t, signal, peaks, t0, info = peak_component(n, peak_case, rng,
                                                 noise_sigma, rate, shapes,
-                                                shape_rng)
+                                                shape_rng, heights)
     # Erb's coefficients are written for an abscissa of order 0-1000, so
     # the baseline is evaluated there and mapped onto the record. Its
     # shape is therefore independent of the record's duration in
@@ -1534,6 +1620,10 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
                      'minutes': float(t[-1] - t[0]),
                      'baseline_range': float(baseline.max()
                                              - baseline.min()),
+                     'height_min_sigma': min(
+                         (p['height'] / noise_sigma for p in peaks
+                          if not p.get('artifact', False)),
+                         default=float('nan')),
                      **_analyte_meta(t, peaks, t0, info)}}
 
 
@@ -1596,7 +1686,8 @@ MANIFEST_COLUMNS = ('stem', 'family', 'peak_case', 'baseline_case',
                     'noise_case', 'n_points', 'replicate', 'n_analytes',
                     'n_dropped', 'rs_min', 'coverage', 'n_requested',
                     'n_plates', 'dead_time', 'dead_time_redraws',
-                    'points_per_minute', 'peak_model', 'tf_min', 'tf_max')
+                    'points_per_minute', 'peak_model', 'tf_min', 'tf_max',
+                    'height_min_sigma')
 
 
 def signal_stem(family: str, peak_case: str, peak_model: str,
@@ -1668,7 +1759,8 @@ def manifest_row(stem: str, family: str, peak_case: str,
             f'{meta.get("points_per_minute", PTS_PER_MIN):g},'
             f'{meta.get("peak_model", "")},'
             f'{meta.get("tf_min", float("nan")):.4g},'
-            f'{meta.get("tf_max", float("nan")):.4g}')
+            f'{meta.get("tf_max", float("nan")):.4g},'
+            f'{meta.get("height_min_sigma", float("nan")):.4g}')
 
 
 def git_commit() -> str:
@@ -1804,7 +1896,19 @@ def main() -> None:
                              'drawn log-uniformly, pearson7 only '
                              f'(default: {PEARSON7_M_RANGE[0]:g} '
                              f'{PEARSON7_M_RANGE[1]:g})')
+    parser.add_argument('--height-median', type=float, default=HEIGHT_MEDIAN,
+                        help='median of the log-normal analyte height, mV '
+                             f'(default: {HEIGHT_MEDIAN:g})')
+    parser.add_argument('--height-log-sigma', type=float,
+                        default=HEIGHT_LOG_SIGMA,
+                        help='standard deviation of the logarithm of the '
+                             'analyte height (default: '
+                             f'{HEIGHT_LOG_SIGMA:g})')
     args = parser.parse_args()
+    if not (args.height_median > 0. and args.height_log_sigma > 0.):
+        parser.error('--height-median and --height-log-sigma must be '
+                     'positive')
+    heights = (args.height_median, args.height_log_sigma)
     tf = args.tailing_factor
     if tf is not None:
         if not 0. < tf[0] <= tf[1]:
@@ -1871,7 +1975,8 @@ def main() -> None:
                                         + 104729 * rep)
             n = int(round(draw_record_duration(rng) * args.rate))
             parts = erb_signal(n, pc, ERB_BASELINE_NAMES[bc], ns, rng,
-                               rate=args.rate, shapes=shapes)
+                               rate=args.rate, shapes=shapes,
+                               heights=heights)
             stem = signal_stem('erb', pc, args.peak_model, bc, nk, rep, n,
                                rep_width)
             with open(os.path.join(sig_dir, f'{stem}.txt'), 'w') as f:

@@ -145,10 +145,13 @@ class TestErbSignal:
 
     def test_signal_is_the_shared_peak_component(self):
         # The peaks of `erb` are the peak component's own: same seed,
-        # same draws.
+        # same draws, with the shapes from the stream `erb_signal`
+        # splits off first.
         n, case = 1800, 'many'
+        rng = np.random.default_rng(11)
+        shape_rng, _ = rng.spawn(2)
         t1, sig1, pk1, t01, _ = synth.peak_component(
-            n, case, np.random.default_rng(11), 0.02)
+            n, case, rng, 0.02, shape_rng=shape_rng)
         d = synth.erb_signal(n, case, 2, 0.02,
                              np.random.default_rng(11))
         np.testing.assert_array_equal(d['signal'], sig1)
@@ -399,12 +402,12 @@ class TestPeakShapes:
         analytes = d['peaks'][2:]
         np.testing.assert_allclose(
             [p['tailing_factor'] for p in analytes],
-            [1.14154134, 1.03148145, 1.25685575, 1.14185173, 1.29424901,
-             1.16019759, 1.14555593, 1.01872069], rtol=1e-7)
+            [1.26674689, 1.08002844, 1.673528, 1.2186414, 1.40167753,
+             1.16233298, 1.02971691, 1.09269172], rtol=1e-7)
         np.testing.assert_allclose(
             [p['height'] for p in analytes],
-            [5.6626906987, 1.724457917, 1.6910550507, 5.4192890078,
-             3.5143898728, 1.1290264026, 1.9239832923, 22.6343492042],
+            [8.5004804825, 2.0798741367, 4.8825064883, 5.4192890078,
+             8.0314742045, 1.0409292344, 10.5248364217, 1.1290264026],
             rtol=1e-9)
         for p in analytes:
             assert p['shape']['model'] == 'emg'
@@ -432,6 +435,23 @@ class TestPeakShapes:
             lo, hi = np.log10(synth.PEARSON7_M_RANGE)
             assert lo <= log_m.min() and log_m.max() <= hi
             assert log_m.mean() == pytest.approx((lo + hi) / 2., abs=0.06)
+
+    def test_models_share_everything_but_the_shapes(self):
+        # Shapes and noise draw from streams of their own, so the same
+        # seed gives the same dead time, peaks and noise in every model.
+        made = {m: synth.erb_signal(3000, 'many', 2, 0.05,
+                                    np.random.default_rng(11),
+                                    shapes=dict(synth.DEFAULT_SHAPES,
+                                                model=m))
+                for m in synth.PEAK_MODELS}
+        ref = made['emg']
+        for m, d in made.items():
+            np.testing.assert_array_equal(d['noise'], ref['noise'])
+            np.testing.assert_array_equal(d['baseline'], ref['baseline'])
+            assert d['meta']['dead_time'] == ref['meta']['dead_time']
+            assert ([p['height'] for p in d['peaks'][2:]]
+                    == [p['height'] for p in ref['peaks'][2:]])
+            assert {p['shape']['model'] for p in d['peaks'][2:]} == {m}
 
     def test_emg_factors_match_independent_values(self):
         # tau/sigma = 1.2, computed apart from the generator.

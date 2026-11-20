@@ -891,7 +891,8 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
 
 def peak_component(n: int, peak_case: str, rng: np.random.Generator,
                    noise_sigma: float, rate: float = PTS_PER_MIN,
-                   shapes: dict = DEFAULT_SHAPES
+                   shapes: dict = DEFAULT_SHAPES,
+                   shape_rng: np.random.Generator | None = None
                    ) -> tuple[np.ndarray, np.ndarray, list[dict],
                                      float, dict]:
     """
@@ -926,6 +927,9 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
         Points per minute. Default `PTS_PER_MIN`.
     shapes : dict, optional
         The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
+    shape_rng : numpy.random.Generator, optional
+        Source of randomness for the peak shapes alone. Default None,
+        which draws them from `rng`.
 
     Returns
     -------
@@ -981,7 +985,8 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
         redraws += 1
         t0 = rng.uniform(2.5, t0_hi)
         signal, peaks, n_plates = _peak_component_at(
-            t, t0, n_peaks, peak_case, noise_sigma, rng, shapes)
+            t, t0, n_peaks, peak_case, noise_sigma, rng, shapes,
+            shape_rng)
         n_placed = sum(not p['artifact'] for p in peaks)
         if n_placed == n_peaks or t0 - 2.5 < dt:
             break
@@ -994,7 +999,8 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
 def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
                        peak_case: str, noise_sigma: float,
                        rng: np.random.Generator,
-                       shapes: dict = DEFAULT_SHAPES
+                       shapes: dict = DEFAULT_SHAPES,
+                       shape_rng: np.random.Generator | None = None
                        ) -> tuple[np.ndarray, list[dict], float]:
     """
     Build the artifact and place the analytes for one dead time.
@@ -1015,6 +1021,9 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
         Source of randomness.
     shapes : dict, optional
         The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
+    shape_rng : numpy.random.Generator, optional
+        Source of randomness for the peak shapes alone. Default None,
+        which draws them from `rng`.
 
     Returns
     -------
@@ -1052,7 +1061,7 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
         return signal, peaks, float('nan')
     specs, n_plates = _draw_analytes(t, t0, n_peaks,
                                      peak_case == 'isocratic', elute_lo,
-                                     elute_hi, rng, shapes)
+                                     elute_hi, rng, shapes, shape_rng)
 
     # An analyte has eluted when its trailing edge is back in the noise.
     # A record that stops before that is impossible: the trace ends
@@ -1094,7 +1103,8 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
 def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
                    isocratic: bool, elute_lo: float, elute_hi: float,
                    rng: np.random.Generator,
-                   shapes: dict = DEFAULT_SHAPES
+                   shapes: dict = DEFAULT_SHAPES,
+                   shape_rng: np.random.Generator | None = None
                    ) -> tuple[list[dict], float]:
     """
     Draw one analyte set: centres, width laws, tails and heights.
@@ -1121,6 +1131,9 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
         Source of randomness.
     shapes : dict, optional
         The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
+    shape_rng : numpy.random.Generator, optional
+        Source of randomness for the peak shapes alone. Default None,
+        which draws them from `rng`.
 
     Returns
     -------
@@ -1160,7 +1173,8 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
             """Sigma of this analyte at retention time `x`, minutes."""
             return jitter * x / np.sqrt(n_plates)
         specs.append({'tc': tc, 'sigma_at': sigma_at,
-                      'shape': draw_shape(rng, shapes),
+                      'shape': draw_shape(
+                          rng if shape_rng is None else shape_rng, shapes),
                       'height': np.exp(rng.uniform(np.log(1.),
                                                    np.log(30.))),
                       'artifact': False})
@@ -1487,8 +1501,15 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
         names their model.
 
     """
+    # The shapes and the noise draw from streams of their own, split from
+    # `rng`, so the rest of the signal does not depend on how many draws
+    # a peak model takes: datasets that differ only in `shapes` share
+    # their dead times, peak heights and noise wherever every peak fits
+    # where it was drawn.
+    shape_rng, noise_rng = rng.spawn(2)
     t, signal, peaks, t0, info = peak_component(n, peak_case, rng,
-                                                noise_sigma, rate, shapes)
+                                                noise_sigma, rate, shapes,
+                                                shape_rng)
     # Erb's coefficients are written for an abscissa of order 0-1000, so
     # the baseline is evaluated there and mapped onto the record. Its
     # shape is therefore independent of the record's duration in
@@ -1497,7 +1518,7 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
     # the point count.
     u = np.linspace(0., 1000., n)
     baseline = erb_baseline(u, baseline_type, exact_integral=True)
-    noise = rng.normal(0., noise_sigma, n)
+    noise = noise_rng.normal(0., noise_sigma, n)
     y = signal + baseline + noise
     if quantise_output:
         y = quantise(y)

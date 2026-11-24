@@ -162,11 +162,8 @@ def pearson7(x: np.ndarray, params: np.ndarray) -> np.ndarray:
 
     The shape interpolates between a Lorentzian (``m`` near 1) and a
     Gaussian (``m`` large), with ``E`` producing tailing (positive) or
-    fronting (negative). Two independent selections favour it over the
-    Gaussian and the exponentially-modified Gaussian for chromatographic
-    peaks: Niezen et al. compared fifteen distributions by the Akaike
-    information criterion and ranked it first (Table 1), and Milani et
-    al. measured a lower RMSE over 458 fitted peaks.
+    fronting (negative). It is used for chromatographic peaks by Niezen
+    et al. (2022, Eq. (14)) and Milani et al. (2024).
 
     Parameters
     ----------
@@ -421,9 +418,7 @@ def fit_peak(
     y_robust_sn : array-like, shape (N,)
         The y-values of the Skew-Normal distribution.
     y_robust_p7 : array-like, shape (N,)
-        The y-values of the modified Pearson VII distribution. Of the
-        three this is the shape best supported for chromatographic
-        peaks; see `pearson7` for the evidence.
+        The y-values of the modified Pearson VII distribution.
 
     Notes
     -----

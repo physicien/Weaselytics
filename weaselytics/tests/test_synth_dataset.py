@@ -9,6 +9,7 @@ every constant grounded against it: an error here makes a wrong
 import argparse
 import datetime
 import importlib.util
+import json
 import pathlib
 import re
 import shlex
@@ -145,10 +146,13 @@ class TestErbSignal:
 
     def test_signal_is_the_shared_peak_component(self):
         # The peaks of `erb` are the peak component's own: same seed,
-        # same draws.
+        # same draws, with the shapes from the stream `erb_signal`
+        # splits off first.
         n, case = 1800, 'many'
+        rng = np.random.default_rng(11)
+        shape_rng, _ = rng.spawn(2)
         t1, sig1, pk1, t01, _ = synth.peak_component(
-            n, case, np.random.default_rng(11), 0.02)
+            n, case, rng, 0.02, shape_rng=shape_rng)
         d = synth.erb_signal(n, case, 2, 0.02,
                              np.random.default_rng(11))
         np.testing.assert_array_equal(d['signal'], sig1)
@@ -201,29 +205,33 @@ class TestErbSignal:
             assert len(d['peaks']) == 2
             assert all(p['artifact'] for p in d['peaks'])
 
-    def test_nothing_elutes_before_the_dead_time(self):
+    @pytest.mark.parametrize('model', synth.PEAK_MODELS)
+    def test_nothing_elutes_before_the_dead_time(self, model):
         # The dead time is the transit time of an unretained species, so
         # it bounds every retention time in the run below, ghosts and
         # carryover included.
+        shapes = dict(synth.DEFAULT_SHAPES, model=model)
         for k, case in enumerate(synth.PEAK_CASES):
             for bt in range(3):
                 rng = np.random.default_rng(100 * k + bt)
                 n = int(rng.integers(450, 1400))
-                d = synth.erb_signal(n, case, bt, 0.05, rng)
+                d = synth.erb_signal(n, case, bt, 0.05, rng, shapes=shapes)
                 t0 = d['meta']['dead_time']
                 assert all(p['tc'] >= t0 for p in d['peaks'][2:]), (
                     f'{case}/{bt} n={n}: a peak elutes before the '
                     f'dead time')
 
-    def test_no_peak_overlaps_the_dead_time(self):
+    @pytest.mark.parametrize('model', synth.PEAK_MODELS)
+    def test_no_peak_overlaps_the_dead_time(self, model):
         # Not even its front tail: every peak is within the noise until
         # the injection artifact has returned to it.
         noise = 0.02
+        shapes = dict(synth.DEFAULT_SHAPES, model=model)
         for k, case in enumerate(synth.PEAK_CASES):
             for bt in range(3):
                 rng = np.random.default_rng(300 * k + bt)
                 n = int(rng.integers(500, 3000))
-                d = synth.erb_signal(n, case, bt, noise, rng)
+                d = synth.erb_signal(n, case, bt, noise, rng, shapes=shapes)
                 t = d['x']
                 pos, neg = d['peaks'][:2]
                 art = (synth.emg_peak(t, pos['tc'], pos['sigma'],
@@ -232,33 +240,38 @@ class TestErbSignal:
                                         neg['tau'], -neg['height']))
                 front = t <= t[np.nonzero(np.abs(art) > noise)[0][-1]]
                 for p in d['peaks'][2:]:
-                    y = synth.emg_peak(t, p['tc'], p['sigma'], p['tau'],
-                                       p['height'])
+                    y = synth.analyte_peak(t, p['tc'], p['sigma'],
+                                           p['shape'], p['height'])
                     assert y[front].max() <= noise, (
                         f'{case}/{bt} n={n}: a peak overlaps the '
                         f'dead time')
 
-    def test_the_record_ends_in_the_noise(self):
+    @pytest.mark.parametrize('model', synth.PEAK_MODELS)
+    def test_the_record_ends_in_the_noise(self, model):
         # A peak has eluted when its trailing edge is back in the noise.
         noise = 0.02
+        shapes = dict(synth.DEFAULT_SHAPES, model=model)
         for k, case in enumerate(synth.PEAK_CASES):
             for bt in range(3):
                 rng = np.random.default_rng(7000 + 100 * k + bt)
                 n = int(rng.integers(500, 3000))
-                d = synth.erb_signal(n, case, bt, noise, rng)
+                d = synth.erb_signal(n, case, bt, noise, rng, shapes=shapes)
                 for p in d['peaks'][2:]:
-                    y = synth.emg_peak(d['x'], p['tc'], p['sigma'],
-                                       p['tau'], p['height'])
+                    y = synth.analyte_peak(d['x'], p['tc'], p['sigma'],
+                                           p['shape'], p['height'])
                     assert y[-1] <= noise, (
                         f'{case}/{bt} n={n}: the record ends part-way '
                         f'down a peak')
 
-    def test_adjacent_analytes_are_resolved(self):
+    @pytest.mark.parametrize('model', synth.PEAK_MODELS)
+    def test_adjacent_analytes_are_resolved(self, model):
+        shapes = dict(synth.DEFAULT_SHAPES, model=model)
         for k, case in enumerate(('few', 'many', 'isocratic')):
             for seed in range(6):
                 rng = np.random.default_rng(50 * k + seed)
                 n = int(rng.integers(500, 3000))
-                d = synth.erb_signal(n, case, seed % 3, 0.02, rng)
+                d = synth.erb_signal(n, case, seed % 3, 0.02, rng,
+                                     shapes=shapes)
                 rs = d['meta']['rs_min']
                 if d['meta']['n_analytes'] >= 2:
                     assert rs >= synth.MIN_RESOLUTION - 1e-9, (
@@ -330,6 +343,252 @@ class TestErbSignal:
         assert lo <= n.min() and n.max() <= hi
 
 
+class TestPeakShapes:
+    """The analyte models, their tailing factor and the defaults."""
+
+    _X = np.linspace(-60., 400., 400001)
+
+    def _measured(self, shape):
+        return synth.tailing_factor(
+            self._X, synth.analyte_peak(self._X, 0., 1., shape, 1.))
+
+    @pytest.mark.parametrize('tf', [1.05, 1.5, 3.0])
+    def test_emg_reaches_the_asked_tailing_factor(self, tf):
+        shape = synth.shape_for_tf('emg', tf)
+        assert self._measured(shape) == pytest.approx(tf, abs=1e-4)
+
+    @pytest.mark.parametrize('m', [3.5, 51.])
+    @pytest.mark.parametrize('tf', [0.76, 0.9, 1.2, 2.0])
+    def test_pearson7_reaches_the_asked_tailing_factor(self, m, tf):
+        shape = synth.shape_for_tf('pearson7', tf, m)
+        assert self._measured(shape) == pytest.approx(tf, abs=1e-4)
+        assert (shape['e'] < 0) == (tf < 1)
+
+    def test_emg_cannot_front(self):
+        with pytest.raises(ValueError, match='front'):
+            synth.shape_for_tf('emg', 0.9)
+
+    def test_gaussian_is_symmetric(self):
+        assert self._measured({'model': 'gaussian'}) == pytest.approx(
+            1., abs=1e-6)
+
+    @pytest.mark.parametrize('m', [1.5, 3.5, 51.])
+    def test_symmetric_pearson7_has_the_plate_fwhm(self, m):
+        y = synth.analyte_peak(self._X, 0., 1.,
+                               {'model': 'pearson7', 'm': m, 'e': 0.}, 1.)
+        _, left, right = synth._crossings(self._X, y, 0.5)
+        assert right - left == pytest.approx(synth._FWHM_PER_SIGMA,
+                                             rel=1e-6)
+
+    @pytest.mark.parametrize('e', [0.28, -0.28])
+    def test_pearson7_long_side_falls_below_its_floor(self, e):
+        # Without its floor the long side keeps falling, as the inverse
+        # of the distance, where the fitted function levels off.
+        shape = {'model': 'pearson7', 'm': 3.5, 'e': e}
+        floor = synth.pearson7_floor(3.5, e)
+        assert floor > 1e-3
+        x = np.sign(e) * np.array([100., 1000., 10000.])
+        far = synth.analyte_peak(x, 0., 1., shape, 1.)
+        assert far[0] < floor
+        assert far[0] > far[1] > far[2] > 0.
+        assert far[1] * 1000. == pytest.approx(far[2] * 10000., rel=0.05)
+        y = synth.analyte_peak(self._X, 0., 1., shape, 1.)
+        assert y.max() == pytest.approx(1., abs=1e-6)
+
+    def test_default_draws_are_reproducible(self):
+        # The seed alone fixes every shape; the values are pinned so a
+        # change in the order of the draws shows.
+        d = synth.erb_signal(1800, 'many', 0, 0.02,
+                             np.random.default_rng(7))
+        analytes = d['peaks'][2:]
+        np.testing.assert_allclose(
+            [p['tailing_factor'] for p in analytes],
+            [1.26674689, 1.08002844, 1.673528, 1.2186414, 1.40167753,
+             1.16233298, 1.02971691, 1.09269172], rtol=1e-7)
+        np.testing.assert_allclose(
+            [p['height'] for p in analytes],
+            [4.1722771142, 1.3642427112, 2.7562284656, 2.9767520474,
+             3.9932397897, 0.3123303581, 4.9543751708, 0.4946019617],
+            rtol=1e-9)
+        for p in analytes:
+            assert p['shape']['model'] == 'emg'
+            assert p['tau'] == pytest.approx(
+                p['shape']['tau_ratio'] * p['sigma'])
+
+    @pytest.mark.parametrize('model', ['emg', 'pearson7'])
+    def test_default_tailing_follows_its_distribution(self, model):
+        # One plus a log-normal of median TF_EXCESS_MEDIAN; only a
+        # Pearson VII fronts, at FRONTING_SHARE.
+        rng = np.random.default_rng(1)
+        shapes = dict(synth.DEFAULT_SHAPES, model=model)
+        drawn = [synth.draw_shape(rng, shapes) for _ in range(400)]
+        tf = np.array([synth.shape_tailing_factor(s) for s in drawn])
+        assert np.median(tf) == pytest.approx(
+            1. + synth.TF_EXCESS_MEDIAN, abs=0.03)
+        assert np.std(np.log(tf[tf > 1.] - 1.)) == pytest.approx(
+            synth.TF_EXCESS_LOG_SIGMA, abs=0.1)
+        fronting = np.mean(tf < 1.)
+        if model == 'emg':
+            assert fronting == 0.
+        else:
+            assert 0.005 < fronting < 0.04
+            log_m = np.log10([s['m'] for s in drawn])
+            lo, hi = np.log10(synth.PEARSON7_M_RANGE)
+            assert lo <= log_m.min() and log_m.max() <= hi
+            assert log_m.mean() == pytest.approx((lo + hi) / 2., abs=0.06)
+
+    def test_default_heights_follow_their_distribution(self):
+        # Log-normal of median HEIGHT_MEDIAN and log-spread
+        # HEIGHT_LOG_SIGMA; at 0.02 mV the floor cuts almost nothing.
+        rng = np.random.default_rng(3)
+        h = np.array([synth.draw_height(rng, 0.02) for _ in range(400)])
+        assert np.median(h) == pytest.approx(synth.HEIGHT_MEDIAN, rel=0.15)
+        assert np.std(np.log(h)) == pytest.approx(synth.HEIGHT_LOG_SIGMA,
+                                                  abs=0.1)
+
+    def test_heights_are_cut_at_the_snr_floor(self):
+        # With a median of 2 mV and a noise of 1 mV the floor, 3 mV, sits
+        # above the median, so most draws land just over it, in the share
+        # the cut log-normal gives: 0.659 of them below twice the floor.
+        rng = np.random.default_rng(5)
+        h = np.array([synth.draw_height(rng, 1., (2., 0.9))
+                      for _ in range(2000)])
+        assert h.min() >= synth.MIN_SNR
+        assert np.mean(h < 2. * synth.MIN_SNR) == pytest.approx(0.659,
+                                                                abs=0.035)
+        d = synth.erb_signal(3000, 'many', 1, 0.05,
+                             np.random.default_rng(9))
+        assert d['meta']['height_min_sigma'] >= synth.MIN_SNR
+        assert d['meta']['height_min_sigma'] == pytest.approx(
+            min(p['height'] for p in d['peaks'][2:]) / 0.05)
+
+    @pytest.mark.parametrize('heights', [(0.01, 0.1), (1., 0.2)])
+    def test_a_floor_far_above_the_median_stays_finite(self, heights):
+        # The floor, 3 mV, sits 57 and 5.5 log-standard deviations above
+        # the median: every height lands just over it.
+        rng = np.random.default_rng(17)
+        h = np.array([synth.draw_height(rng, 1., heights)
+                      for _ in range(200)])
+        assert np.all(np.isfinite(h))
+        assert h.min() >= 3. and h.max() < 4.5
+
+    def test_the_height_draw_reaches_the_analytes(self):
+        d = synth.erb_signal(3000, 'many', 1, 0.02,
+                             np.random.default_rng(9), heights=(30., 0.1))
+        h = [p['height'] for p in d['peaks'][2:]]
+        assert h
+        assert 20. < min(h) and max(h) < 45.
+
+    @pytest.mark.parametrize('args', [
+        ['--height-median', '0'],
+        ['--height-log-sigma', '-1'],
+    ])
+    def test_the_parser_refuses_a_non_positive_height_draw(self, args,
+                                                           tmp_path,
+                                                           monkeypatch):
+        monkeypatch.setattr(sys, 'argv', ['synth_dataset.py',
+                                          str(tmp_path / 'SET')] + args)
+        with pytest.raises(SystemExit):
+            synth.main()
+        assert not (tmp_path / 'SET').exists()
+
+    def test_a_height_takes_one_draw(self):
+        # One uniform per height, so the draws after it do not move.
+        a, b = np.random.default_rng(13), np.random.default_rng(13)
+        synth.draw_height(a, 0.05)
+        b.uniform()
+        assert a.uniform() == b.uniform()
+
+    def test_models_share_everything_but_the_shapes(self):
+        # Shapes and noise draw from streams of their own, so the same
+        # seed gives the same dead time, peaks and noise in every model.
+        made = {m: synth.erb_signal(3000, 'many', 2, 0.05,
+                                    np.random.default_rng(11),
+                                    shapes=dict(synth.DEFAULT_SHAPES,
+                                                model=m))
+                for m in synth.PEAK_MODELS}
+        ref = made['emg']
+        for m, d in made.items():
+            np.testing.assert_array_equal(d['noise'], ref['noise'])
+            np.testing.assert_array_equal(d['baseline'], ref['baseline'])
+            assert d['meta']['dead_time'] == ref['meta']['dead_time']
+            assert ([p['height'] for p in d['peaks'][2:]]
+                    == [p['height'] for p in ref['peaks'][2:]])
+            assert {p['shape']['model'] for p in d['peaks'][2:]} == {m}
+
+    def test_emg_factors_match_independent_values(self):
+        # tau/sigma = 1.2, computed apart from the generator.
+        tf, a_s = synth.shape_factors({'model': 'emg', 'tau_ratio': 1.2})
+        assert tf == pytest.approx(1.3095, abs=1e-4)
+        assert a_s == pytest.approx(1.4935, abs=1e-4)
+        y = synth.analyte_peak(self._X, 0., 1.,
+                               {'model': 'emg', 'tau_ratio': 1.2}, 1.)
+        assert synth.asymmetry_factor(self._X, y) == pytest.approx(
+            a_s, abs=1e-4)
+
+    @pytest.mark.parametrize('e', [-0.2, 0., 0.25])
+    def test_pearson7_apex_is_at_its_centre(self, e):
+        y = synth.analyte_peak(self._X, 3., 1.,
+                               {'model': 'pearson7', 'm': 3.5, 'e': e}, 2.)
+        apex, _, _ = synth._crossings(self._X, y, 0.5)
+        assert apex == pytest.approx(3., abs=1e-3)
+        assert y.max() == pytest.approx(2., rel=1e-6)
+
+    @pytest.mark.parametrize('shape', [
+        {'model': 'pearson7', 'm': 3.5, 'e': 0.2},
+        {'model': 'gaussian'},
+    ])
+    def test_profiles_match_one_peak_at_a_time(self, shape):
+        t = np.linspace(0., 20., 2001)
+        centres, sigmas = np.array([5., 9.]), np.array([0.3, 0.6])
+        rows = synth._profiles(t, centres, sigmas, shape)
+        for row, c, s in zip(rows, centres, sigmas):
+            np.testing.assert_allclose(
+                row / row.max(), synth.analyte_peak(t, c, s, shape, 1.),
+                atol=1e-12)
+
+    def test_a_range_out_of_reach_raises(self):
+        shapes = dict(synth.DEFAULT_SHAPES, tailing_factor=(0.5, 0.9))
+        with pytest.raises(ValueError, match='front'):
+            synth.draw_shape(np.random.default_rng(0), shapes)
+
+    @pytest.mark.parametrize('tf', [0.3, 40.])
+    def test_pearson7_refuses_a_tailing_factor_out_of_reach(self, tf):
+        with pytest.raises(ValueError, match='out of reach'):
+            synth.shape_for_tf('pearson7', tf, 3.5)
+
+    @pytest.mark.parametrize('model, tf', [
+        ('emg', (1.3, 1.6)), ('pearson7', (0.8, 1.5)), ('gaussian', None),
+    ])
+    def test_recorded_tailing_factors_follow_the_asked_range(self, model,
+                                                             tf):
+        shapes = dict(synth.DEFAULT_SHAPES, model=model, tailing_factor=tf)
+        d = synth.erb_signal(6000, 'many', 0, 0.02,
+                             np.random.default_rng(2), shapes=shapes)
+        analytes = d['peaks'][2:]
+        assert analytes
+        lo, hi = tf if tf else (1., 1.)
+        for p in analytes:
+            assert p['shape']['model'] == model
+            assert lo - 1e-6 <= p['tailing_factor'] <= hi + 1e-6
+        assert d['meta']['peak_model'] == model
+
+    @pytest.mark.parametrize('args', [
+        ['--peak-model', 'emg', '--tailing-factor', '0.9', '1.2'],
+        ['--peak-model', 'gaussian', '--tailing-factor', '1', '1.2'],
+        ['--tailing-factor', '1.5', '1.2'],
+        ['--pearson-m', '3', '10'],
+        ['--peak-model', 'pearson7', '--tailing-factor', '0.3', '0.6'],
+    ])
+    def test_the_parser_refuses_impossible_shapes(self, args, tmp_path,
+                                                  monkeypatch):
+        monkeypatch.setattr(sys, 'argv', ['synth_dataset.py',
+                                          str(tmp_path / 'SET')] + args)
+        with pytest.raises(SystemExit):
+            synth.main()
+        assert not (tmp_path / 'SET').exists()
+
+
 class TestRate:
     def test_default_rate_is_120(self):
         a = synth.erb_signal(1500, 'few', 0, 0.02, np.random.default_rng(5))
@@ -360,16 +619,23 @@ class TestRate:
 
 class TestNamesAndManifest:
     def test_stem_puts_the_padded_replicate_before_the_length(self):
-        stem = synth.signal_stem('erb', 'many', 'step', 'typ', 3, 1874, 2)
-        assert stem == 'SYN__erb__many__step__typ__03__1874'
+        stem = synth.signal_stem('erb', 'many', 'emg', 'step', 'typ', 3,
+                                 1874, 2)
+        assert stem == 'SYN__erb__many__emg__step__typ__03__1874'
+
+    def test_stem_names_the_peak_model_after_the_peak_case(self):
+        stem = synth.signal_stem('erb', 'few', 'pearson7', 'exp', 'high',
+                                 0, 900, 2)
+        assert stem.split('__')[2:4] == ['few', 'pearson7']
 
     def test_padding_follows_the_widest_replicate(self):
-        assert synth.signal_stem('erb', 'few', 'exp', 'high', 3, 900,
-                                 1).endswith('__3__900')
+        assert synth.signal_stem('erb', 'few', 'gaussian', 'exp', 'high', 3,
+                                 900, 1).endswith('__3__900')
 
     def test_manifest_row_matches_its_columns(self):
         d = synth.erb_signal(900, 'few', 0, 0.02, np.random.default_rng(1))
-        stem = synth.signal_stem('erb', 'few', 'parabola', 'typ', 0, 900, 2)
+        stem = synth.signal_stem('erb', 'few', 'emg', 'parabola', 'typ', 0,
+                                 900, 2)
         row = synth.manifest_row(stem, 'erb', 'few', 'parabola', 'typ',
                                  900, 0, d).split(',')
         assert len(row) == len(synth.MANIFEST_COLUMNS)
@@ -465,6 +731,22 @@ class TestMain:
         n_rows = len(manifest.read_text().splitlines()) - 1
         assert n_rows == len(list((out / 'signals').glob('*.txt')))
         assert 'replicates=1' in provenance.read_text()
+
+    def test_height_flags_reach_the_set(self, tmp_path, monkeypatch):
+        out = tmp_path / 'SET'
+        monkeypatch.setattr(sys, 'argv', [
+            'synth_dataset.py', str(out), '--no-plot',
+            '--height-median', '30', '--height-log-sigma', '0.1'])
+        synth.main()
+        heights = [p['height']
+                   for f in (out / 'truth').glob('*__truth.npz')
+                   for p in json.loads(str(np.load(f)['peaks']))
+                   if not p['artifact']]
+        assert heights
+        assert 20. < min(heights) and max(heights) < 45.
+        text = (out / 'PROVENANCE.txt').read_text()
+        assert 'height_median=30' in text
+        assert 'height_log_sigma=0.1' in text
 
     def test_refuses_a_non_empty_directory(self, tmp_path, monkeypatch):
         (tmp_path / 'old.txt').write_text('x')

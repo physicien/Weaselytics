@@ -7,11 +7,15 @@ true baseline is saved beside the signal, so a baseline estimate can be
 scored against it.
 
 In the peak component, a positive spike followed by a negative
-undershoot marks the injection at the dead time. The analytes are
-exponentially-modified Gaussian peaks whose widths follow the plate
-model, sigma = tR / sqrt(N) (Snyder, Kirkland & Dolan 2009, Eqs. 2.9b
-and 2.10). They elute after the injection artifact, return to the noise
-before the record ends, and keep a resolution of at least 1 between
+undershoot marks the injection at the dead time. The analytes take the
+shape `--peak-model` names, an exponentially-modified Gaussian by
+default, a modified Pearson VII or a Gaussian, with widths following
+the plate model, sigma = tR / sqrt(N) (Snyder, Kirkland & Dolan 2009,
+Eqs. 2.9b and 2.10). Each analyte draws its tailing factor, by
+default as one plus a log-normal variate, so that most tail a little
+and a few strongly; `--tailing-factor` draws it uniformly in a range instead.
+They elute after the injection artifact, return to the noise before
+the record ends, and keep a resolution of at least 1 between
 neighbours. Blanks hold only the artifact. The ranges of plate number,
 dead time and noise were picked for this benchmark.
 
@@ -32,6 +36,8 @@ must be new or empty.
 Usage
 -----
 python tools/synthetic/synth_dataset.py OUTPUT_DIR [--seed 0]
+    [--peak-model emg|pearson7|gaussian] [--tailing-factor LO HI]
+    [--pearson-m LO HI]
 """
 
 import argparse
@@ -50,8 +56,11 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scipy  # noqa: E402
-from scipy.optimize import brentq  # noqa: E402
+from scipy.optimize import brentq, minimize_scalar  # noqa: E402
+from scipy.special import erfc, erfcx, log_ndtr, ndtri_exp  # noqa: E402
 from scipy.stats import exponnorm, skewnorm  # noqa: E402
+
+from weaselytics.peakfitting import pearson7  # noqa: E402
 
 PEAK_CASES = {
     # (fewest, most) analytes, the count drawn per signal. Every case
@@ -72,6 +81,24 @@ PLATE_NUMBER_RANGE = (2000., 14000.)
 # picked for this benchmark. 'typ' is the reference level and 'high',
 # two and a half times larger, gives noisier records.
 NOISE_CASES = {'typ': 0.02, 'high': 0.05}
+# Height of an analyte, mV: log-normal, with the median and the standard
+# deviation of its logarithm below, picked for this benchmark;
+# `--height-median` and `--height-log-sigma` set others. Half the heights
+# fall between about 1.5 and 5.9 mV, and one in twenty is above about
+# 16 mV. For reference, Davis (2021, §2.5) builds synthetic
+# chromatograms with log-normal amplitudes of log-standard deviation 0.5
+# and 1.5. No height is drawn below `MIN_SNR` noise standard deviations:
+# MacDougall et al. (1980, Eq. (9)) place the limit of detection three
+# standard deviations of the blank above it. Snyder, Kirkland & Dolan
+# (2009, §11.2.5.1) call S/N = 3 a commonly accepted definition of the
+# limit of detection. They measure the noise peak to peak (§4.2.3.1,
+# Fig. 4.7), which is larger than the standard deviation, so their limit
+# sits above this floor.
+HEIGHT_MEDIAN = 3.0
+HEIGHT_LOG_SIGMA = 1.0
+MIN_SNR = 3.
+# The height draw, as (median, log-standard deviation); see `draw_height`.
+DEFAULT_HEIGHTS = (HEIGHT_MEDIAN, HEIGHT_LOG_SIGMA)
 # Default points per minute, picked for this benchmark: two samples per
 # second. `--rate` sets another.
 PTS_PER_MIN = 120
@@ -80,6 +107,34 @@ PTS_PER_MIN = 120
 ARTIFACT_FWHM_MIN = (6. / PTS_PER_MIN, 10. / PTS_PER_MIN)
 
 _FWHM_PER_SIGMA = 2.3548
+
+# Shapes of the analyte peaks, chosen with `--peak-model`. Every model
+# takes its width from the plate model; see `analyte_peak`.
+PEAK_MODELS = ('emg', 'pearson7', 'gaussian')
+# Tailing factor of an analyte, drawn per peak when no range is asked
+# for: one plus a log-normal variate, with the median and the standard
+# deviation of its logarithm given below. A Pearson VII analyte fronts
+# instead, at one minus the variate, with the probability below; an EMG
+# cannot. The values were picked for this benchmark: half the tailing
+# factors fall between about 1.08 and 1.22, and about one in seven is
+# above 1.3. For reference, Snyder, Kirkland & Dolan (2009, §2.4.2) call
+# tailing up to 1.2 minor, usually reducible to 1.5 or less, and give 2
+# as a common limit for routine separations.
+TF_EXCESS_MEDIAN = 0.13
+TF_EXCESS_LOG_SIGMA = 0.77
+FRONTING_SHARE = 0.02
+# Shape parameter of a Pearson VII analyte, drawn log-uniformly, so that
+# heavy tails and the near-Gaussian limit are equally likely per decade.
+# Picked for this benchmark: a low m gives heavy, Lorentzian-like tails
+# and a high m nearly Gaussian peaks. For reference, Niezen et al. (2022,
+# Table 2) kept m from 3.5 to 51 from their fits, and Milani et al.
+# (2024, §3.1.3) bound it between 1 and 1000.
+PEARSON7_M_RANGE = (4., 1000.)
+# The peak shapes of a dataset: the model, the range the tailing factor
+# of each analyte is drawn in uniformly (None draws it as above), and
+# the range of the Pearson VII shape parameter.
+DEFAULT_SHAPES = {'model': 'emg', 'tailing_factor': None,
+                  'pearson_m': PEARSON7_M_RANGE}
 
 # Quantization step of the detector, in mV, picked for this benchmark.
 ADC_STEP_MV = 0.008996
@@ -140,6 +195,574 @@ def emg_peak(t: np.ndarray, tc: float, sigma: float, tau: float,
     if peak_max <= 0:
         return np.zeros(len(t))
     return height * shape / peak_max
+
+
+def pearson7_width(sigma: float, m: float) -> float:
+    """
+    Width parameter of a symmetric Pearson VII with a Gaussian's FWHM.
+
+    `peakfitting.pearson7` falls to half its height at
+    ``w sqrt(m (2**(1/m) - 1))`` from the centre when its asymmetry is
+    zero, so this `w` gives it the FWHM of a Gaussian of standard
+    deviation `sigma`.
+
+    Parameters
+    ----------
+    sigma : float
+        Standard deviation of the Gaussian, as the plate model gives it.
+    m : float
+        Shape parameter of the Pearson VII, greater than 0.
+
+    Returns
+    -------
+    w : float
+        The width parameter.
+
+    """
+    return sigma * _FWHM_PER_SIGMA / (2. * np.sqrt(m * (2. ** (1. / m) - 1.)))
+
+
+def pearson7_floor(m: float, e: float) -> float:
+    """
+    Height at which the modified Pearson VII levels off on its long side.
+
+    With an asymmetry `e` other than zero, the term ``x / (w + e x)`` in
+    `peakfitting.pearson7` tends to ``1 / e`` far from the centre, so the
+    profile tends to ``(1 + 1 / (m e**2))**(-m)`` of its height instead
+    of zero: after the peak when `e` > 0, before it when `e` < 0.
+
+    Parameters
+    ----------
+    m, e : float
+        Shape and asymmetry parameters.
+
+    Returns
+    -------
+    floor : float
+        The limit, as a fraction of the height; 0 when `e` is 0.
+
+    """
+    if e == 0.:
+        return 0.
+    return float((1. + 1. / (m * e * e)) ** (-m))
+
+
+def pearson7_peak(t: np.ndarray, tc: float, sigma: float, m: float,
+                  e: float, height: float) -> np.ndarray:
+    """
+    Evaluate a modified Pearson VII peak that tends to zero.
+
+    The profile is `peakfitting.pearson7` with the width of
+    `pearson7_width`, less its `pearson7_floor`, rescaled to keep its
+    height and clipped at zero. The short side ends where the fitted
+    function falls to the floor; the long side tends to zero as the
+    inverse of the distance from the apex. The apex stays at `tc`.
+
+    Parameters
+    ----------
+    t : array-like, shape (N,)
+        Time axis.
+    tc : float
+        Apex.
+    sigma : float
+        Standard deviation of the Gaussian whose FWHM the symmetric
+        profile has; see `pearson7_width`.
+    m : float
+        Shape parameter, greater than 0: near 1 a Lorentzian, large a
+        Gaussian.
+    e : float
+        Asymmetry parameter: positive tails, negative fronts.
+    height : float
+        Peak maximum.
+
+    Returns
+    -------
+    y : numpy.ndarray, shape (N,)
+        The peak profile.
+
+    Notes
+    -----
+    Removing the floor changes the profile by at most the floor itself,
+    as a fraction of the height. It is below 0.5% for ``m`` above 3.5
+    and ``e`` below 0.28; at ``m = 1`` and ``e = 0.3`` it is 8%, and the
+    shape departs visibly from the fitted function.
+    The long side still falls slowly: at a low `m` and a large `e`, it
+    stays above 0.1% of the height a hundred sigmas from the apex.
+
+    """
+    floor = pearson7_floor(m, e)
+    y = pearson7(np.asarray(t, dtype=float),
+                 [1., tc, pearson7_width(sigma, m), m, e])
+    return height * np.clip((y - floor) / (1. - floor), 0., None)
+
+
+def analyte_peak(t: np.ndarray, tc: float, sigma: float, shape: dict,
+                 height: float) -> np.ndarray:
+    """
+    Evaluate one analyte peak in the model its `shape` names.
+
+    Parameters
+    ----------
+    t : array-like, shape (N,)
+        Time axis.
+    tc : float
+        Centre: of the Gaussian component for ``emg``, the apex
+        otherwise.
+    sigma : float
+        Standard deviation of the plate model at the peak's place. It is
+        the Gaussian component's for ``emg``, and sets the FWHM of the
+        symmetric profile for ``pearson7``.
+    shape : dict
+        ``model``, one of `PEAK_MODELS`, with ``tau_ratio`` for
+        ``emg`` and ``m`` and ``e`` for ``pearson7``; see `draw_shape`.
+    height : float
+        Peak maximum.
+
+    Returns
+    -------
+    y : numpy.ndarray, shape (N,)
+        The peak profile.
+
+    """
+    model = shape['model']
+    if model == 'emg':
+        return emg_peak(t, tc, sigma, shape['tau_ratio'] * sigma, height)
+    if model == 'pearson7':
+        return pearson7_peak(t, tc, sigma, shape['m'], shape['e'], height)
+    if model == 'gaussian':
+        return height * np.exp(-0.5 * ((np.asarray(t) - tc) / sigma) ** 2)
+    raise ValueError(f'unknown peak model {model!r}')
+
+
+def _profiles(t: np.ndarray, centres: np.ndarray, sigmas: np.ndarray,
+              shape: dict) -> np.ndarray:
+    """
+    Unscaled profiles of one analyte at several candidate centres.
+
+    Parameters
+    ----------
+    t : numpy.ndarray, shape (N,)
+        Time axis.
+    centres, sigmas : numpy.ndarray, shape (K,)
+        Candidate centres and the sigma at each.
+    shape : dict
+        As in `analyte_peak`.
+
+    Returns
+    -------
+    y : numpy.ndarray, shape (K, N)
+        One profile per row, each proportional to the peak.
+
+    """
+    model = shape['model']
+    if model == 'emg':
+        return exponnorm.pdf(t[None, :], K=max(shape['tau_ratio'], 1e-3),
+                             loc=centres[:, None], scale=sigmas[:, None])
+    return np.array([analyte_peak(t, c, s, shape, 1.)
+                     for c, s in zip(centres, sigmas)])
+
+
+def _crossings(t: np.ndarray, y: np.ndarray, frac: float
+               ) -> tuple[float, float, float]:
+    """
+    Measure the apex of a sampled peak and where it crosses a level.
+
+    The apex is refined by a parabola through the three samples around
+    the maximum; each crossing is interpolated linearly between the two
+    samples that bracket `frac` of the maximum.
+
+    Parameters
+    ----------
+    t : numpy.ndarray, shape (N,)
+        Time axis, minutes.
+    y : numpy.ndarray, shape (N,)
+        Noise-free, single-peaked profile.
+    frac : float
+        The level, as a fraction of the maximum, between 0 and 1.
+
+    Returns
+    -------
+    apex, left, right : float
+        Apex time and the times where the profile crosses the level on
+        either side, minutes. A crossing beyond the record is reported
+        at its end.
+
+    """
+    k = int(np.argmax(y))
+    apex = t[k]
+    if 0 < k < len(y) - 1:
+        denom = y[k - 1] - 2. * y[k] + y[k + 1]
+        if denom < 0:
+            apex += 0.5 * (y[k - 1] - y[k + 1]) / denom * (t[1] - t[0])
+    level = frac * y[k]
+    below = np.nonzero(y[:k] < level)[0]
+    if below.size:
+        i = below[-1]
+        left = t[i] + (level - y[i]) / (y[i + 1] - y[i]) * (t[i + 1] - t[i])
+    else:
+        left = t[0]
+    below = np.nonzero(y[k:] < level)[0]
+    if below.size:
+        i = k + below[0]
+        right = t[i - 1] + ((y[i - 1] - level) / (y[i - 1] - y[i])
+                            * (t[i] - t[i - 1]))
+    else:
+        right = t[-1]
+    return float(apex), float(left), float(right)
+
+
+def tailing_factor(t: np.ndarray, y: np.ndarray) -> float:
+    """
+    Tailing factor of a sampled peak, ``(A + B) / 2A`` at 5% height.
+
+    A and B are the distances from the apex to the leading and the
+    trailing edge at 5% of the height (Snyder, Kirkland & Dolan 2009,
+    §2.4.2, Fig. 2.16a): 1 for a symmetric peak, above 1 for tailing,
+    below 1 for fronting.
+
+    Parameters
+    ----------
+    t, y : numpy.ndarray, shape (N,)
+        Time axis and noise-free, single-peaked profile.
+
+    Returns
+    -------
+    tf : float
+        The tailing factor. Biased when the profile does not fall to 5%
+        on both sides within the record, and biased low on a peak with
+        few samples per sigma, where the linear interpolation of the
+        crossings cuts the curvature of the tail; `shape_factors` gives
+        the value free of sampling.
+
+    """
+    apex, left, right = _crossings(t, y, 0.05)
+    return (right - left) / (2. * (apex - left))
+
+
+def asymmetry_factor(t: np.ndarray, y: np.ndarray) -> float:
+    """
+    Asymmetry factor of a sampled peak, ``B / A`` at 10% height.
+
+    A and B as in `tailing_factor`, at 10% of the height (Snyder,
+    Kirkland & Dolan 2009, §2.4.2, Fig. 2.16a).
+
+    Parameters
+    ----------
+    t, y : numpy.ndarray, shape (N,)
+        Time axis and noise-free, single-peaked profile.
+
+    Returns
+    -------
+    a_s : float
+        The asymmetry factor. Biased as `tailing_factor` is, at 10% of
+        the height.
+
+    """
+    apex, left, right = _crossings(t, y, 0.10)
+    return (right - apex) / (apex - left)
+
+
+def _unit_profile(shape: dict):
+    """
+    Profile of a peak shape at unit sigma and its apex.
+
+    Parameters
+    ----------
+    shape : dict
+        As in `analyte_peak`.
+
+    Returns
+    -------
+    f : callable
+        The profile as a function of a scalar time, in sigmas from the
+        centre of `analyte_peak`.
+    apex : float
+        Time of its maximum, found by bounded minimization for ``emg``.
+
+    """
+    model = shape['model']
+    if model == 'pearson7':
+        return (lambda x: pearson7_peak(np.atleast_1d(x), 0., 1., shape['m'],
+                                        shape['e'], 1.)[0]), 0.
+    if model == 'emg':
+        k = max(shape['tau_ratio'], 1e-3)
+
+        def f(x):
+            """
+            `scipy.stats.exponnorm` density at unit scale, evaluated
+            directly: `scipy.stats.exponnorm.pdf` costs far more per
+            scalar call. The scaled complementary error function keeps
+            it finite far in the tail.
+            """
+            z = (1. / k - x) / np.sqrt(2.)
+            if z > 0.:
+                return float(np.exp(-0.5 * x * x) * erfcx(z) / (2. * k))
+            return float(np.exp(0.5 / (k * k) - x / k) * erfc(z) / (2. * k))
+        res = minimize_scalar(lambda x: -f(x), bounds=(-3., 3. + k),
+                              method='bounded',
+                              options={'xatol': 1e-10})
+        return f, float(res.x)
+    if model == 'gaussian':
+        return (lambda x: float(np.exp(-0.5 * x * x))), 0.
+    raise ValueError(f'unknown peak model {model!r}')
+
+
+def _shape_edges(shape: dict, fracs: tuple[float, ...]
+                 ) -> tuple[float, list[tuple[float, float]]]:
+    """
+    Apex of a peak shape at unit sigma and its crossings of levels.
+
+    Parameters
+    ----------
+    shape : dict
+        As in `analyte_peak`.
+    fracs : tuple of float
+        The levels, as fractions of the height.
+
+    Returns
+    -------
+    apex : float
+        Time of the maximum, in sigmas.
+    edges : list of (float, float)
+        For each level, the crossings before and after the apex, found by
+        root finding.
+
+    """
+    f, apex = _unit_profile(shape)
+
+    def edge(step, level):
+        """The crossing of `level` on the side `step` points to."""
+        near, far = apex, apex + step
+        while f(far) >= level:
+            near, far = far, far + 2. * (far - near)
+        return brentq(lambda x: f(x) - level, min(near, far),
+                      max(near, far), xtol=1e-12)
+
+    top = f(apex)
+    return apex, [(edge(-1., q * top), edge(1., q * top)) for q in fracs]
+
+
+def shape_factors(shape: dict) -> tuple[float, float]:
+    """
+    Tailing and asymmetry factors of a peak shape, free of sampling.
+
+    Both are ratios of distances, so they do not depend on the width or
+    the height of the peak: they are solved here at unit sigma, each
+    crossing found by root finding rather than read off a sampled
+    profile as `tailing_factor` and `asymmetry_factor` do.
+
+    Parameters
+    ----------
+    shape : dict
+        As in `analyte_peak`.
+
+    Returns
+    -------
+    tf, a_s : float
+        The tailing factor at 5% and the asymmetry factor at 10% of the
+        height, as defined in `tailing_factor` and `asymmetry_factor`.
+
+    """
+    apex, ((left, right), (left10, right10)) = _shape_edges(
+        shape, (0.05, 0.10))
+    return ((right - left) / (2. * (apex - left)),
+            (right10 - apex) / (apex - left10))
+
+
+def shape_tailing_factor(shape: dict) -> float:
+    """
+    Tailing factor of a peak shape, free of sampling.
+
+    Parameters
+    ----------
+    shape : dict
+        As in `analyte_peak`.
+
+    Returns
+    -------
+    tf : float
+        The tailing factor; see `shape_factors`.
+
+    """
+    apex, ((left, right),) = _shape_edges(shape, (0.05,))
+    return (right - left) / (2. * (apex - left))
+
+
+def shape_for_tf(model: str, tf: float, m: float | None = None) -> dict:
+    """
+    The shape of a model that has a given tailing factor.
+
+    Solved by root finding on `shape_tailing_factor`: over the tail time
+    constant for ``emg``, over the asymmetry at the given `m` for
+    ``pearson7``.
+
+    Parameters
+    ----------
+    model : str
+        ``emg`` or ``pearson7``.
+    tf : float
+        Target tailing factor. At least 1 for ``emg``, which cannot
+        front.
+    m : float, optional
+        Shape parameter of ``pearson7``. Required for that model.
+
+    Returns
+    -------
+    shape : dict
+        As in `analyte_peak`.
+
+    Raises
+    ------
+    ValueError
+        If `tf` is out of the model's reach: below 1 for ``emg``, or
+        beyond what an asymmetry of magnitude 0.99 gives for
+        ``pearson7`` at this `m`, below about 0.51 at any `m`.
+
+    Notes
+    -----
+    A ``pearson7`` tailing factor above about 2.5 at ``m = 3.5`` or 2.0
+    at ``m = 51``, or below about 0.63 at ``m = 3.5`` or 0.67 at
+    ``m = 51``, needs an asymmetry of magnitude above 0.28, beyond the
+    range Niezen et al. (2022, Table 2) kept from their fits of
+    experimental peaks. Its floor, removed in `pearson7_peak`, grows
+    with it.
+
+    """
+    if model == 'emg':
+        if tf < 1.:
+            raise ValueError('an EMG peak cannot front: tailing factor '
+                             f'{tf} < 1')
+
+        def gap(r):
+            return shape_tailing_factor({'model': 'emg',
+                                         'tau_ratio': r}) - tf
+        lo, hi = 1e-3, 1.
+        if gap(lo) >= 0.:
+            return {'model': 'emg', 'tau_ratio': lo}
+        while gap(hi) < 0.:
+            lo, hi = hi, 2. * hi
+            if hi > 1e3:
+                raise ValueError(f'tailing factor {tf} is out of reach')
+        return {'model': 'emg',
+                'tau_ratio': brentq(gap, lo, hi, xtol=1e-10)}
+    if model == 'pearson7':
+        if m is None:
+            raise ValueError('pearson7 needs its shape parameter m')
+        if tf == 1.:
+            return {'model': 'pearson7', 'm': m, 'e': 0.}
+
+        def gap_e(e):
+            return shape_tailing_factor({'model': 'pearson7', 'm': m,
+                                         'e': e}) - tf
+        far = 0.99 if tf > 1. else -0.99
+        if np.sign(gap_e(far)) == np.sign(gap_e(0.)):
+            raise ValueError(f'tailing factor {tf} is out of reach of a '
+                             f'Pearson VII with m = {m}')
+        return {'model': 'pearson7', 'm': m,
+                'e': brentq(gap_e, min(0., far), max(0., far), xtol=1e-12)}
+    raise ValueError(f'no tailing factor for peak model {model!r}')
+
+
+def draw_shape(rng: np.random.Generator, shapes: dict) -> dict:
+    """
+    Draw the shape of one analyte.
+
+    ``gaussian`` draws nothing. ``pearson7`` first draws its shape
+    parameter log-uniformly in ``shapes['pearson_m']``. Both asymmetric
+    models then draw a tailing factor, uniformly in
+    ``shapes['tailing_factor']`` when it gives a range, else as one plus
+    a log-normal variate (`TF_EXCESS_MEDIAN`, `TF_EXCESS_LOG_SIGMA`);
+    a ``pearson7`` analyte fronts at one minus it with probability
+    `FRONTING_SHARE`. The tailing factor is converted to the model's
+    parameter with `shape_for_tf`. In the default draw a value out of
+    the model's reach is drawn again, so the distribution is cut at that
+    reach.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Source of randomness.
+    shapes : dict
+        As `DEFAULT_SHAPES`.
+
+    Returns
+    -------
+    shape : dict
+        As in `analyte_peak`.
+
+    Raises
+    ------
+    ValueError
+        If the model is unknown, or if ``shapes['tailing_factor']``
+        draws a value out of the model's reach; see `shape_for_tf`.
+
+    """
+    model, tf_range = shapes['model'], shapes['tailing_factor']
+    if model == 'gaussian':
+        return {'model': 'gaussian'}
+    if model not in ('emg', 'pearson7'):
+        raise ValueError(f'unknown peak model {model!r}')
+    m = None
+    if model == 'pearson7':
+        lo, hi = np.log10(shapes['pearson_m'])
+        m = 10. ** rng.uniform(lo, hi)
+    if tf_range is not None:
+        return shape_for_tf(model, rng.uniform(*tf_range), m)
+    while True:
+        excess = rng.lognormal(np.log(TF_EXCESS_MEDIAN), TF_EXCESS_LOG_SIGMA)
+        fronts = model == 'pearson7' and rng.random() < FRONTING_SHARE
+        try:
+            return shape_for_tf(model, 1. - excess if fronts
+                                else 1. + excess, m)
+        except ValueError:
+            continue
+
+
+def draw_height(rng: np.random.Generator, noise_sigma: float,
+                heights: tuple[float, float] = DEFAULT_HEIGHTS) -> float:
+    """
+    Draw the height of one analyte.
+
+    A log-normal variate of the median and log-standard deviation in
+    `heights`, cut below at `MIN_SNR` times `noise_sigma`, the limit of
+    detection of MacDougall et al. (1980, Eq. (9)); see `MIN_SNR`. It
+    is drawn by inverting the cumulative distribution of the cut
+    log-normal at one uniform variate, so every height takes exactly one
+    draw from `rng`.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Source of randomness.
+    noise_sigma : float
+        Standard deviation of the signal's noise, mV.
+    heights : (float, float), optional
+        Median, mV, and standard deviation of the logarithm, both
+        positive. Default `DEFAULT_HEIGHTS`.
+
+    Returns
+    -------
+    height : float
+        Peak height, mV, at least ``MIN_SNR * noise_sigma``.
+
+    Notes
+    -----
+    The floor holds for the true height against the nominal noise
+    level. Once a baseline is fitted and subtracted, the S/N measured on
+    a peak can fall below it. When the floor sits many log-standard
+    deviations above the median, nearly every height lands just over
+    the floor.
+
+    """
+    median, log_sigma = heights
+    mu = np.log(median)
+    z_floor = (np.log(MIN_SNR * noise_sigma) - mu) / log_sigma
+    # Inverted in the upper tail, in logs: the share of the log-normal
+    # above the floor, times 1 - U, keeps its digits however far the
+    # floor sits above the median.
+    log_q = log_ndtr(-z_floor) + np.log1p(-rng.uniform())
+    return float(max(np.exp(mu - log_sigma * ndtri_exp(log_q)),
+                     MIN_SNR * noise_sigma))
 
 
 ###############################################################################
@@ -332,7 +955,10 @@ def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
 
 
 def peak_component(n: int, peak_case: str, rng: np.random.Generator,
-                   noise_sigma: float, rate: float = PTS_PER_MIN
+                   noise_sigma: float, rate: float = PTS_PER_MIN,
+                   shapes: dict = DEFAULT_SHAPES,
+                   shape_rng: np.random.Generator | None = None,
+                   heights: tuple[float, float] = DEFAULT_HEIGHTS
                    ) -> tuple[np.ndarray, np.ndarray, list[dict],
                                      float, dict]:
     """
@@ -343,8 +969,8 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
 
     The component is sampled at `rate` points per minute and has a dead
     time between 2.5 and 6.5 min carrying the bipolar injection
-    artifact, exponentially-modified Gaussian analytes eluting after
-    it, and widths growing with retention time.
+    artifact, analytes eluting after it in the model `shapes` names,
+    and widths growing with retention time.
 
     Parameters
     ----------
@@ -365,6 +991,14 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
         the dead time at 2.5 min is dropped.
     rate : float, optional
         Points per minute. Default `PTS_PER_MIN`.
+    shapes : dict, optional
+        The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
+    shape_rng : numpy.random.Generator, optional
+        Source of randomness for the peak shapes alone. Default None,
+        which draws them from `rng`.
+    heights : (float, float), optional
+        The analyte height draw; see `draw_height`. Default
+        `DEFAULT_HEIGHTS`.
 
     Returns
     -------
@@ -375,10 +1009,12 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
     peaks : list of dict
         Per-peak parameters; entries with ``artifact=True`` are the
         two injection lobes, the others are analytes. Analytes also
-        carry ``apex``, ``fwhm_true_points``, ``half_left`` and
-        ``half_right``, measured on the noise-free profile: ``tc`` and
-        ``fwhm_points`` describe the Gaussian component of the EMG, not
-        the peak itself.
+        carry ``apex``, ``fwhm_true_points``, ``half_left``,
+        ``half_right``, measured on the noise-free profile, their
+        ``tailing_factor`` and ``asymmetry_factor``, from the shape,
+        free of sampling (`shape_factors`), and their ``shape``. For an
+        EMG, ``tc`` and ``fwhm_points`` describe its Gaussian component,
+        not the peak itself.
     t0 : float
         The dead time used, minutes.
     info : dict
@@ -418,7 +1054,8 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
         redraws += 1
         t0 = rng.uniform(2.5, t0_hi)
         signal, peaks, n_plates = _peak_component_at(
-            t, t0, n_peaks, peak_case, noise_sigma, rng)
+            t, t0, n_peaks, peak_case, noise_sigma, rng, shapes,
+            shape_rng, heights)
         n_placed = sum(not p['artifact'] for p in peaks)
         if n_placed == n_peaks or t0 - 2.5 < dt:
             break
@@ -430,7 +1067,10 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
 
 def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
                        peak_case: str, noise_sigma: float,
-                       rng: np.random.Generator
+                       rng: np.random.Generator,
+                       shapes: dict = DEFAULT_SHAPES,
+                       shape_rng: np.random.Generator | None = None,
+                       heights: tuple[float, float] = DEFAULT_HEIGHTS
                        ) -> tuple[np.ndarray, list[dict], float]:
     """
     Build the artifact and place the analytes for one dead time.
@@ -449,6 +1089,14 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
         Noise standard deviation; see `peak_component`.
     rng : numpy.random.Generator
         Source of randomness.
+    shapes : dict, optional
+        The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
+    shape_rng : numpy.random.Generator, optional
+        Source of randomness for the peak shapes alone. Default None,
+        which draws them from `rng`.
+    heights : (float, float), optional
+        The analyte height draw; see `draw_height`. Default
+        `DEFAULT_HEIGHTS`.
 
     Returns
     -------
@@ -486,7 +1134,8 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
         return signal, peaks, float('nan')
     specs, n_plates = _draw_analytes(t, t0, n_peaks,
                                      peak_case == 'isocratic', elute_lo,
-                                     elute_hi, rng)
+                                     elute_hi, noise_sigma, rng, shapes,
+                                     shape_rng, heights)
 
     # An analyte has eluted when its trailing edge is back in the noise.
     # A record that stops before that is impossible: the trace ends
@@ -498,29 +1147,40 @@ def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
     # dropped only when there is no such place.
     placed = []
     for spec in specs:
-        found = _place_peak(t, spec['tc'], spec['sigma_at'],
-                            spec['tau_ratio'], spec['height'], t_front,
-                            noise_sigma, placed, rng)
+        shape = spec['shape']
+        found = _place_peak(t, spec['tc'], spec['sigma_at'], shape,
+                            spec['height'], t_front, noise_sigma, placed,
+                            rng)
         if found is None:
             continue
         tc, (apex, left, right) = found
         sigma = spec['sigma_at'](tc)
-        tau = spec['tau_ratio'] * sigma
-        signal += emg_peak(t, tc, sigma, tau, spec['height'])
-        placed.append({'tc': tc, 'sigma': sigma, 'tau': tau,
-                       'height': spec['height'],
-                       'fwhm_points': sigma * _FWHM_PER_SIGMA / dt,
-                       'apex': apex,
-                       'fwhm_true_points': (right - left) / dt,
-                       'half_left': left, 'half_right': right,
-                       'artifact': spec['artifact']})
+        signal += analyte_peak(t, tc, sigma, shape, spec['height'])
+        factors = shape_factors(shape)
+        entry = {'tc': tc, 'sigma': sigma}
+        if shape['model'] == 'emg':
+            entry['tau'] = shape['tau_ratio'] * sigma
+        entry.update({'height': spec['height'],
+                      'fwhm_points': sigma * _FWHM_PER_SIGMA / dt,
+                      'apex': apex,
+                      'fwhm_true_points': (right - left) / dt,
+                      'half_left': left, 'half_right': right,
+                      'shape': shape,
+                      'tailing_factor': factors[0],
+                      'asymmetry_factor': factors[1],
+                      'artifact': spec['artifact']})
+        placed.append(entry)
     peaks += sorted(placed, key=lambda p: p['apex'])
     return signal, peaks, n_plates
 
 
 def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
                    isocratic: bool, elute_lo: float, elute_hi: float,
-                   rng: np.random.Generator) -> tuple[list[dict], float]:
+                   noise_sigma: float, rng: np.random.Generator,
+                   shapes: dict = DEFAULT_SHAPES,
+                   shape_rng: np.random.Generator | None = None,
+                   heights: tuple[float, float] = DEFAULT_HEIGHTS
+                   ) -> tuple[list[dict], float]:
     """
     Draw one analyte set: centres, width laws, tails and heights.
 
@@ -542,15 +1202,26 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
         without the per-peak jitter.
     elute_lo, elute_hi : float
         Bounds of the window the centres are drawn in, minutes.
+    noise_sigma : float
+        Noise standard deviation, mV, which sets the height floor; see
+        `draw_height`.
     rng : numpy.random.Generator
         Source of randomness.
+    shapes : dict, optional
+        The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
+    shape_rng : numpy.random.Generator, optional
+        Source of randomness for the peak shapes alone. Default None,
+        which draws them from `rng`.
+    heights : (float, float), optional
+        The analyte height draw; see `draw_height`. Default
+        `DEFAULT_HEIGHTS`.
 
     Returns
     -------
     specs : list of dict
         One per analyte, sorted by drawn centre: ``tc``, ``sigma_at``
-        (retention time to sigma), ``tau_ratio`` (tail time constant
-        over sigma), ``height`` and ``artifact=False``.
+        (retention time to sigma), ``shape`` (see `draw_shape`),
+        ``height`` (see `draw_height`) and ``artifact=False``.
     n_plates : float
         The plate number drawn for the signal.
 
@@ -583,9 +1254,9 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
             """Sigma of this analyte at retention time `x`, minutes."""
             return jitter * x / np.sqrt(n_plates)
         specs.append({'tc': tc, 'sigma_at': sigma_at,
-                      'tau_ratio': rng.uniform(0.3, 1.2),
-                      'height': np.exp(rng.uniform(np.log(1.),
-                                                   np.log(30.))),
+                      'shape': draw_shape(
+                          rng if shape_rng is None else shape_rng, shapes),
+                      'height': draw_height(rng, noise_sigma, heights),
                       'artifact': False})
     return specs, n_plates
 
@@ -613,9 +1284,7 @@ def _apex_and_half_width(t: np.ndarray, y: np.ndarray
     """
     Measure the apex and the half-maximum crossings of a sampled peak.
 
-    The apex is refined by a parabola through the three samples around
-    the maximum; each crossing is interpolated linearly between the two
-    samples that bracket half the maximum.
+    See `_crossings`, at half the maximum.
 
     Parameters
     ----------
@@ -632,27 +1301,7 @@ def _apex_and_half_width(t: np.ndarray, y: np.ndarray
         reported at its end.
 
     """
-    k = int(np.argmax(y))
-    apex = t[k]
-    if 0 < k < len(y) - 1:
-        denom = y[k - 1] - 2. * y[k] + y[k + 1]
-        if denom < 0:
-            apex += 0.5 * (y[k - 1] - y[k + 1]) / denom * (t[1] - t[0])
-    half = 0.5 * y[k]
-    below = np.nonzero(y[:k] < half)[0]
-    if below.size:
-        i = below[-1]
-        left = t[i] + (half - y[i]) / (y[i + 1] - y[i]) * (t[i + 1] - t[i])
-    else:
-        left = t[0]
-    below = np.nonzero(y[k:] < half)[0]
-    if below.size:
-        i = k + below[0]
-        right = t[i - 1] + ((y[i - 1] - half) / (y[i - 1] - y[i])
-                            * (t[i] - t[i - 1]))
-    else:
-        right = t[-1]
-    return float(apex), float(left), float(right)
+    return _crossings(t, y, 0.5)
 
 
 def _resolution(a: tuple[float, float, float],
@@ -676,7 +1325,7 @@ def _resolution(a: tuple[float, float, float],
     return 1.18 * abs(b[0] - a[0]) / ((a[2] - a[1]) + (b[2] - b[1]))
 
 
-def _place_peak(t: np.ndarray, tc: float, sigma_at, tau_ratio: float,
+def _place_peak(t: np.ndarray, tc: float, sigma_at, shape: dict,
                 height: float, t_front: float, noise_sigma: float,
                 placed: list[dict], rng: np.random.Generator
                 ) -> tuple[float, tuple[float, float, float]] | None:
@@ -699,8 +1348,8 @@ def _place_peak(t: np.ndarray, tc: float, sigma_at, tau_ratio: float,
         Drawn retention time, minutes.
     sigma_at : callable
         Maps a retention time to the peak's sigma, minutes.
-    tau_ratio : float
-        Tail time constant over sigma.
+    shape : dict
+        The peak's shape, see `analyte_peak`.
     height : float
         Peak maximum.
     t_front : float
@@ -737,10 +1386,9 @@ def _place_peak(t: np.ndarray, tc: float, sigma_at, tau_ratio: float,
         apex and half-maximum crossings.
         """
         sigma = np.array([sigma_at(x) for x in c])
-        shape = exponnorm.pdf(t[None, :], K=max(tau_ratio, 1e-3),
-                              loc=c[:, None], scale=sigma[:, None])
-        peak_max = shape.max(axis=1)
-        y = height * shape / np.where(peak_max > 0, peak_max, 1.)[:, None]
+        prof = _profiles(t, c, sigma, shape)
+        peak_max = prof.max(axis=1)
+        y = height * prof / np.where(peak_max > 0, peak_max, 1.)[:, None]
         ok = (peak_max > 0) & (y[:, -1] <= noise_sigma)
         if front.any():
             ok &= y[:, front].max(axis=1) <= noise_sigma
@@ -787,11 +1435,15 @@ def _analyte_meta(t: np.ndarray, peaks: list[dict], t0: float,
         ``n_analytes``, ``rs_min`` (lowest resolution between adjacent
         analytes, NaN below two), ``coverage`` (share of the run inside
         their half-maximum widths), ``n_requested``, ``n_dropped``,
-        ``n_plates``, ``dead_time`` and ``dead_time_redraws``.
+        ``n_plates``, ``dead_time``, ``dead_time_redraws``, and
+        ``tf_min`` and ``tf_max``, the range of the analytes' tailing
+        factors (NaN without analytes).
 
     """
     analytes = sorted((p['apex'], p['half_left'], p['half_right'])
                       for p in peaks if not p.get('artifact', False))
+    tfs = [p['tailing_factor'] for p in peaks
+           if not p.get('artifact', False)]
     rs_min = min((_resolution(a, b) for a, b in zip(analytes,
                                                      analytes[1:])),
                  default=float('nan'))
@@ -804,7 +1456,9 @@ def _analyte_meta(t: np.ndarray, peaks: list[dict], t0: float,
             'n_requested': info['n_requested'],
             'n_dropped': info['n_requested'] - len(analytes),
             'n_plates': info['n_plates'], 'dead_time': t0,
-            'dead_time_redraws': info['dead_time_redraws']}
+            'dead_time_redraws': info['dead_time_redraws'],
+            'tf_min': min(tfs, default=float('nan')),
+            'tf_max': max(tfs, default=float('nan'))}
 
 
 # Record length of the `erb` family. log10 of the length follows a
@@ -862,7 +1516,9 @@ def draw_record_duration(rng: np.random.Generator) -> float:
 def erb_signal(n: int, peak_case: str, baseline_type: int,
                noise_sigma: float, rng: np.random.Generator,
                quantise_output: bool = True,
-               rate: float = PTS_PER_MIN) -> dict:
+               rate: float = PTS_PER_MIN,
+               shapes: dict = DEFAULT_SHAPES,
+               heights: tuple[float, float] = DEFAULT_HEIGHTS) -> dict:
     """
     Assemble one ``erb`` chromatogram, the shared peak component on an
     Erb baseline.
@@ -895,6 +1551,11 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
         `quantise`. Default True.
     rate : float, optional
         Points per minute. Default `PTS_PER_MIN`.
+    shapes : dict, optional
+        The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
+    heights : (float, float), optional
+        The analyte height draw; see `draw_height`. Default
+        `DEFAULT_HEIGHTS`.
 
     Returns
     -------
@@ -919,11 +1580,22 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
         ``meta['rs_min']`` is the lowest resolution between adjacent
         analytes (NaN below two) and ``meta['coverage']`` the share of
         the run inside their half-maximum widths. Both are measured after
-        placement.
+        placement, as are ``meta['tf_min']`` and ``meta['tf_max']``, the
+        range of the analytes' tailing factors. ``meta['peak_model']``
+        names their model. ``meta['height_min_sigma']`` is the lowest
+        analyte height over the nominal `noise_sigma` (NaN without
+        analytes).
 
     """
+    # The shapes and the noise draw from streams of their own, split from
+    # `rng`, so the rest of the signal does not depend on how many draws
+    # a peak model takes: datasets that differ only in `shapes` share
+    # their dead times, peak heights and noise wherever every peak fits
+    # where it was drawn.
+    shape_rng, noise_rng = rng.spawn(2)
     t, signal, peaks, t0, info = peak_component(n, peak_case, rng,
-                                                noise_sigma, rate)
+                                                noise_sigma, rate, shapes,
+                                                shape_rng, heights)
     # Erb's coefficients are written for an abscissa of order 0-1000, so
     # the baseline is evaluated there and mapped onto the record. Its
     # shape is therefore independent of the record's duration in
@@ -932,7 +1604,7 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
     # the point count.
     u = np.linspace(0., 1000., n)
     baseline = erb_baseline(u, baseline_type, exact_integral=True)
-    noise = rng.normal(0., noise_sigma, n)
+    noise = noise_rng.normal(0., noise_sigma, n)
     y = signal + baseline + noise
     if quantise_output:
         y = quantise(y)
@@ -944,9 +1616,14 @@ def erb_signal(n: int, peak_case: str, baseline_type: int,
                      'noise_sigma': noise_sigma,
                      'quantised': quantise_output,
                      'points_per_minute': rate,
+                     'peak_model': shapes['model'],
                      'minutes': float(t[-1] - t[0]),
                      'baseline_range': float(baseline.max()
                                              - baseline.min()),
+                     'height_min_sigma': min(
+                         (p['height'] / noise_sigma for p in peaks
+                          if not p.get('artifact', False)),
+                         default=float('nan')),
                      **_analyte_meta(t, peaks, t0, info)}}
 
 
@@ -981,7 +1658,9 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
     ax0.axhline(0., c='tab:red', lw=0.8, alpha=0.4)
     ax0.set_ylabel('Potential (mV)')
     ax0.set_title(f'{stem}   (range {y.max() - y.min():.2f} mV, '
-                  f'n={len(y)})', fontsize=10)
+                  f'n={len(y)}, '
+                  f'{parts["meta"].get("peak_model", "emg")} peaks)',
+                  fontsize=10)
     ax0.legend(loc='upper right', fontsize=8)
 
     ax1.plot(x, corrected, lw=0.6, c='tab:green', label='$y - b$')
@@ -1007,12 +1686,13 @@ MANIFEST_COLUMNS = ('stem', 'family', 'peak_case', 'baseline_case',
                     'noise_case', 'n_points', 'replicate', 'n_analytes',
                     'n_dropped', 'rs_min', 'coverage', 'n_requested',
                     'n_plates', 'dead_time', 'dead_time_redraws',
-                    'points_per_minute')
+                    'points_per_minute', 'peak_model', 'tf_min', 'tf_max',
+                    'height_min_sigma')
 
 
-def signal_stem(family: str, peak_case: str, baseline_case: str,
-                noise_case: str, replicate: int, n: int,
-                rep_width: int) -> str:
+def signal_stem(family: str, peak_case: str, peak_model: str,
+                baseline_case: str, noise_case: str, replicate: int,
+                n: int, rep_width: int) -> str:
     """
     Name one synthetic signal.
 
@@ -1020,6 +1700,8 @@ def signal_stem(family: str, peak_case: str, baseline_case: str,
     ----------
     family, peak_case, baseline_case, noise_case : str
         The case keys of the signal.
+    peak_model : str
+        One of `PEAK_MODELS`.
     replicate : int
         Replicate number.
     n : int
@@ -1030,11 +1712,11 @@ def signal_stem(family: str, peak_case: str, baseline_case: str,
     Returns
     -------
     stem : str
-        ``SYN__family__case__baseline__noise__replicate__n``.
+        ``SYN__family__case__model__baseline__noise__replicate__n``.
 
     """
-    return (f'SYN__{family}__{peak_case}__{baseline_case}__{noise_case}'
-            f'__{replicate:0{rep_width}d}__{n}')
+    return (f'SYN__{family}__{peak_case}__{peak_model}__{baseline_case}'
+            f'__{noise_case}__{replicate:0{rep_width}d}__{n}')
 
 
 def manifest_row(stem: str, family: str, peak_case: str,
@@ -1074,7 +1756,11 @@ def manifest_row(stem: str, family: str, peak_case: str,
             f'{meta.get("n_plates", float("nan")):.0f},'
             f'{meta.get("dead_time", float("nan")):.3f},'
             f'{meta.get("dead_time_redraws", "")},'
-            f'{meta.get("points_per_minute", PTS_PER_MIN):g}')
+            f'{meta.get("points_per_minute", PTS_PER_MIN):g},'
+            f'{meta.get("peak_model", "")},'
+            f'{meta.get("tf_min", float("nan")):.4g},'
+            f'{meta.get("tf_max", float("nan")):.4g},'
+            f'{meta.get("height_min_sigma", float("nan")):.4g}')
 
 
 def git_commit() -> str:
@@ -1110,6 +1796,13 @@ def git_commit() -> str:
     # code is an error, which says nothing about the tree.
     state = {0: '', 1: '-dirty'}.get(diff.returncode, '-unknown')
     return head.stdout.strip() + state
+
+
+def _arg_text(value) -> str:
+    """An argument value as one word: a range joined by a comma."""
+    if isinstance(value, (list, tuple)):
+        return ','.join(str(v) for v in value)
+    return str(value)
 
 
 def write_provenance(path: str, args: argparse.Namespace,
@@ -1157,7 +1850,8 @@ def write_provenance(path: str, args: argparse.Namespace,
     lines = [
         f'commit {commit}',
         f'command {shlex.join([sys.executable] + list(argv))}',
-        'arguments ' + ' '.join(f'{k}={v}' for k, v in params.items()),
+        'arguments ' + ' '.join(f'{k}={_arg_text(v)}'
+                                for k, v in params.items()),
         f'machine {socket.gethostname()}, '
         f'started {started.isoformat(timespec="seconds")}, '
         f'finished {finished.isoformat(timespec="seconds")}',
@@ -1186,7 +1880,64 @@ def main() -> None:
     parser.add_argument('--no-plot', action='store_true',
                         help='skip the per-signal PNG in plots/ '
                              '(rendered by default for review by eye)')
+    parser.add_argument('--peak-model', choices=PEAK_MODELS,
+                        default='emg',
+                        help='shape of the analyte peaks; gaussian turns '
+                             'the asymmetry off (default: emg)')
+    parser.add_argument('--tailing-factor', type=float, nargs=2,
+                        metavar=('LO', 'HI'), default=None,
+                        help='draw each analyte\'s tailing factor '
+                             'uniformly in LO to HI; below 1 fronts, '
+                             'pearson7 only (default: 1 plus a log-normal '
+                             'variate, see TF_EXCESS_MEDIAN)')
+    parser.add_argument('--pearson-m', type=float, nargs=2,
+                        metavar=('LO', 'HI'), default=None,
+                        help='range of the Pearson VII shape parameter, '
+                             'drawn log-uniformly, pearson7 only '
+                             f'(default: {PEARSON7_M_RANGE[0]:g} '
+                             f'{PEARSON7_M_RANGE[1]:g})')
+    parser.add_argument('--height-median', type=float, default=HEIGHT_MEDIAN,
+                        help='median of the log-normal analyte height, mV '
+                             f'(default: {HEIGHT_MEDIAN:g})')
+    parser.add_argument('--height-log-sigma', type=float,
+                        default=HEIGHT_LOG_SIGMA,
+                        help='standard deviation of the logarithm of the '
+                             'analyte height (default: '
+                             f'{HEIGHT_LOG_SIGMA:g})')
     args = parser.parse_args()
+    if not (args.height_median > 0. and args.height_log_sigma > 0.):
+        parser.error('--height-median and --height-log-sigma must be '
+                     'positive')
+    heights = (args.height_median, args.height_log_sigma)
+    tf = args.tailing_factor
+    if tf is not None:
+        if not 0. < tf[0] <= tf[1]:
+            parser.error('--tailing-factor needs 0 < LO <= HI')
+        if args.peak_model == 'gaussian':
+            parser.error('a gaussian peak has a tailing factor of 1')
+        if args.peak_model == 'emg' and tf[0] < 1.:
+            parser.error('an emg peak cannot front: use pearson7 for a '
+                         'tailing factor below 1')
+    if args.pearson_m is not None:
+        if args.peak_model != 'pearson7':
+            parser.error('--pearson-m applies to pearson7 only')
+        if not 0. < args.pearson_m[0] <= args.pearson_m[1]:
+            parser.error('--pearson-m needs 0 < LO <= HI')
+    shapes = {'model': args.peak_model,
+              'tailing_factor': None if tf is None else tuple(tf),
+              'pearson_m': (PEARSON7_M_RANGE if args.pearson_m is None
+                            else tuple(args.pearson_m))}
+    # Refuse a range the model cannot reach before anything is written,
+    # rather than part-way through the set. The reach of a Pearson VII
+    # depends on m, so both ends of its range are tried.
+    if tf is not None:
+        ms = shapes['pearson_m'] if args.peak_model == 'pearson7' else (None,)
+        for m in ms:
+            for value in tf:
+                try:
+                    shape_for_tf(args.peak_model, value, m)
+                except ValueError as exc:
+                    parser.error(str(exc))
     # One set per directory, so PROVENANCE.txt and manifest.csv describe
     # every file beside them.
     if os.path.isdir(args.output) and os.listdir(args.output):
@@ -1224,8 +1975,10 @@ def main() -> None:
                                         + 104729 * rep)
             n = int(round(draw_record_duration(rng) * args.rate))
             parts = erb_signal(n, pc, ERB_BASELINE_NAMES[bc], ns, rng,
-                               rate=args.rate)
-            stem = signal_stem('erb', pc, bc, nk, rep, n, rep_width)
+                               rate=args.rate, shapes=shapes,
+                               heights=heights)
+            stem = signal_stem('erb', pc, args.peak_model, bc, nk, rep, n,
+                               rep_width)
             with open(os.path.join(sig_dir, f'{stem}.txt'), 'w') as f:
                 for xi, yi in zip(parts['x'], parts['y']):
                     f.write(f'{xi:.6f}\t{yi:.6e}\n')

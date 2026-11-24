@@ -79,7 +79,8 @@ from weaselytics.segmentation import (
 _PARABOLA_LEN = 3
 
 SUMMARY_FIELDS = [
-    'stem', 'peak_case', 'baseline_case', 'noise_case', 'n_points',
+    'stem', 'peak_case', 'peak_model', 'baseline_case', 'noise_case',
+    'n_points',
     'replicate', 'n_used',
     'fc_best', 'e_min', 'e_med', 'e_max', 'noise_sigma',
     'target_rmse', 'target_max', 'target_snr_db', 'target_area_pct',
@@ -367,22 +368,29 @@ def stem_fields(stem: str) -> dict:
     Parameters
     ----------
     stem : str
-        A name ``SYN__family__case__baseline__noise__replicate__n``, as
-        `synth_dataset.signal_stem` writes it. Names written before the
-        replicate moved ahead of the length read their length as the
-        replicate.
+        A name ``SYN__family__case__model__baseline__noise__replicate__n``,
+        as `synth_dataset.signal_stem` writes it. A seven-field name,
+        without a peak model, is read with ``peak_model`` empty. Names
+        written before the replicate moved ahead of the length
+        read their length as the replicate.
 
     Returns
     -------
     fields : dict
-        ``peak_case``, ``baseline_case``, ``noise_case`` and
-        ``replicate``, empty where the name is shorter.
+        ``peak_case``, ``peak_model``, ``baseline_case``, ``noise_case``
+        and ``replicate``, empty where the name is shorter.
 
     """
     parts = stem.split('__')
-    keys = ('peak_case', 'baseline_case', 'noise_case', 'replicate')
-    return {k: parts[i] if len(parts) > i else ''
-            for k, i in zip(keys, range(2, 6))}
+    if len(parts) >= 8:
+        keys = ('peak_case', 'peak_model', 'baseline_case', 'noise_case',
+                'replicate')
+    else:
+        keys = ('peak_case', 'baseline_case', 'noise_case', 'replicate')
+    fields = {k: parts[i] if len(parts) > i else ''
+              for i, k in enumerate(keys, start=2)}
+    fields.setdefault('peak_model', '')
+    return fields
 
 
 def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,

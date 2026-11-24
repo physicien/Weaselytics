@@ -151,7 +151,7 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
                    label=f'as selected {fcut:.3e}')
     ax[0].axvline(x[min(scut, len(x) - 1)], color='k', ls='dotted', lw=1.1,
                   label=f'scut ({scut})')
-    ax[0].set_ylabel('mV')
+    ax[0].set_ylabel('signal')
     ax[0].legend(fontsize=8)
     # Departures in units of the record's noise, as the rms over the
     # whole record, which dilutes a local defect by the record length,
@@ -202,7 +202,7 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
         rmse, snr, area = (stats[pre + '_rmse'], stats[pre + '_snr'],
                            stats[pre + '_area'])
         if np.isfinite(rmse):
-            out += f' | rmse {rmse:.4f} mV'
+            out += f' | rmse {rmse:.4f}'
         if np.isfinite(snr):
             out += f' | SNR {snr:.1f} dB'
         if np.isfinite(area):
@@ -221,14 +221,14 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
         ax[1].plot(x, s - bl_sel, color=_SEL, **_SEL_STYLE,
                    label='corrected as selected')
     ax[1].axhline(0, color='k', lw=.6)
-    ax[1].set_ylabel('corrected (mV)')
+    ax[1].set_ylabel('corrected')
     ax[1].legend(fontsize=8)
 
     # The baseline error carries no noise, so curves that differ by less
     # than the noise come apart here; the grey band is +-sigma of it.
     if np.isfinite(sigma):
         ax[2].axhspan(-sigma, sigma, color='0.85', zorder=0,
-                      label=f'noise, +-{sigma:.3f} mV')
+                      label=f'noise, +-{sigma:.3f}')
     ax[2].axhline(0, color='tab:blue', lw=1.2, zorder=3,
                   label='true baseline')
     if bl_best is not None:
@@ -237,8 +237,8 @@ def _chromatogram(x, s, b_true, bl_sel, bl_best, fcut, fc_best, scut,
     if bl_sel is not None:
         ax[2].plot(x, bl_sel - b_true, color=_SEL, **_SEL_STYLE,
                    label='as selected')
-    ax[2].set_xlabel('time (min)')
-    ax[2].set_ylabel('error (mV)')
+    ax[2].set_xlabel('sample')
+    ax[2].set_ylabel('error')
     ax[2].legend(fontsize=8)
     fig.tight_layout(pad=0.4, h_pad=0.3)
     outdir = os.path.join(out_dir, 'images')

@@ -9,41 +9,45 @@ Judging how well a method selects the BEADS cutoff frequency requires knowing th
 
 Niezen et al. \[[1](#niezen)\] resolve this with **hybrid data** made of an experimental background carrying real drift, with peaks and noise added at known parameters. A hybrid family was prototyped here. Its background-pool loader (`tools/synthetic/backgrounds.py`), its peak-free-stretch selection and its modified Pearson VII peaks are in commit `efc7aa7`.
 
+The baselines here are drawn at random instead, following the simulated chromatograms of Ning et al. \[[2](#ning)\].
+
 ## 2. What a signal is
 
-A signal is a peak component, a baseline and white noise, summed and rounded to a detector's voltage step (§5). The truth file `truth/<stem>__truth.npz` stores each part separately, and the baseline alone is the truth a baseline estimate is scored against.
+A signal is a baseline, peaks and white noise, summed. It is sampled on an index, 0 to *N* − 1, and has no physical units, like those of Ning et al. \[[2](#ning)\]. The length *N* is drawn for each signal between 500 and 40,000 samples; `--length` fixes it.
 
-Beside the signals, a dataset holds `manifest.csv`, one row per signal, and `PROVENANCE.txt`, which records the commit, the exact call with every argument, the machine and the library versions.
+The truth file `truth/<stem>__truth.npz` stores each part separately, and the baseline alone is the truth a baseline estimate is scored against. Beside the signals, a dataset holds `manifest.csv`, one row per signal, and `PROVENANCE.txt`, which records the commit, the exact call with every argument, the machine and the library versions.
 
-The `erb` family builds every signal: the peak component of §3 on the analytic baselines of §4.
+A signal is named `SYN__peaks__model__type__noise__length__replicate`: the number of peaks left (with `a` when the plate model is on), the peak model, the baseline type, the noise level, the length on five digits and the replicate on four. The default set holds two baseline types and three noise levels, six signals per replicate.
 
-The ranges below were picked for this benchmark.
+## 3. Baselines
 
-## 3. The peak component
+Every baseline is defined over the whole record, so a longer record holds as many waves, sampled more densely. By default the peaks keep their width in samples.
 
-**Analytes.** Peaks whose widths follow the plate model, σ = tR / √N, with tR counted from injection (Snyder et al. \[[3](#snyder)\]). The plate number N is drawn once per signal between 2,000 and 14,000, around the N of about 10,000 that they call a good starting point in many cases. A width is then a fixed share of its retention time, so the first peaks are sharp and the late ones broad. The cases, named by analyte count, are `blank` (none), `single`, `few` (3 or 4), `many` (6 to 8) and `isocratic` (7, with an early and a late eluter pinned).
+| Type | Baseline |
+|---|---|
+| 1 | a polynomial of random order plus a sinusoid of random frequency |
+| 2 | white Gaussian noise through a low-pass filter |
+| 3, 4, 5 | Erb's parabola, exponential and step, with `--legacy-baselines` |
 
-**Peak shape.** `--peak-model` chooses the shape of the analytes. `emg`, the default, is an exponentially-modified Gaussian whose Gaussian component has the plate width. `pearson7` is the modified Pearson VII of Niezen et al. \[[1](#niezen)\], given the plate FWHM when symmetric. Far from the apex that function levels off above zero, so the level is removed and the peak tends to zero, slowly on its long side. `gaussian` turns the asymmetry off.
+Ning et al. \[[2](#ning)\] give the first two, without their ranges. The ranges used here were chosen by eye to match their Figs. 5 and 6. They are next to the constants in `synth_dataset.py`.
 
-Each analyte draws its tailing factor, the ratio Snyder et al. \[[3](#snyder)\] define at 5% of the height, and the generator converts it to the parameter of the model. By default the tailing factor is one plus a log-normal variate of median 0.13 and log-standard deviation 0.77, so most peaks tail a little and a few tail strongly. One Pearson VII analyte in fifty fronts instead, which an EMG cannot do. The Pearson VII shape parameter is drawn log-uniformly between 4 and 1000. These values were picked for this benchmark. With them, half the peaks have a tailing factor between about 1.08 and 1.22, about one in seven tails beyond 1.3, and almost none beyond 2. For reference, Snyder et al. \[[3](#snyder)\] call tailing up to 1.2 minor, note that it can usually be reduced to 1.5 or less, and give 2 as a common limit for routine separations. A low shape parameter gives heavy, Lorentzian-like tails and a high one nearly Gaussian peaks; Niezen et al. \[[1](#niezen)\] kept values from 3.5 to 51 from their fits, and Milani et al. \[[6](#milani)\] bound it between 1 and 1000. `--tailing-factor LO HI` draws the tailing factor uniformly in a range instead. Li \[[5](#li)\] chose reversed-phase liquid chromatography (RPLC) peaks spanning fronting to strong tailing, with tailing factors from 0.76 to 4.34. The truth file records each analyte's shape, tailing factor and asymmetry factor. The manifest records the range of the tailing factors.
+## 4. Peaks
 
-**Peak height.** Each analyte's height is a log-normal variate of median 3 mV and log-standard deviation 1.0. These values were picked for this benchmark. With them, half the heights fall between about 1.5 and 5.9 mV and one in twenty is above about 16 mV. `--height-median` and `--height-log-sigma` set other values. For reference, Davis \[[7](#davis)\] builds synthetic chromatograms with log-normal amplitudes of log-standard deviation 0.5 and 1.5. No height is drawn below three standard deviations of its signal's noise: MacDougall et al. \[[8](#macdougall)\] place the limit of detection three standard deviations of the blank above it. Snyder et al. \[[3](#snyder)\] call S/N = 3 a commonly accepted definition of the limit of detection. They measure the noise peak to peak, which is larger than the standard deviation, so their limit sits above this floor. The manifest records, per signal, the lowest analyte height divided by the nominal noise standard deviation (`height_min_sigma`).
+Between 1 and 30 peaks are drawn per signal, as in the simulated chromatograms of Komsta \[[6](#komsta)\], or 0 and 30 with the plate model; `--n-peaks` fixes the number. Every value below is next to its constant in `synth_dataset.py`, with where it comes from or that it was chosen.
 
-**Placement.** Every analyte stays within the noise until the injection artifact has returned to it, is back within the noise at the last sample, and keeps a resolution Rs ≥ 1 from every other analyte, with `Rs = 1.18 (t2 − t1) / (w1 + w2)` on the apex and the FWHM. When an analyte fits nowhere, the dead time and the analytes are drawn again with an earlier dead time; an analyte that still fits nowhere with the dead time at 2.5 min is dropped. The manifest records the analytes kept and dropped, the resolution, the coverage, N and the dead time.
+**Shape.** `--peak-model` chooses an exponentially-modified Gaussian (`emg`, the default), a modified Pearson VII (`pearson7`) or a Gaussian (`gaussian`). Each peak draws its tailing factor, so that most tail a little and a few strongly; `--tailing-factor LO HI` draws it in a range instead.
 
-**The injection artifact.** A positive spike followed by a negative undershoot marks the injection at the dead time, drawn between 2.5 and 6.5 min. The dip, as the trace shows it, is 0 to 2 times the spike, drawn as twice a Beta(1, 3) variate. The production BEADS call uses a symmetric cost (`asymmetry = 1`) because of this negative lobe. A blank holds only this artifact.
+**Width.** By default the width is drawn in samples, at every record length. With `--plate-model` it follows σ = tR / √N, with tR counted from the first sample (Snyder et al. \[[3](#snyder)\]), so the first peaks are sharp and the late ones broad.
 
-The artifact is part of the signal, and `b_true` holds the baseline alone. Niezen et al. \[[1](#niezen)\] require a background of low-frequency drift only, and note that negative peaks are the critical case because "such peaks are generally treated as background drift" by correction algorithms. A sharp bipolar spike would also dominate a baseline error metric. So `asymmetry = 1` is exercised while the baseline is scored on the drift alone.
+**Height.** Heights are drawn evenly on a log scale, in a range set by the baseline type, so that the tallest peaks typically stand 5 to 10 times as high as the baseline is large. No peak is below three standard deviations of the noise of its signal (MacDougall et al. \[[5](#macdougall)\]).
 
-## 4. Baselines and record length
+**Placement.** Each peak stays where it was drawn or is dropped. It is dropped when it rises above the noise in the first or the last 20 samples, when its resolution from a peak already kept is below 1, unless it is one of the share `--overlap-prob` allows to overlap (10% by default), or when it would take the peaks above 33% of the record. The placement stops at the first peak that does. The name of a signal gives the number of peaks left.
 
-Donald Erb, author of pybaselines, wrote four analytic baselines to test the cutoff selection of this project. The three used are a `parabola` ending at zero at both ends, an exponential decay (`exp`), and a `step`, a logistic built by integrating a Gaussian, plus a Gaussian bump. The fourth, a sinusoid, is excluded because an HPLC baseline does not oscillate through several full cycles within one run. Each is evaluated on a 0–1000 abscissa spanning the record, the range its coefficients are written for, and read as mV. The parabola spans 5 mV, the exponential 8.1 mV and the step 12.1 mV.
+**The plate model brings a dead time.** One of the spots drawn in the first third of the record becomes the dead time. The earlier spots are discarded and nothing elutes before it. A positive spike followed by a negative undershoot marks it there, with the width and the height a peak would have at that place. The production BEADS call uses a symmetric cost (`asymmetry = 1`) because of this negative lobe. The artifact is part of the signal, and `baseline` holds the baseline alone: Niezen et al. \[[1](#niezen)\] note that negative peaks "are generally treated as background drift" by correction algorithms, and a sharp spike would dominate a baseline error metric.
 
-Record length sets the fundamental frequency, 1/n_used, which `instability_boundary` keys on, so it must vary. log10 of the length is drawn from a skew-normal and redrawn until the length falls between 500 and 40,000 points. Lengths are drawn as durations in minutes, at 120 points per minute by default (4.2 to 333 min); `--rate` changes only how densely a run is sampled.
+## 5. Noise
 
-## 5. Noise and quantization
-
-White Gaussian noise is **added** at a known level, 0.02 or 0.05 mV, so the noise component is known exactly (Niezen et al. \[[1](#niezen)\]). The assembled signal is then rounded to multiples of a voltage step, q = 0.008996 mV, as a digitized detector signal is.
+White Gaussian noise is added, so the noise component is known exactly. Its level is the energy of the baseline over the energy of the noise: 30, 25 or 20 dB (`snr30`, `snr25`, `snr20`). The ratio has the form of the output SNR of Ning et al. \[[2](#ning)\], who do not define the input SNR they vary from −5 to 25 dB. The noise follows the size of the baseline, and a shift of the whole baseline changes it.
 
 ## 6. Scoring
 
@@ -58,6 +62,8 @@ The project's deliverable is peak areas.
 
 Cross-machine reproducibility bounds what can be concluded. The swept `r²` curve is ill-conditioned at low cutoff. A one-ulp difference in the frequency grid reaches 5.6e-2 of `r²` near `fcut` 1e-4, and across a numpy/scipy version change some selected cutoffs move by more than 0.1 decade. No result should rest on a precision finer than ~1e-3 near the fundamental; below that, the benchmark measures the machine. See GitHub issue #20.
 
+The peak detection of the package uses widths in samples per minute and heights in mV (GitHub issue #23), which the signals here do not have. Its result on them depends on the units the signals are read in, and some of them crash the fit.
+
 ## 8. What BEADS assumes
 
 Ning et al. \[[2](#ning)\] make four assumptions.
@@ -67,11 +73,11 @@ Ning et al. \[[2](#ning)\] make four assumptions.
 3. **Noise.** Stationary white Gaussian, which is what justifies the quadratic fidelity term.
 4. **Positivity.** A preference encoded in the asymmetry parameter `r`, not a constraint; `r = 1` is the symmetric penalty.
 
-They validated on Gaussian peaks, two baseline types (polynomial plus sinusoid; low-pass-filtered white noise), 500 realizations and an SNR from -5 to 25 dB. **No peak density or resolution is reported**, and the peak-generation procedure is cited to another reference rather than specified.
+They validated on Gaussian peaks, two baseline types (polynomial plus sinusoid; low-pass-filtered white noise), 500 realizations and an SNR from -5 to 25 dB. **No peak density, width, height or resolution is reported**, and the peak generation is cited to another reference rather than specified.
 
 Navarro-Huerta et al. \[[4](#nh)\] list five limitations of conventional BEADS, namely the periodicity requirement, ripples under peaks of very disparate size, sporadic negative peaks, `fc`/lambda instability at low frequency, and per-chromatogram retuning. **Peak overlap is not among them.**
 
-The generator keeps neighbouring analytes at Rs ≥ 1 (§3), which still allows small overlaps, to test the limits of the sparsity assumption.
+The generator keeps most peaks at a resolution of at least 1 from their neighbours (§4), which still allows small overlaps, to test the limits of the sparsity assumption.
 
 ## References
 
@@ -83,13 +89,7 @@ The generator keeps neighbouring analytes at Rs ≥ 1 (§3), which still allows 
 3. Snyder, L.R.; Kirkland, J.J.; Dolan, J.W. Introduction to Modern Liquid Chromatography, 3rd ed. John Wiley & Sons, 2009.
 <a name="nh"></a>
 4. Navarro-Huerta, J.A., et al. Assisted baseline subtraction in complex chromatograms using the BEADS algorithm. Journal of Chromatography A, 2017, 1507, 1-10. https://doi.org/10.1016/j.chroma.2017.05.057
-<a name="li"></a>
-5. Li, J. Comparison of the capability of peak functions in describing real chromatographic peaks. Journal of Chromatography A, 2002, 952, 63-70. https://doi.org/10.1016/S0021-9673(02)00090-0
-<a name="milani"></a>
-6. Milani, N.B.L., et al. Generating realistic data through modeling and parametric probability for the numerical evaluation of data processing algorithms in two-dimensional chromatography. Analytica Chimica Acta, 2024, 1312, 342724. https://doi.org/10.1016/j.aca.2024.342724
-
-<a name="davis"></a>
-7. Davis, J.M. Prediction by statistical overlap theory of fraction of baseline occupied by chromatographic peaks. Journal of Chromatography A, 2021, 1640, 461931. https://doi.org/10.1016/j.chroma.2021.461931
-
 <a name="macdougall"></a>
-8. MacDougall, D., et al. Guidelines for data acquisition and data quality evaluation in environmental chemistry. Analytical Chemistry, 1980, 52, 2242-2249. https://doi.org/10.1021/ac50064a004
+5. MacDougall, D., et al. Guidelines for data acquisition and data quality evaluation in environmental chemistry. Analytical Chemistry, 1980, 52, 2242-2249. https://doi.org/10.1021/ac50064a004
+<a name="komsta"></a>
+6. Komsta, Ł. Comparison of several methods of chromatographic baseline removal with a new approach based on quantile regression. Chromatographia, 2011, 73, 721-731. https://doi.org/10.1007/s10337-011-1962-1

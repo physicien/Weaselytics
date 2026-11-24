@@ -5,9 +5,10 @@ Renders the merged figure for every signal of a synthetic dataset
 (``--dataset``) against its run (``--run``), then files each image
 twice:
 
-  by_rmse/    edges on `e_min`, the RMSE between the baseline
-              at the optimal cutoff and the true baseline:
-              <= 0.05 | 0.05 to 0.1 | 0.1 to 0.2 | the rest.
+  by_rmse/    edges on `e_min` over the noise, the RMSE between the
+              baseline at the optimal cutoff and the true baseline over
+              the standard deviation of the noise: <= 1 | 1 to 2 |
+              2 to 5 | the rest.
               The signals whose fit failed have no error curve and so
               no RMSE to classify by; they go to `no_error_curve/`.
 
@@ -63,8 +64,9 @@ FIT_STYLE = {'package': dict(ls='--', lw=1.6, zorder=4),
              'quasi-optimal': dict(ls=':', lw=2.0, zorder=5),
              'optimal': dict(ls='-', lw=4.0, alpha=.45, zorder=1)}
 
-EDGES = ((0.05, 'rmse_le_0.05'), (0.10, 'rmse_0.05_to_0.1'),
-         (0.20, 'rmse_0.1_to_0.2'), (np.inf, 'rmse_gt_0.2'))
+# Edges on the RMSE over the noise standard deviation, chosen.
+EDGES = ((1., 'rmse_le_1_noise'), (2., 'rmse_1_to_2_noise'),
+         (5., 'rmse_2_to_5_noise'), (np.inf, 'rmse_gt_5_noise'))
 
 
 def despike(s):
@@ -115,12 +117,12 @@ def despike(s):
                          mode='nearest')
 
 
-def bucket(e_min):
-    """The `by_rmse/` folder that `e_min` falls in."""
+def bucket(e_min, sigma):
+    """The `by_rmse/` folder of an RMSE `e_min` at noise `sigma`."""
     if e_min is None or not np.isfinite(e_min):
         return 'no_error_curve'
     for hi, name in EDGES:
-        if e_min <= hi:
+        if e_min <= hi * sigma:
             return name
     return EDGES[-1][1]
 
@@ -230,7 +232,7 @@ def analyse(stem):
     return dict(stem=stem, x=x, y=y, b_true=b_true, sigma=sigma, fcut=fcut,
                 r2=r2, sens=sens, n_used=n_used, t=t, dipc=S.dip_curve(r2),
                 f_pkg=f_pkg, f_qo=f_qo, f_opt=f_opt, e_min=e_min,
-                bucket=bucket(e_min), reach=reach)
+                bucket=bucket(e_min, sigma), reach=reach)
 
 
 def render(a, work):
@@ -327,7 +329,7 @@ def render(a, work):
                 else:
                     ax.axhspan(-a['sigma'], a['sigma'], color='0.85',
                                zorder=0,
-                               label='noise, +-%.3f mV' % a['sigma'])
+                               label='noise, +-%.3f' % a['sigma'])
                     ax.axhline(0., lw=1.2, color='k', zorder=3,
                                label='TRUE baseline')
                     for b, col, name, f in fits:
@@ -397,6 +399,7 @@ def main():
         rows.append({'stem': stem,
                      'e_min': '' if a['e_min'] is None else
                               f"{a['e_min']:.6f}",
+                     'noise_sigma': f"{a['sigma']:.6f}",
                      'bucket': a['bucket'], 'reach': a['reach'],
                      'f_pkg': a['f_pkg'], 'f_qo': a['f_qo'],
                      'f_opt': a['f_opt']})

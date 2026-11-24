@@ -34,8 +34,7 @@ class TestErrorCurve:
         # running monotonically to an edge, which is what a broken
         # metric would do.
         rng = np.random.default_rng(0)
-        d = synth.erb_signal(900, 'many', 1, 0.019, rng,
-                             quantise_output=False)
+        d = synth.make_signal(900, 4, 0.019, rng)
         fcuts = np.geomspace(1e-3, 0.2, 12)
         err = diag.error_curve(d['x'], d['y'], d['baseline'], fcuts)
         assert np.isfinite(err).sum() >= 10
@@ -205,8 +204,7 @@ class TestErrorCurveReuse:
 
     def _case(self, seed=0, n=700):
         rng = np.random.default_rng(seed)
-        d = synth.erb_signal(n, 'many', 1, 0.019, rng,
-                             quantise_output=False)
+        d = synth.make_signal(n, 4, 0.019, rng)
         return d['x'], d['y'], d['baseline']
 
     def test_key_is_stable_for_the_same_inputs(self):
@@ -288,8 +286,14 @@ class TestErrorCurveReuse:
 
 class TestStemFields:
     def test_reads_back_what_the_generator_writes(self):
-        stem = synth.signal_stem('erb', 'many', 'pearson7', 'step', 'high',
-                                 7, 4312, 2)
+        stem = synth.signal_stem('12a', 'pearson7', 2, 'snr20', 4312, 7)
+        assert diag.stem_fields(stem) == {
+            'peak_case': '12a', 'peak_model': 'pearson7',
+            'baseline_case': 'type2', 'noise_case': 'snr20',
+            'replicate': '0007'}
+
+    def test_reads_a_name_of_the_earlier_generator(self):
+        stem = 'SYN__erb__many__pearson7__step__high__07__4312'
         assert diag.stem_fields(stem) == {
             'peak_case': 'many', 'peak_model': 'pearson7',
             'baseline_case': 'step', 'noise_case': 'high',

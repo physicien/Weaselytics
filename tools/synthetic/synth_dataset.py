@@ -21,21 +21,20 @@ as many waves, sampled more densely, while the peaks keep their width in
 samples, unless the plate model sets it.
 
 Between 1 and 30 analytes are drawn per signal (Komsta 2011), 0 to 30
-with the plate model, in the
-shape `--peak-model` names, an exponentially-modified Gaussian by
-default, a modified Pearson VII or a Gaussian. Each draws its tailing
-factor, by default as one plus a log-normal variate; `--tailing-factor`
-draws it uniformly in a range instead. Their widths are drawn in
-samples, or follow the plate model, sigma = tR / sqrt(N) (Snyder,
-Kirkland & Dolan 2009, Eqs. 2.9b and 2.10), with `--plate-model`. Each
-analyte stays where it was drawn or is dropped: it must return to the
-noise before the 20 samples at each end of the record, keep a
-resolution of at least 1 from the others, unless it is one of the share
-`--overlap-prob` allows to overlap. The placement stops at the first
-analyte that would take the share of the record they cover above 33%.
-The name of a signal gives the number left. The plate model brings the
-bipolar injection artifact, at the dead time, in the first third of the
-record and ahead of every analyte.
+with the plate model, in the shape `--peak-model` names, an
+exponentially-modified Gaussian by default, a modified Pearson VII or a
+Gaussian. Each draws its tailing factor, by default as one plus a
+log-normal variate; `--tailing-factor` draws it uniformly in a range
+instead. Their widths are drawn in samples, or follow the plate model,
+sigma = tR / sqrt(N) (Snyder, Kirkland & Dolan 2009, Eqs. 2.9b and
+2.10), with `--plate-model`. Each analyte stays where it was drawn or is
+dropped. It must return to the noise before the 20 samples at each end
+of the record, and keep a resolution of at least 1 from the others. A
+share of the analytes, `--overlap-prob`, may overlap. The placement
+stops at the first analyte that would take the share of the record they
+cover above 33%. The name of a signal gives the number left. The plate
+model brings the bipolar injection artifact, at the dead time, in the
+first third of the record and ahead of every analyte.
 
 Records are 500 to 40000 points long, drawn per signal unless
 `--length` fixes them.
@@ -134,18 +133,18 @@ FRONTING_SHARE = 0.02
 # Shape parameter of a Pearson VII analyte, drawn log-uniformly, so that
 # heavy tails and the near-Gaussian limit are equally likely per decade.
 # Chosen: a low m gives heavy, Lorentzian-like tails and a high m nearly
-# Gaussian peaks. For reference, Niezen et al. (2022, Table 2) kept m
-# from 3.5 to 51 from their fits, and Milani et al. (2024, §3.1.3) bound
-# it between 1 and 1000.
+# Gaussian peaks. Niezen et al. (2022, Table 2) kept m from 3.5 to 51
+# from their fits, and Milani et al. (2024, §3.1.3) bound it between 1
+# and 1000.
 PEARSON7_M_RANGE = (4., 1000.)
 # The peak shapes of a dataset: the model, the range the tailing factor
 # of each analyte is drawn in uniformly (None draws it as above), and
 # the range of the Pearson VII shape parameter.
 DEFAULT_SHAPES = {'model': 'emg', 'tailing_factor': None,
                   'pearson_m': PEARSON7_M_RANGE}
-# Probability that an analyte may overlap the others, chosen. For
-# reference, the peaks of Komsta (2011, p. 724, "Synthetic Data") have "a
-# slight probability to be overlapped", without a value.
+# Probability that an analyte may overlap the others, chosen. The peaks
+# of Komsta (2011, p. 724, "Synthetic Data") have "a slight probability
+# to be overlapped", without a value.
 OVERLAP_PROB = 0.1
 # The peak layout of a dataset: the analyte count (None draws it, see
 # `N_PEAKS_RANGE`), the plate model, which brings the dead time and the
@@ -1131,10 +1130,9 @@ def _keep_analytes(t: np.ndarray, specs: list[dict], t_front: float,
         ``dropped_cut``, ``dropped_overlap`` and ``dropped_coverage``.
 
     """
-    # A peak cut by an end of the record is impossible: the trace starts
-    # or ends part-way down a peak, which is the endpoint mismatch
-    # BEADS' periodicity requirement forbids and which no parabola
-    # correction repairs.
+    # A peak cut by an end of the record makes the endpoint mismatch that
+    # BEADS' periodicity requirement forbids. No parabola correction
+    # repairs it.
     quiet = t <= t_front
     quiet[:BORDER_MARGIN] = True
     quiet[-BORDER_MARGIN:] = True

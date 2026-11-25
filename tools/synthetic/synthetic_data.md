@@ -73,7 +73,7 @@ Ning et al. \[[2](#ning)\] make four assumptions.
 3. **Noise.** Stationary white Gaussian, which is what justifies the quadratic fidelity term.
 4. **Positivity.** A preference encoded in the asymmetry parameter `r`, not a constraint; `r = 1` is the symmetric penalty.
 
-They validated on Gaussian peaks, two baseline types (polynomial plus sinusoid; low-pass-filtered white noise), 500 realizations and an SNR from -5 to 25 dB. **No peak density, width, height or resolution is reported**, and the peak generation is cited to another reference rather than specified.
+They validated on Gaussian peaks, two baseline types (polynomial plus sinusoid; low-pass-filtered white noise), 500 realizations and an SNR from -5 to 25 dB. No peak density, width, height or resolution is reported, and the peak generation is cited to another reference.
 
 Navarro-Huerta et al. \[[4](#nh)\] list five limitations of conventional BEADS, namely the periodicity requirement, ripples under peaks of very disparate size, sporadic negative peaks, `fc`/lambda instability at low frequency, and per-chromatogram retuning. **Peak overlap is not among them.**
 

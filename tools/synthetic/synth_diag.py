@@ -109,7 +109,7 @@ def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     passed ``parabola_len=None``, which no caller does.
 
     The error is the RMSE against the known baseline on the original
-    scale, in mV, Niezen et al. (2022) Eq. (15). The production sweep
+    scale, Niezen et al. (2022) Eq. (15). The production sweep
     fits on ``_log_transform(s[:scut])`` instead, so the error curve and
     the r2 curve come from different signals over the same grid.
 
@@ -368,11 +368,14 @@ def stem_fields(stem: str) -> dict:
     Parameters
     ----------
     stem : str
-        A name ``SYN__family__case__model__baseline__noise__replicate__n``,
-        as `synth_dataset.signal_stem` writes it. A seven-field name,
-        without a peak model, is read with ``peak_model`` empty. Names
-        written before the replicate moved ahead of the length
-        read their length as the replicate.
+        A name ``SYN__peaks__model__type<k>__noise__n__replicate``, as
+        `synth_dataset.signal_stem` writes it. The peaks are the analyte
+        count, with ``a`` when the injection artifact is present. Names
+        of the earlier generator start with ``SYN__erb`` and hold the
+        peak case and Erb's baseline name instead; without a peak model
+        they are read with ``peak_model`` empty, and those written
+        before the replicate moved ahead of the length read their length
+        as the replicate.
 
     Returns
     -------
@@ -382,13 +385,15 @@ def stem_fields(stem: str) -> dict:
 
     """
     parts = stem.split('__')
-    if len(parts) >= 8:
+    old = len(parts) > 1 and parts[1] == 'erb'
+    if old and len(parts) < 8:
+        keys = ('peak_case', 'baseline_case', 'noise_case', 'replicate')
+    else:
         keys = ('peak_case', 'peak_model', 'baseline_case', 'noise_case',
                 'replicate')
-    else:
-        keys = ('peak_case', 'baseline_case', 'noise_case', 'replicate')
+    places = list(range(2, 7)) if old else [1, 2, 3, 4, 6]
     fields = {k: parts[i] if len(parts) > i else ''
-              for i, k in enumerate(keys, start=2)}
+              for k, i in zip(keys, places)}
     fields.setdefault('peak_model', '')
     return fields
 

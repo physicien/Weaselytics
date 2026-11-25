@@ -25,6 +25,10 @@ References
    Simultaneous low-pass filtering and total variation denoising. IEEE
    Trans. Signal Process. 62(5), 1109-1124 (2014).
    doi:10.1109/TSP.2014.2298836
+.. [7] Chapel, S., Rouvière, F., Peppermans, V., Desmet, G. and Heinisch,
+   S. A comprehensive study on the phenomenon of total breakthrough in
+   liquid chromatography. J. Chromatogr. A 1653, 462399 (2021).
+   doi:10.1016/j.chroma.2021.462399
 """
 import numpy as np
 import pandas as pd
@@ -551,7 +555,9 @@ def _drop_enclosing(peaks: np.ndarray, widths: np.ndarray,
     A chromatographic peak can carry a smaller shoulder inside its own
     half-width, but never a taller peak. Structure that does, such as a
     wave of the baseline with peaks on it, is not a peak, and the peaks
-    it encloses are what should define the region.
+    it encloses are what should define the region. A large injection in
+    a strong solvent makes such structure, between the breakthrough peak
+    near the dead time and the retained peak [7]_.
 
     Parameters
     ----------

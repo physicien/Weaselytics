@@ -26,58 +26,81 @@ synth = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(synth)
 
 
-class TestQuantise:
-    def test_values_land_on_the_lattice(self):
-        rng = np.random.default_rng(4)
-        y = rng.normal(0., 1., 5000)
-        yq = synth.quantise(y)
-        ratio = yq / synth.ADC_STEP_MV
-        np.testing.assert_allclose(ratio, np.round(ratio), atol=1e-9)
-
-    def test_error_at_most_half_a_step(self):
-        rng = np.random.default_rng(5)
-        y = rng.normal(0., 1., 5000)
-        err = np.abs(synth.quantise(y) - y)
-        assert err.max() <= synth.ADC_STEP_MV / 2 + 1e-12
-
-    def test_shows_the_lattice_signature(self):
-        # Quantized white noise must show the signature of a digitized
-        # signal: consecutive differences that are exact multiples of the
-        # step, and many exact ties.
-        rng = np.random.default_rng(6)
-        y = synth.quantise(rng.normal(0., 0.012, 20000))
-        d = np.diff(y)
-        ratio = d / synth.ADC_STEP_MV
-        np.testing.assert_allclose(ratio, np.round(ratio), atol=1e-9)
-        assert np.mean(d == 0) > 0.1
-
-    def test_rejects_bad_step(self):
-        with pytest.raises(ValueError, match="step"):
-            synth.quantise(np.zeros(10), step=0.0)
+_GAUSSIAN = dict(synth.DEFAULT_SHAPES, model='gaussian')
 
 
-class TestDeadTimeArtifact:
+def _layout(**changes):
+    return dict(synth.DEFAULT_LAYOUT, **changes)
+
+
+def _analytes(d):
+    return [p for p in d['peaks'] if not p['artifact']]
+
+
+def _profile(t, p):
+    return synth.analyte_peak(t, p['tc'], p['sigma'], p['shape'],
+                              p['height'])
+
+
+class TestArtifact:
     @pytest.mark.parametrize("ratio", [0.05, 0.5, 1.0, 1.9])
     def test_trace_shows_the_drawn_ratio(self, ratio):
-        t = np.arange(1200) / 120.
-        pos = synth.emg_peak(t, 4.5, 0.03, 0.015, 2.)
-        neg = synth.emg_peak(t, 4.54, 0.06, 0.03, 1.)
+        t = np.arange(1200.)
+        pos = synth.emg_peak(t, 540., 3.6, 1.8, 2.)
+        neg = synth.emg_peak(t, 545., 7.2, 3.6, 1.)
         c = synth._dip_scale(pos, neg, ratio)
         y = pos - c * neg
         assert -y.min() / y.max() == pytest.approx(ratio, rel=1e-6)
 
     def test_trace_shows_the_recorded_ratio(self):
-        t = np.arange(1200) / 120.
+        t = np.arange(1200.)
         for seed in range(50):
-            y, entries = synth.dead_time_artifact(
-                t, 4.5, t[1] - t[0], np.random.default_rng(seed))
+            params = synth.draw_artifact(np.random.default_rng(seed), 3.4, 2.)
+            y, entries = synth.artifact_profile(t, 540.3, params)
             ratio = entries[1]['dip_ratio']
             assert 0. <= ratio <= 2.
             assert -min(y.min(), 0.) / y.max() == pytest.approx(
                 ratio, rel=1e-6, abs=1e-9)
 
+    def test_the_artifact_is_as_wide_as_a_peak_at_its_place(self):
+        for s in range(20):
+            d = synth.make_signal(4000, 1, 0.02, np.random.default_rng(s),
+                                  shapes=_GAUSSIAN,
+                                  layout=_layout(plate_model=True))
+            spike = [p for p in d['peaks'] if p['artifact']][0]
+            plates = d['meta']['n_plates']
+            jitter = spike['sigma'] * np.sqrt(plates) / spike['tc']
+            assert 0.85 - 1e-9 <= jitter <= 1.15 + 1e-9
+            hi = synth.HEIGHT_MAX[1]
+            assert hi / synth.HEIGHT_SPAN <= spike['height'] <= hi
+
+    def test_the_truth_records_what_the_trace_shows(self):
+        t = np.arange(1200.)
+        lower = 0
+        for seed in range(50):
+            params = synth.draw_artifact(np.random.default_rng(seed), 3.4,
+                                         2.)
+            y, (spike, dip) = synth.artifact_profile(t, 540.3, params)
+            assert spike['trace_height'] == y.max()
+            assert dip['trace_height'] == y.min()
+            assert spike['height'] == 2.
+            lower += spike['trace_height'] < 0.95 * spike['height']
+        assert lower > 10
+
+    def test_extent_holds_at_any_phase(self):
+        noise = 0.02
+        for seed in range(20):
+            params = synth.draw_artifact(np.random.default_rng(seed), 3.4, 2.)
+            lead, trail = synth.artifact_extent(params, noise)
+            t = np.arange(2000.)
+            for t0 in (300., 300.25, 300.5, 300.75):
+                y, _ = synth.artifact_profile(t, t0, params)
+                above = t[np.abs(y) > noise]
+                assert above[0] >= t0 - lead
+                assert above[-1] <= t0 + trail
+
     def test_rejects_an_empty_dip_lobe(self):
-        pos = synth.emg_peak(np.arange(100) / 120., 0.4, 0.03, 0.015, 2.)
+        pos = synth.emg_peak(np.arange(100.), 48., 3.6, 1.8, 2.)
         with pytest.raises(ValueError, match="dip lobe"):
             synth._dip_scale(pos, np.zeros(100), 0.5)
 
@@ -122,225 +145,404 @@ class TestErbBaselines:
                                                    rel=0.02)
 
 
-class TestErbSignal:
-    def test_components_sum_to_the_signal_before_quantisation(self):
-        rng = np.random.default_rng(0)
-        d = synth.erb_signal(1800, 'many', 2, 0.019, rng,
-                             quantise_output=False)
+class TestBaselineTypes:
+    def test_types_3_to_5_are_erbs(self):
+        n = 1800
+        u = np.linspace(0., 1000., n)
+        for bt in (3, 4, 5):
+            b, info = synth.draw_baseline(n, bt, np.random.default_rng(0))
+            np.testing.assert_array_equal(
+                b, synth.erb_baseline(u, bt - 3, exact_integral=True))
+            assert info == {}
+
+    def test_unknown_type_raises(self):
+        with pytest.raises(ValueError, match='baseline type'):
+            synth.draw_baseline(100, 6, np.random.default_rng(0))
+
+    def test_type1_draws_inside_its_ranges(self):
+        rng = np.random.default_rng(1)
+        orders = set()
+        for _ in range(300):
+            b, info = synth.type1_baseline(2000, rng)
+            orders.add(info['order'])
+            lo, hi = synth.TYPE1_CYCLES_RANGE
+            assert lo <= info['cycles'] <= hi
+            assert b.min() == pytest.approx(0., abs=1e-12)
+        assert orders == set(range(synth.TYPE1_ORDER_RANGE[0],
+                                   synth.TYPE1_ORDER_RANGE[1] + 1))
+
+    @pytest.mark.parametrize('kind', [1, 2])
+    def test_the_baseline_stretches_with_the_record(self, kind):
+        # The same draw on a record four times longer is the same curve,
+        # sampled four times more densely.
+        a, _ = synth.draw_baseline(1000, kind, np.random.default_rng(3))
+        b, _ = synth.draw_baseline(4000, kind, np.random.default_rng(3))
+        if kind == 1:
+            np.testing.assert_allclose(b[::4], a, atol=0.02 * np.ptp(a))
+        else:
+            # Type 2 draws new white noise at each length, so only its
+            # spectrum stretches: the same number of waves per record.
+            def crossings(x):
+                return np.sum(np.diff(np.sign(x - x.mean())) != 0)
+            ca = np.mean([crossings(synth.type2_baseline(
+                1000, np.random.default_rng(s))[0]) for s in range(200)])
+            cb = np.mean([crossings(synth.type2_baseline(
+                4000, np.random.default_rng(s))[0]) for s in range(200)])
+            assert cb == pytest.approx(ca, rel=0.1)
+
+    def test_type2_power_is_below_its_cutoff(self):
+        n = 2000
+        spectra = [np.abs(np.fft.rfft(synth.type2_baseline(
+            n, np.random.default_rng(s))[0])) ** 2 for s in range(200)]
+        p = np.mean(spectra, axis=0)
+        cycles = np.arange(len(p))
+        below = p[cycles <= synth.TYPE2_CYCLES].sum()
+        assert below / p.sum() > 0.9
+
+    def test_type2_does_not_end_where_it_starts(self):
+        # A filter in the Fourier domain is periodic; the padding breaks
+        # it, so the two ends differ as much as two random samples.
+        gaps = [abs(b[-1] - b[0]) / b.std() for b, _ in (
+            synth.type2_baseline(2000, np.random.default_rng(s))
+            for s in range(300))]
+        assert np.median(gaps) > 0.5
+
+    def test_type2_std_is_inside_its_range(self):
+        lo, hi = synth.TYPE2_STD_RANGE
+        for s in range(50):
+            b, _ = synth.type2_baseline(1500, np.random.default_rng(s))
+            assert lo - 1e-9 <= b.std() <= hi + 1e-9
+
+
+class TestNoise:
+    @pytest.mark.parametrize('kind', synth.BASELINE_TYPES)
+    @pytest.mark.parametrize('name, snr', synth.NOISE_CASES.items())
+    def test_the_noise_reaches_the_asked_ratio(self, kind, name, snr):
+        d = synth.make_signal(20000, kind, None, np.random.default_rng(1),
+                              snr=snr)
+        ratio = 10. * np.log10(np.sum(d['baseline'] ** 2)
+                               / np.sum(d['noise'] ** 2))
+        assert ratio == pytest.approx(snr, abs=0.2)
+        assert name == f'snr{snr:g}'
+        assert d['meta']['noise_sigma'] == pytest.approx(
+            synth.noise_for_snr(d['baseline'], snr))
+
+    def test_the_ratio_leaves_the_rest_alone(self):
+        # The baseline has a stream of its own, so drawing it first
+        # moves neither the peaks nor the noise.
+        sigma = 0.03
+        a = synth.make_signal(3000, 2, sigma, np.random.default_rng(4))
+        b = synth.make_signal(
+            3000, 2, None, np.random.default_rng(4),
+            snr=20. * np.log10(np.sqrt(np.mean(a['baseline'] ** 2)) / sigma))
+        np.testing.assert_array_equal(a['baseline'], b['baseline'])
+        np.testing.assert_allclose(a['noise'], b['noise'], rtol=1e-9)
+        np.testing.assert_allclose(a['signal'], b['signal'], rtol=1e-6)
+
+
+class TestPeakComponent:
+    def test_components_sum_to_the_signal(self):
+        d = synth.make_signal(1800, 1, 0.019, np.random.default_rng(0))
         np.testing.assert_allclose(
             d['y'], d['signal'] + d['baseline'] + d['noise'], rtol=0,
             atol=1e-12)
 
-    def test_quantised_output_lands_on_the_detector_lattice(self):
-        rng = np.random.default_rng(0)
-        d = synth.erb_signal(900, 'many', 1, 0.019, rng)
-        ratio = d['y'] / synth.ADC_STEP_MV
-        np.testing.assert_allclose(ratio, np.round(ratio), atol=1e-9)
-
     def test_reproducible_for_a_given_seed(self):
-        a = synth.erb_signal(900, 'isocratic', 0, 0.019,
-                             np.random.default_rng(3))
-        b = synth.erb_signal(900, 'isocratic', 0, 0.019,
-                             np.random.default_rng(3))
+        a = synth.make_signal(900, 2, 0.019, np.random.default_rng(3),
+                              layout=_layout(plate_model=True))
+        b = synth.make_signal(900, 2, 0.019, np.random.default_rng(3),
+                              layout=_layout(plate_model=True))
         np.testing.assert_array_equal(a['y'], b['y'])
 
-    def test_signal_is_the_shared_peak_component(self):
-        # The peaks of `erb` are the peak component's own: same seed,
-        # same draws, with the shapes from the stream `erb_signal`
-        # splits off first.
-        n, case = 1800, 'many'
-        rng = np.random.default_rng(11)
-        shape_rng, _ = rng.spawn(2)
-        t1, sig1, pk1, t01, _ = synth.peak_component(
-            n, case, rng, 0.02, shape_rng=shape_rng)
-        d = synth.erb_signal(n, case, 2, 0.02,
-                             np.random.default_rng(11))
-        np.testing.assert_array_equal(d['signal'], sig1)
-        np.testing.assert_array_equal(d['x'], t1)
-        assert d['meta']['dead_time'] == t01
-        assert len(d['peaks']) == len(pk1)
+    def test_the_axis_is_the_sample_index(self):
+        d = synth.make_signal(700, 3, 0.02, np.random.default_rng(0))
+        np.testing.assert_array_equal(d['x'], np.arange(700.))
 
-    def test_baseline_is_erbs_and_excludes_the_artefact(self):
-        rng = np.random.default_rng(5)
-        n = 1800
-        d = synth.erb_signal(n, 'blank', 3, 0.019, rng)
-        u = np.linspace(0., 1000., n)
-        np.testing.assert_array_equal(
-            d['baseline'], synth.erb_baseline(u, 3, exact_integral=True))
-        # the injection artifact is in the signal, never in the truth
-        art = [p for p in d['peaks'] if p.get('artifact')]
-        assert art, "the injection artefact must be present"
-        assert d['signal'].min() < 0, "its negative lobe must survive"
+    def test_no_artifact_by_default(self):
+        for s in range(20):
+            d = synth.make_signal(1000, 1, 0.02, np.random.default_rng(s))
+            assert not any(p['artifact'] for p in d['peaks'])
+            assert np.isnan(d['meta']['dead_time'])
+            assert d['meta']['n_requested'] >= synth.N_PEAKS_RANGE[0]
 
-    def test_baseline_shape_does_not_depend_on_record_length(self):
-        # erb_baseline is evaluated on a normalized abscissa, so the
-        # four types stay comparable across the record lengths.
-        rngs = [np.random.default_rng(1) for _ in range(2)]
-        a = synth.erb_signal(900, 'blank', 2, 0.019, rngs[0])
-        b = synth.erb_signal(4000, 'blank', 2, 0.019, rngs[1])
-        assert (a['meta']['baseline_range']
-                == pytest.approx(b['meta']['baseline_range'], rel=0.02))
+    def test_the_artifact_is_the_first_feature(self):
+        noise = 0.02
+        for s in range(30):
+            d = synth.make_signal(1500, 1, noise, np.random.default_rng(s),
+                                  layout=_layout(plate_model=True))
+            art = [p for p in d['peaks'] if p['artifact']]
+            assert len(art) == 2
+            assert art[0]['tc'] == d['meta']['dead_time']
+            t = d['x']
+            front = np.abs(d['signal'] - sum(
+                (_profile(t, p) for p in _analytes(d)), np.zeros(len(t))))
+            t_front = t[np.nonzero(front > noise)[0][-1]]
+            for p in _analytes(d):
+                assert _profile(t, p)[t <= t_front].max() <= noise
 
-    def test_all_four_baselines_and_every_peak_case_run(self):
-        for case in synth.PEAK_CASES:
-            for bt in range(4):
-                d = synth.erb_signal(900, case, bt, 0.019,
-                                     np.random.default_rng(0))
-                assert np.all(np.isfinite(d['y']))
-                lo, hi = synth.PEAK_CASES[case]
-                assert lo <= d['meta']['n_requested'] <= hi
-                assert (d['meta']['n_analytes'] + d['meta']['n_dropped']
-                        == d['meta']['n_requested'])
+    def test_the_artifact_stays_inside_the_record(self):
+        noise = 0.05
+        for s in range(40):
+            d = synth.make_signal(500, 1, noise, np.random.default_rng(s),
+                                  layout=_layout(plate_model=True, n_peaks=0))
+            assert abs(d['signal'][0]) <= noise
+            assert abs(d['signal'][-1]) <= noise
 
-    def test_sampling_is_the_measured_rate(self):
-        d = synth.erb_signal(1200, 'blank', 0, 0.019,
-                             np.random.default_rng(0))
-        dt = np.median(np.diff(d['x']))
-        assert dt == pytest.approx(1. / synth.PTS_PER_MIN, rel=1e-12)
+    @pytest.mark.parametrize('model', synth.PEAK_MODELS)
+    @pytest.mark.parametrize('layout', [dict(), dict(plate_model=True)])
+    def test_the_margins_hold_no_feature(self, model, layout):
+        # Every peak and the artifact are within the noise in the first
+        # and the last BORDER_MARGIN samples.
+        noise = 0.02
+        m = synth.BORDER_MARGIN
+        shapes = dict(synth.DEFAULT_SHAPES, model=model)
+        for s in range(12):
+            rng = np.random.default_rng(s)
+            n = int(rng.integers(500, 3000))
+            d = synth.make_signal(n, 1, noise, rng, shapes=shapes,
+                                  layout=_layout(**layout))
+            ys = [_profile(d['x'], p) for p in _analytes(d)]
+            ys.append(d['signal'] - sum(ys, np.zeros(n)))
+            for y in ys:
+                assert np.abs(y[:m]).max() <= noise + 1e-12
+                assert np.abs(y[-m:]).max() <= noise + 1e-12
 
-    def test_a_blank_holds_only_the_injection_artifact(self):
-        for bt in range(3):
-            d = synth.erb_signal(1500, 'blank', bt, 0.02,
-                                 np.random.default_rng(bt))
-            assert len(d['peaks']) == 2
-            assert all(p['artifact'] for p in d['peaks'])
+    def test_the_dead_time_is_in_the_first_third(self):
+        for s in range(60):
+            d = synth.make_signal(600, 1, 0.02, np.random.default_rng(s),
+                                  shapes=_GAUSSIAN,
+                                  layout=_layout(plate_model=True))
+            t0 = d['meta']['dead_time']
+            assert synth.BORDER_MARGIN <= t0 < 600. * synth.DEAD_TIME_SHARE
+            assert all(p['tc'] > t0 for p in _analytes(d))
+            assert d['meta']['dropped_early'] >= 0
+
+    def test_the_dead_time_is_picked_at_random_among_the_spots(self):
+        # Not always the earliest: earlier spots are then discarded.
+        early = [synth.make_signal(2000, 1, 0.02, np.random.default_rng(s),
+                                   shapes=_GAUSSIAN,
+                                   layout=_layout(plate_model=True, n_peaks=20)
+                                   )['meta']['dropped_early']
+                 for s in range(60)]
+        assert min(early) == 0 and max(early) > 3
+
+    def test_the_whole_artifact_clears_the_start_margin(self):
+        # A wide artifact at an early spot reaches into the margin: the
+        # spot is refused, not only its centre checked.
+        n, noise, m = 500, 0.02, synth.BORDER_MARGIN
+        for s in range(200):
+            d = synth.make_signal(
+                n, 1, noise, np.random.default_rng(s), shapes=_GAUSSIAN,
+                layout=_layout(plate_model=True, n_peaks=0))
+            assert np.abs(d['signal'][:m]).max() <= noise + 1e-12
+
+    def test_a_blank_holds_only_the_artifact(self):
+        d = synth.make_signal(1500, 1, 0.02, np.random.default_rng(0),
+                              layout=_layout(plate_model=True, n_peaks=0))
+        assert len(d['peaks']) == 2
+        assert all(p['artifact'] for p in d['peaks'])
+
+    def test_a_record_too_short_for_the_artifact_is_refused(self):
+        with pytest.raises(ValueError, match='no dead time'):
+            synth.make_signal(5, 1, 0.02, np.random.default_rng(0),
+                              layout=_layout(plate_model=True))
+
+    def test_counts_follow_their_range(self):
+        lo, hi = synth.N_PEAKS_RANGE
+        for plate, low in ((False, lo), (True, 0)):
+            k = [synth.make_signal(600, 1, 0.02, np.random.default_rng(s),
+                                   shapes=_GAUSSIAN,
+                                   layout=_layout(plate_model=plate)
+                                   )['meta']['n_requested']
+                 for s in range(300)]
+            assert min(k) == low and max(k) == hi
+
+    def test_the_count_leaves_the_baseline_and_the_noise_alone(self):
+        a = synth.make_signal(4000, 1, 0.02, np.random.default_rng(4))
+        k = a['meta']['n_requested']
+        b = synth.make_signal(4000, 1, 0.02, np.random.default_rng(4),
+                              layout=_layout(n_peaks=k))
+        np.testing.assert_array_equal(a['y'], b['y'])
+        c = synth.make_signal(4000, 1, 0.02, np.random.default_rng(4),
+                              layout=_layout(n_peaks=k - 3))
+        np.testing.assert_array_equal(a['baseline'], c['baseline'])
+        np.testing.assert_array_equal(a['noise'], c['noise'])
+        assert (a['signal'] != c['signal']).any()
+
+    @pytest.mark.parametrize('model', synth.PEAK_MODELS)
+    @pytest.mark.parametrize('plate', [False, True])
+    def test_every_peak_is_inside_the_record(self, model, plate):
+        # A peak cut by an end of the record is the endpoint mismatch
+        # BEADS cannot repair.
+        noise = 0.02
+        shapes = dict(synth.DEFAULT_SHAPES, model=model)
+        for s in range(8):
+            rng = np.random.default_rng(s)
+            n = int(rng.integers(500, 3000))
+            d = synth.make_signal(n, 1, noise, rng, shapes=shapes,
+                                  layout=_layout(plate_model=plate))
+            for p in _analytes(d):
+                y = _profile(d['x'], p)
+                assert y[0] <= noise and y[-1] <= noise
 
     @pytest.mark.parametrize('model', synth.PEAK_MODELS)
     def test_nothing_elutes_before_the_dead_time(self, model):
-        # The dead time is the transit time of an unretained species, so
-        # it bounds every retention time in the run below, ghosts and
-        # carryover included.
-        shapes = dict(synth.DEFAULT_SHAPES, model=model)
-        for k, case in enumerate(synth.PEAK_CASES):
-            for bt in range(3):
-                rng = np.random.default_rng(100 * k + bt)
-                n = int(rng.integers(450, 1400))
-                d = synth.erb_signal(n, case, bt, 0.05, rng, shapes=shapes)
-                t0 = d['meta']['dead_time']
-                assert all(p['tc'] >= t0 for p in d['peaks'][2:]), (
-                    f'{case}/{bt} n={n}: a peak elutes before the '
-                    f'dead time')
-
-    @pytest.mark.parametrize('model', synth.PEAK_MODELS)
-    def test_no_peak_overlaps_the_dead_time(self, model):
-        # Not even its front tail: every peak is within the noise until
-        # the injection artifact has returned to it.
         noise = 0.02
         shapes = dict(synth.DEFAULT_SHAPES, model=model)
-        for k, case in enumerate(synth.PEAK_CASES):
-            for bt in range(3):
-                rng = np.random.default_rng(300 * k + bt)
-                n = int(rng.integers(500, 3000))
-                d = synth.erb_signal(n, case, bt, noise, rng, shapes=shapes)
-                t = d['x']
-                pos, neg = d['peaks'][:2]
-                art = (synth.emg_peak(t, pos['tc'], pos['sigma'],
-                                      pos['tau'], pos['height'])
-                       - synth.emg_peak(t, neg['tc'], neg['sigma'],
-                                        neg['tau'], -neg['height']))
-                front = t <= t[np.nonzero(np.abs(art) > noise)[0][-1]]
-                for p in d['peaks'][2:]:
-                    y = synth.analyte_peak(t, p['tc'], p['sigma'],
-                                           p['shape'], p['height'])
-                    assert y[front].max() <= noise, (
-                        f'{case}/{bt} n={n}: a peak overlaps the '
-                        f'dead time')
+        for s in range(8):
+            d = synth.make_signal(2000, 1, noise, np.random.default_rng(s),
+                                  shapes=shapes,
+                                  layout=_layout(plate_model=True))
+            t0 = d['meta']['dead_time']
+            for p in _analytes(d):
+                assert _profile(d['x'], p)[d['x'] <= t0].max() <= noise
+
+    @pytest.mark.parametrize('plate', [False, True])
+    def test_adjacent_analytes_are_resolved_at_p_0(self, plate):
+        for s in range(8):
+            rng = np.random.default_rng(s)
+            n = int(rng.integers(500, 3000))
+            d = synth.make_signal(n, 2, 0.02, rng,
+                                  layout=_layout(plate_model=plate,
+                                                 overlap_prob=0.))
+            if d['meta']['n_analytes'] >= 2:
+                assert d['meta']['rs_min'] >= synth.MIN_RESOLUTION - 1e-9
+
+    def test_overlap_rights_follow_p(self):
+        specs, _ = synth._draw_analytes(
+            np.linspace(100., 2900., 2000), _layout(overlap_prob=0.2), 0.02,
+            np.random.default_rng(3), _GAUSSIAN)
+        assert np.mean([s['may_overlap'] for s in specs]) == pytest.approx(
+            0.2, abs=0.03)
+
+    def test_p_1_lets_peaks_overlap(self):
+        rs = [synth.make_signal(500, 1, 0.02, np.random.default_rng(s),
+                                layout=_layout(overlap_prob=1., n_peaks=30)
+                                )['meta']['rs_min'] for s in range(10)]
+        assert min(rs) < synth.MIN_RESOLUTION
+
+    def test_p_moves_only_the_overlap_rights(self):
+        # Every analyte takes its overlap variate whatever p, so at p = 0
+        # and at a p no analyte uses, the signals are identical.
+        a = synth.make_signal(3000, 1, 0.02, np.random.default_rng(6),
+                              layout=_layout(overlap_prob=0.))
+        b = synth.make_signal(3000, 1, 0.02, np.random.default_rng(6),
+                              layout=_layout(overlap_prob=1e-12))
+        np.testing.assert_array_equal(a['y'], b['y'])
+
+    def test_fixed_widths_are_inside_their_range(self):
+        lo, hi = synth.FIXED_SIGMA_RANGE
+        for s in range(20):
+            d = synth.make_signal(3000, 1, 0.02, np.random.default_rng(s))
+            for p in _analytes(d):
+                assert lo <= p['sigma'] <= hi
+
+    def test_plate_widths_grow_with_the_place(self):
+        d = synth.make_signal(6000, 1, 0.02, np.random.default_rng(2),
+                              layout=_layout(plate_model=True, n_peaks=10))
+        n_plates = d['meta']['n_plates']
+        assert synth.PLATE_NUMBER_RANGE[0] <= n_plates
+        assert n_plates <= synth.PLATE_NUMBER_RANGE[1]
+        for p in _analytes(d):
+            jitter = p['sigma'] * np.sqrt(n_plates) / p['tc']
+            assert 0.85 - 1e-9 <= jitter <= 1.15 + 1e-9
+
+    def test_width_modes_share_their_draws(self):
+        # At one count the layouts take the same draws, so a peak kept in
+        # both has one height, and the widths differ.
+        a = synth.make_signal(30000, 1, 0.02, np.random.default_rng(1),
+                              layout=_layout(n_peaks=20))
+        b = synth.make_signal(30000, 1, 0.02, np.random.default_rng(1),
+                              layout=_layout(n_peaks=20, plate_model=True))
+        np.testing.assert_array_equal(a['noise'], b['noise'])
+        np.testing.assert_array_equal(a['baseline'], b['baseline'])
+        ha = {p['tc']: (p['height'], p['sigma']) for p in _analytes(a)}
+        hb = {p['tc']: (p['height'], p['sigma']) for p in _analytes(b)}
+        shared = ha.keys() & hb.keys()
+        assert shared
+        assert all(ha[c][0] == hb[c][0] for c in shared)
+        assert any(ha[c][1] != hb[c][1] for c in shared)
 
     @pytest.mark.parametrize('model', synth.PEAK_MODELS)
-    def test_the_record_ends_in_the_noise(self, model):
-        # A peak has eluted when its trailing edge is back in the noise.
-        noise = 0.02
+    @pytest.mark.parametrize('layout', [
+        dict(), dict(plate_model=True), dict(overlap_prob=1.),
+        dict(plate_model=True, overlap_prob=0.5),
+    ])
+    def test_the_coverage_is_capped(self, model, layout):
         shapes = dict(synth.DEFAULT_SHAPES, model=model)
-        for k, case in enumerate(synth.PEAK_CASES):
-            for bt in range(3):
-                rng = np.random.default_rng(7000 + 100 * k + bt)
-                n = int(rng.integers(500, 3000))
-                d = synth.erb_signal(n, case, bt, noise, rng, shapes=shapes)
-                for p in d['peaks'][2:]:
-                    y = synth.analyte_peak(d['x'], p['tc'], p['sigma'],
-                                           p['shape'], p['height'])
-                    assert y[-1] <= noise, (
-                        f'{case}/{bt} n={n}: the record ends part-way '
-                        f'down a peak')
+        top = []
+        for s in range(10):
+            d = synth.make_signal(500, 1, 0.02, np.random.default_rng(s),
+                                  shapes=shapes,
+                                  layout=_layout(n_peaks=30, **layout))
+            m = d['meta']
+            top.append(m['coverage'])
+            assert m['coverage'] <= synth.MAX_COVERAGE
+            assert m['n_requested'] == 30 == (
+                m['n_analytes'] + m['dropped_early'] + m['dropped_cut']
+                + m['dropped_overlap'] + m['dropped_coverage'])
+            assert m['n_analytes'] == len(_analytes(d))
+        assert max(top) > 0.8 * synth.MAX_COVERAGE
 
-    @pytest.mark.parametrize('model', synth.PEAK_MODELS)
-    def test_adjacent_analytes_are_resolved(self, model):
-        shapes = dict(synth.DEFAULT_SHAPES, model=model)
-        for k, case in enumerate(('few', 'many', 'isocratic')):
-            for seed in range(6):
-                rng = np.random.default_rng(50 * k + seed)
-                n = int(rng.integers(500, 3000))
-                d = synth.erb_signal(n, case, seed % 3, 0.02, rng,
-                                     shapes=shapes)
-                rs = d['meta']['rs_min']
-                if d['meta']['n_analytes'] >= 2:
-                    assert rs >= synth.MIN_RESOLUTION - 1e-9, (
-                        f'{case} n={n}: Rs {rs:.3f}')
+    def test_coverage_is_four_sigma_for_gaussians(self):
+        t = np.arange(1000.)
+        half = synth._FWHM_PER_SIGMA / 2.
+        one = (500., 500. - 10. * half, 500. + 10. * half)
+        assert synth._coverage(t, [one]) == pytest.approx(40. / 999.)
+        # shared parts count once, parts outside the record not at all
+        assert synth._coverage(t, [one, one]) == pytest.approx(40. / 999.)
+        cut = (0., -10. * half, 10. * half)
+        assert synth._coverage(t, [cut]) == pytest.approx(20. / 999.)
+        assert synth._coverage(t, []) == 0.
+
+    def test_peaks_keep_their_drawn_place(self):
+        rng = np.random.default_rng(5)
+        specs, _ = synth._draw_analytes(rng.uniform(0., 999., 30),
+                                        _layout(), 0.02, rng)
+        kept, _, _ = synth._keep_analytes(np.arange(1000.), specs, -np.inf,
+                                          0.02)
+        assert 0 < len(kept) < 30
+        assert {p['tc'] for p in kept} <= {s['tc'] for s in specs}
+
+    def test_the_cap_favours_no_part_of_the_record(self):
+        # Dropping in the order of the draw leaves both halves as full.
+        tc = np.concatenate([[p['tc'] for p in _analytes(synth.make_signal(
+            500, 1, 0.02, np.random.default_rng(s), shapes=_GAUSSIAN,
+            layout=_layout(n_peaks=30, overlap_prob=1.)))]
+            for s in range(200)])
+        share = np.mean(tc < 249.5)
+        assert share == pytest.approx(0.5, abs=4. * 0.5 / np.sqrt(len(tc)))
+
+    def test_a_signal_without_artifact_holds_a_peak(self):
+        for s in range(100):
+            d = synth.make_signal(500, 1, 0.02, np.random.default_rng(s),
+                                  layout=_layout(n_peaks=1))
+            assert d['meta']['n_analytes'] == 1
+
+    def test_a_record_too_short_for_a_peak_is_refused(self):
+        with pytest.raises(ValueError, match='no dead time or analyte'):
+            synth.make_signal(5, 1, 0.02, np.random.default_rng(0),
+                              layout=_layout(n_peaks=1))
 
     def test_true_apex_and_width_are_the_peaks_own(self):
         # `tc` and `fwhm_points` describe the Gaussian component of the
         # EMG; `apex` and `fwhm_true_points` must describe the peak.
-        d = synth.erb_signal(2000, 'few', 0, 0.02,
-                             np.random.default_rng(4))
-        dt = d['x'][1] - d['x'][0]
+        d = synth.make_signal(2000, 3, 0.02, np.random.default_rng(4),
+                              layout=_layout(n_peaks=4))
         fine = np.linspace(d['x'][0], d['x'][-1], 40 * len(d['x']))
-        for p in d['peaks'][2:]:
-            y = synth.emg_peak(fine, p['tc'], p['sigma'], p['tau'],
-                               p['height'])
+        for p in _analytes(d):
+            y = _profile(fine, p)
             above = fine[y >= 0.5 * y.max()]
-            assert p['apex'] == pytest.approx(fine[np.argmax(y)],
-                                              abs=0.5 * dt)
+            assert p['apex'] == pytest.approx(fine[np.argmax(y)], abs=0.5)
             assert p['fwhm_true_points'] == pytest.approx(
-                (above[-1] - above[0]) / dt, abs=1.)
+                above[-1] - above[0], abs=1.)
             assert p['apex'] > p['tc']
 
-    def test_the_dead_time_moves_earlier_to_make_room(self):
-        # A 900-point record lasts 7.5 min: six to eight analytes fit
-        # only once the dead time has been drawn again, earlier.
-        d = synth.erb_signal(900, 'many', 0, 0.02,
-                             np.random.default_rng(1))
-        assert d['meta']['dead_time_redraws'] > 0
-        assert d['meta']['n_dropped'] == 0
-        assert 2.5 <= d['meta']['dead_time'] <= 6.5
-
-    def test_a_blank_keeps_its_first_dead_time(self):
-        for seed in range(10):
-            d = synth.erb_signal(600, 'blank', 0, 0.02,
-                                 np.random.default_rng(seed))
-            assert d['meta']['dead_time_redraws'] == 0
-
-    def test_peaks_that_fit_nowhere_are_dropped(self):
-        # A 500-point record lasts about 4 min: even with the dead time
-        # at 2.5 min, not every one of six to eight analytes fits. Those
-        # that cannot are dropped rather than left running off the end.
-        noise = 0.02
-        d = synth.erb_signal(500, 'many', 0, noise,
-                             np.random.default_rng(0))
-        assert d['meta']['n_dropped'] > 0
-        assert d['meta']['dead_time'] - 2.5 < 1. / synth.PTS_PER_MIN
-        assert (d['meta']['n_analytes'] + d['meta']['n_dropped']
-                == d['meta']['n_requested'])
-        assert d['signal'][-1] <= noise
-
-    def test_dead_time_is_drawn_inside_its_range(self):
-        for k in range(50):
-            rng = np.random.default_rng(k)
-            n = int(rng.integers(500, 4000))
-            d = synth.erb_signal(n, 'blank', 0, 0.02, rng)
-            t0 = d['meta']['dead_time']
-            assert 2.5 <= t0 <= min(6.5, 0.88 * d['meta']['minutes'])
-
-    def test_a_record_too_short_for_the_dead_time_is_refused(self):
-        with pytest.raises(ValueError, match='dead time'):
-            synth.peak_component(300, 'blank',
-                                 np.random.default_rng(0), 0.02)
-
-    def test_record_durations_stay_inside_the_range(self):
+    def test_record_lengths_stay_inside_the_range(self):
         rng = np.random.default_rng(0)
-        lo, hi = synth.ERB_N_RANGE
-        d = [synth.draw_record_duration(rng) for _ in range(2000)]
-        n = np.round(np.array(d) * synth.PTS_PER_MIN)
-        assert lo <= n.min() and n.max() <= hi
+        lo, hi = synth.N_RANGE
+        n = [synth.draw_record_length(rng) for _ in range(2000)]
+        assert lo <= min(n) and max(n) <= hi
 
 
 class TestPeakShapes:
@@ -398,18 +600,17 @@ class TestPeakShapes:
     def test_default_draws_are_reproducible(self):
         # The seed alone fixes every shape; the values are pinned so a
         # change in the order of the draws shows.
-        d = synth.erb_signal(1800, 'many', 0, 0.02,
-                             np.random.default_rng(7))
-        analytes = d['peaks'][2:]
+        d = synth.make_signal(1800, 1, 0.02, np.random.default_rng(7),
+                              layout=_layout(n_peaks=8))
+        analytes = _analytes(d)
         np.testing.assert_allclose(
             [p['tailing_factor'] for p in analytes],
-            [1.26674689, 1.08002844, 1.673528, 1.2186414, 1.40167753,
-             1.16233298, 1.02971691, 1.09269172], rtol=1e-7)
+            [1.09269172, 1.67352800, 1.40167753, 1.02971691,
+             1.16233298, 1.26674689, 1.08002844], rtol=1e-7)
         np.testing.assert_allclose(
             [p['height'] for p in analytes],
-            [4.1722771142, 1.3642427112, 2.7562284656, 2.9767520474,
-             3.9932397897, 0.3123303581, 4.9543751708, 0.4946019617],
-            rtol=1e-9)
+            [8.5160365307, 1.2846652281, 6.4285163028, 1.4656452129,
+             5.0982938279, 0.7715315198, 1.8928030057], rtol=1e-9)
         for p in analytes:
             assert p['shape']['model'] == 'emg'
             assert p['tau'] == pytest.approx(
@@ -437,84 +638,61 @@ class TestPeakShapes:
             assert lo <= log_m.min() and log_m.max() <= hi
             assert log_m.mean() == pytest.approx((lo + hi) / 2., abs=0.06)
 
-    def test_default_heights_follow_their_distribution(self):
-        # Log-normal of median HEIGHT_MEDIAN and log-spread
-        # HEIGHT_LOG_SIGMA; at 0.02 mV the floor cuts almost nothing.
+    def test_heights_are_log_uniform_in_their_range(self):
         rng = np.random.default_rng(3)
-        h = np.array([synth.draw_height(rng, 0.02) for _ in range(400)])
-        assert np.median(h) == pytest.approx(synth.HEIGHT_MEDIAN, rel=0.15)
-        assert np.std(np.log(h)) == pytest.approx(synth.HEIGHT_LOG_SIGMA,
-                                                  abs=0.1)
+        u = np.log([synth.draw_height(rng, 0.02, 60.) for _ in range(2000)])
+        lo, hi = np.log(60. / synth.HEIGHT_SPAN), np.log(60.)
+        assert lo <= u.min() and u.max() <= hi
+        assert u.mean() == pytest.approx((lo + hi) / 2., abs=0.1)
+        assert u.std() == pytest.approx((hi - lo) / np.sqrt(12.), abs=0.06)
 
-    def test_heights_are_cut_at_the_snr_floor(self):
-        # With a median of 2 mV and a noise of 1 mV the floor, 3 mV, sits
-        # above the median, so most draws land just over it, in the share
-        # the cut log-normal gives: 0.659 of them below twice the floor.
+    def test_no_height_is_below_the_snr_floor(self):
         rng = np.random.default_rng(5)
-        h = np.array([synth.draw_height(rng, 1., (2., 0.9))
-                      for _ in range(2000)])
-        assert h.min() >= synth.MIN_SNR
-        assert np.mean(h < 2. * synth.MIN_SNR) == pytest.approx(0.659,
-                                                                abs=0.035)
-        d = synth.erb_signal(3000, 'many', 1, 0.05,
-                             np.random.default_rng(9))
-        assert d['meta']['height_min_sigma'] >= synth.MIN_SNR
-        assert d['meta']['height_min_sigma'] == pytest.approx(
-            min(p['height'] for p in d['peaks'][2:]) / 0.05)
+        h = [synth.draw_height(rng, 1., 60.) for _ in range(500)]
+        assert min(h) >= synth.MIN_SNR
 
-    @pytest.mark.parametrize('heights', [(0.01, 0.1), (1., 0.2)])
-    def test_a_floor_far_above_the_median_stays_finite(self, heights):
-        # The floor, 3 mV, sits 57 and 5.5 log-standard deviations above
-        # the median: every height lands just over it.
-        rng = np.random.default_rng(17)
-        h = np.array([synth.draw_height(rng, 1., heights)
-                      for _ in range(200)])
-        assert np.all(np.isfinite(h))
-        assert h.min() >= 3. and h.max() < 4.5
-
-    def test_the_height_draw_reaches_the_analytes(self):
-        d = synth.erb_signal(3000, 'many', 1, 0.02,
-                             np.random.default_rng(9), heights=(30., 0.1))
-        h = [p['height'] for p in d['peaks'][2:]]
-        assert h
-        assert 20. < min(h) and max(h) < 45.
-
-    @pytest.mark.parametrize('args', [
-        ['--height-median', '0'],
-        ['--height-log-sigma', '-1'],
-    ])
-    def test_the_parser_refuses_a_non_positive_height_draw(self, args,
-                                                           tmp_path,
-                                                           monkeypatch):
-        monkeypatch.setattr(sys, 'argv', ['synth_dataset.py',
-                                          str(tmp_path / 'SET')] + args)
-        with pytest.raises(SystemExit):
-            synth.main()
-        assert not (tmp_path / 'SET').exists()
+    @pytest.mark.parametrize('kind', synth.BASELINE_TYPES)
+    def test_the_height_range_follows_the_baseline(self, kind):
+        # Typically the tallest peak is 5 to 10 times the baseline.
+        c, top = [], synth.HEIGHT_MAX[kind]
+        for s in range(60):
+            d = synth.make_signal(3000, kind, 0.02, np.random.default_rng(s),
+                                  shapes=_GAUSSIAN)
+            h = [p['height'] for p in _analytes(d)]
+            assert max(h) <= top
+            c.append(max(h) / d['meta']['baseline_range'])
+            assert d['meta']['height_min_sigma'] == pytest.approx(
+                min(h) / 0.02)
+        assert 5. < np.median(c) < 10.
 
     def test_a_height_takes_one_draw(self):
         # One uniform per height, so the draws after it do not move.
         a, b = np.random.default_rng(13), np.random.default_rng(13)
-        synth.draw_height(a, 0.05)
+        synth.draw_height(a, 0.05, 60.)
         b.uniform()
         assert a.uniform() == b.uniform()
 
     def test_models_share_everything_but_the_shapes(self):
         # Shapes and noise draw from streams of their own, so the same
-        # seed gives the same dead time, peaks and noise in every model.
-        made = {m: synth.erb_signal(3000, 'many', 2, 0.05,
-                                    np.random.default_rng(11),
-                                    shapes=dict(synth.DEFAULT_SHAPES,
-                                                model=m))
+        # seed gives the same dead time, noise and drawn peaks in every
+        # model; which peaks are kept depends on their shape.
+        made = {m: synth.make_signal(3000, 2, 0.05,
+                                     np.random.default_rng(11),
+                                     shapes=dict(synth.DEFAULT_SHAPES,
+                                                 model=m),
+                                     layout=_layout(plate_model=True))
                 for m in synth.PEAK_MODELS}
         ref = made['emg']
         for m, d in made.items():
             np.testing.assert_array_equal(d['noise'], ref['noise'])
             np.testing.assert_array_equal(d['baseline'], ref['baseline'])
             assert d['meta']['dead_time'] == ref['meta']['dead_time']
-            assert ([p['height'] for p in d['peaks'][2:]]
-                    == [p['height'] for p in ref['peaks'][2:]])
-            assert {p['shape']['model'] for p in d['peaks'][2:]} == {m}
+            mine = {p['tc']: p['height'] for p in _analytes(d)}
+            other = {p['tc']: p['height'] for p in _analytes(ref)}
+            shared = mine.keys() & other.keys()
+            assert shared
+            assert all(mine[c] == other[c] for c in shared)
+            assert {p['shape']['model'] for p in _analytes(d)} == {m}
 
     def test_emg_factors_match_independent_values(self):
         # tau/sigma = 1.2, computed apart from the generator.
@@ -534,19 +712,6 @@ class TestPeakShapes:
         assert apex == pytest.approx(3., abs=1e-3)
         assert y.max() == pytest.approx(2., rel=1e-6)
 
-    @pytest.mark.parametrize('shape', [
-        {'model': 'pearson7', 'm': 3.5, 'e': 0.2},
-        {'model': 'gaussian'},
-    ])
-    def test_profiles_match_one_peak_at_a_time(self, shape):
-        t = np.linspace(0., 20., 2001)
-        centres, sigmas = np.array([5., 9.]), np.array([0.3, 0.6])
-        rows = synth._profiles(t, centres, sigmas, shape)
-        for row, c, s in zip(rows, centres, sigmas):
-            np.testing.assert_allclose(
-                row / row.max(), synth.analyte_peak(t, c, s, shape, 1.),
-                atol=1e-12)
-
     def test_a_range_out_of_reach_raises(self):
         shapes = dict(synth.DEFAULT_SHAPES, tailing_factor=(0.5, 0.9))
         with pytest.raises(ValueError, match='front'):
@@ -563,9 +728,9 @@ class TestPeakShapes:
     def test_recorded_tailing_factors_follow_the_asked_range(self, model,
                                                              tf):
         shapes = dict(synth.DEFAULT_SHAPES, model=model, tailing_factor=tf)
-        d = synth.erb_signal(6000, 'many', 0, 0.02,
-                             np.random.default_rng(2), shapes=shapes)
-        analytes = d['peaks'][2:]
+        d = synth.make_signal(6000, 1, 0.02, np.random.default_rng(2),
+                              shapes=shapes)
+        analytes = _analytes(d)
         assert analytes
         lo, hi = tf if tf else (1., 1.)
         for p in analytes:
@@ -589,67 +754,32 @@ class TestPeakShapes:
         assert not (tmp_path / 'SET').exists()
 
 
-class TestRate:
-    def test_default_rate_is_120(self):
-        a = synth.erb_signal(1500, 'few', 0, 0.02, np.random.default_rng(5))
-        b = synth.erb_signal(1500, 'few', 0, 0.02, np.random.default_rng(5),
-                             rate=120.)
-        assert synth.PTS_PER_MIN == 120
-        np.testing.assert_array_equal(a['y'], b['y'])
-
-    def test_widths_in_minutes_do_not_depend_on_the_rate(self):
-        t1 = np.arange(1200) / 120.
-        t2 = np.arange(2400) / 240.
-        _, e1 = synth.dead_time_artifact(t1, 4.5, t1[1] - t1[0],
-                                         np.random.default_rng(3))
-        _, e2 = synth.dead_time_artifact(t2, 4.5, t2[1] - t2[0],
-                                         np.random.default_rng(3))
-        for a, b in zip(e1, e2):
-            assert b['sigma'] == pytest.approx(a['sigma'], rel=1e-12)
-            assert b['fwhm_points'] == pytest.approx(2. * a['fwhm_points'],
-                                                     rel=1e-12)
-
-    def test_a_faster_rate_samples_the_same_run_more_densely(self):
-        d = synth.erb_signal(3000, 'single', 1, 0.02,
-                             np.random.default_rng(4), rate=240.)
-        assert d['meta']['points_per_minute'] == 240.
-        assert d['x'][1] - d['x'][0] == pytest.approx(1. / 240.)
-        assert d['meta']['minutes'] == pytest.approx(2999. / 240.)
-
-
 class TestNamesAndManifest:
-    def test_stem_puts_the_padded_replicate_before_the_length(self):
-        stem = synth.signal_stem('erb', 'many', 'emg', 'step', 'typ', 3,
-                                 1874, 2)
-        assert stem == 'SYN__erb__many__emg__step__typ__03__1874'
+    def test_stem_puts_the_length_before_the_replicate(self):
+        stem = synth.signal_stem('12a', 'emg', 2, 'snr20', 1874, 3)
+        assert stem == 'SYN__12a__emg__type2__snr20__01874__0003'
 
-    def test_stem_names_the_peak_model_after_the_peak_case(self):
-        stem = synth.signal_stem('erb', 'few', 'pearson7', 'exp', 'high',
-                                 0, 900, 2)
-        assert stem.split('__')[2:4] == ['few', 'pearson7']
-
-    def test_padding_follows_the_widest_replicate(self):
-        assert synth.signal_stem('erb', 'few', 'gaussian', 'exp', 'high', 3,
-                                 900, 1).endswith('__3__900')
+    def test_peak_label_marks_the_artifact(self):
+        assert synth.peak_label(0, True) == '0a'
+        assert synth.peak_label(7, False) == '7'
 
     def test_manifest_row_matches_its_columns(self):
-        d = synth.erb_signal(900, 'few', 0, 0.02, np.random.default_rng(1))
-        stem = synth.signal_stem('erb', 'few', 'emg', 'parabola', 'typ', 0,
-                                 900, 2)
-        row = synth.manifest_row(stem, 'erb', 'few', 'parabola', 'typ',
-                                 900, 0, d).split(',')
+        d = synth.make_signal(900, 1, 0.02, np.random.default_rng(1),
+                              layout=_layout(plate_model=True))
+        stem = synth.signal_stem('x', 'emg', 1, 'snr25', 900, 0)
+        row = synth.manifest_row(stem, 'snr25', 0, d).split(',')
         assert len(row) == len(synth.MANIFEST_COLUMNS)
         fields = dict(zip(synth.MANIFEST_COLUMNS, row))
         # the artifact lobes are not analytes
-        assert int(fields['n_analytes']) == d['meta']['n_analytes']
         assert int(fields['n_analytes']) == len(d['peaks']) - 2
-        assert float(fields['points_per_minute']) == synth.PTS_PER_MIN
+        assert fields['plate_model'] == 'True'
+        assert int(fields['baseline_type']) == 1
 
 
 class TestProvenance:
     def _write(self, tmp_path, **overrides):
-        params = dict(output='SET', seed=0, replicates=1,
-                      rate=synth.PTS_PER_MIN, no_plot=False)
+        params = dict(output='SET', seed=0, replicates=1, no_plot=False,
+                      overlap_prob=0.)
         params.update(overrides)
         path = tmp_path / 'PROVENANCE.txt'
         started = datetime.datetime.now().astimezone()
@@ -666,15 +796,14 @@ class TestProvenance:
     def test_records_the_commit_it_is_given(self, tmp_path):
         assert self._write(tmp_path)[0] == 'commit COMMIT'
 
-    def test_records_the_exact_rate(self, tmp_path):
-        line = self._write(tmp_path, rate=1234.5678)[2]
-        assert 'rate=1234.5678' in line.split()
+    def test_records_the_exact_overlap_probability(self, tmp_path):
+        line = self._write(tmp_path, overlap_prob=0.123456)[2]
+        assert 'overlap_prob=0.123456' in line.split()
 
     def test_records_the_defaults(self, tmp_path):
         args = self._write(tmp_path)[2].split()[1:]
         assert 'seed=0' in args
         assert 'replicates=1' in args
-        assert 'rate=120' in args
         assert 'plot=True' in args
         output = next(a for a in args if a.startswith('output='))
         assert pathlib.Path(output.split('=', 1)[1]).is_absolute()
@@ -719,34 +848,97 @@ class TestProvenance:
 
 
 class TestMain:
-    def test_writes_provenance_after_the_manifest(self, tmp_path,
-                                                  monkeypatch):
+    def _run(self, tmp_path, monkeypatch, *args):
         out = tmp_path / 'SET'
         monkeypatch.setattr(sys, 'argv', [
-            'synth_dataset.py', str(out), '--replicates', '1', '--no-plot'])
+            'synth_dataset.py', str(out), '--no-plot', '--length', '600',
+            *args])
         synth.main()
+        return out
+
+    def test_writes_provenance_after_the_manifest(self, tmp_path,
+                                                  monkeypatch):
+        out = self._run(tmp_path, monkeypatch)
         manifest = out / 'manifest.csv'
         provenance = out / 'PROVENANCE.txt'
         assert provenance.stat().st_mtime_ns >= manifest.stat().st_mtime_ns
         n_rows = len(manifest.read_text().splitlines()) - 1
-        assert n_rows == len(list((out / 'signals').glob('*.txt')))
+        assert n_rows == len(list((out / 'signals').glob('*.txt'))) == 6
         assert 'replicates=1' in provenance.read_text()
 
-    def test_height_flags_reach_the_set(self, tmp_path, monkeypatch):
-        out = tmp_path / 'SET'
-        monkeypatch.setattr(sys, 'argv', [
-            'synth_dataset.py', str(out), '--no-plot',
-            '--height-median', '30', '--height-log-sigma', '0.1'])
+    def test_the_seed_changes_the_set(self, tmp_path, monkeypatch):
+        def signals(seed):
+            out = self._run(tmp_path / seed, monkeypatch, '--seed', seed,
+                            '--n-peaks', '2')
+            return {f.stem.split('__')[3] + f.stem.split('__')[4]:
+                    f.read_text() for f in (out / 'signals').glob('*.txt')}
+        a, b, again = signals('0'), signals('1'), signals('00')
+        assert a == again
+        assert all(a[k] != b[k] for k in a)
+
+    def test_each_noise_name_holds_its_own_ratio(self, tmp_path,
+                                                 monkeypatch):
+        out = self._run(tmp_path, monkeypatch, '--n-peaks', '2')
+        for f in (out / 'truth').glob('*__truth.npz'):
+            name = f.stem.split('__')[4]
+            z = np.load(f)
+            sigma = json.loads(str(z['meta']))['noise_sigma']
+            ratio = 10. * np.log10(np.mean(z['baseline'] ** 2) / sigma ** 2)
+            assert ratio == pytest.approx(synth.NOISE_CASES[name])
+
+    def test_the_length_is_drawn_even_when_fixed(self, tmp_path,
+                                                 monkeypatch):
+        # Fixing the length at the one that was drawn changes nothing.
+        base = ['synth_dataset.py', str(tmp_path / 'A'), '--no-plot',
+                '--n-peaks', '2']
+        monkeypatch.setattr(sys, 'argv', base)
         synth.main()
-        heights = [p['height']
-                   for f in (out / 'truth').glob('*__truth.npz')
-                   for p in json.loads(str(np.load(f)['peaks']))
-                   if not p['artifact']]
-        assert heights
-        assert 20. < min(heights) and max(heights) < 45.
-        text = (out / 'PROVENANCE.txt').read_text()
-        assert 'height_median=30' in text
-        assert 'height_log_sigma=0.1' in text
+        f = sorted((tmp_path / 'A' / 'signals').glob('*type1*snr30*'))[0]
+        n = int(f.stem.split('__')[5])
+        base[1] = str(tmp_path / 'B')
+        monkeypatch.setattr(sys, 'argv', base + ['--length', str(n)])
+        synth.main()
+        assert (tmp_path / 'B' / 'signals' / f.name).read_text() == \
+            f.read_text()
+
+    def test_the_legacy_types_come_on_request(self, tmp_path, monkeypatch):
+        out = self._run(tmp_path, monkeypatch, '--legacy-baselines')
+        kinds = {p.stem.split('__')[3] for p in (out / 'signals').glob('*')}
+        assert kinds == {f'type{k}' for k in synth.BASELINE_TYPES}
+
+    def test_flags_reach_the_set(self, tmp_path, monkeypatch):
+        out = self._run(tmp_path, monkeypatch, '--n-peaks', '2',
+                        '--plate-model',
+                        '--overlap-prob', '0.5')
+        names = sorted(p.stem for p in (out / 'signals').glob('*.txt'))
+        for n in names:
+            peaks = json.loads(str(np.load(
+                out / 'truth' / f'{n}__truth.npz')['peaks']))
+            left = sum(not p['artifact'] for p in peaks)
+            assert n.split('__')[1] == f'{left}a'
+        assert all(n.endswith('__00600__0000') for n in names)
+        for f in (out / 'truth').glob('*__truth.npz'):
+            meta = json.loads(str(np.load(f)['meta']))
+            assert meta['plate_model']
+            assert meta['overlap_prob'] == 0.5
+            assert meta['n_points'] == 600
+        first = next((out / 'signals').glob('*.txt')).read_text()
+        assert first.split('\n')[1].split('\t')[0] == '1'
+
+    @pytest.mark.parametrize('args', [
+        ['--n-peaks', '0'],
+        ['--n-peaks', '-1'],
+        ['--overlap-prob', '1.5'],
+        ['--length', '1'],
+        ['--length', '499'],
+    ])
+    def test_the_parser_refuses_a_bad_layout(self, args, tmp_path,
+                                             monkeypatch):
+        monkeypatch.setattr(sys, 'argv', ['synth_dataset.py',
+                                          str(tmp_path / 'SET')] + args)
+        with pytest.raises(SystemExit):
+            synth.main()
+        assert not (tmp_path / 'SET').exists()
 
     def test_refuses_a_non_empty_directory(self, tmp_path, monkeypatch):
         (tmp_path / 'old.txt').write_text('x')

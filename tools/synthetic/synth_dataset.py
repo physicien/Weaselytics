@@ -2,42 +2,57 @@
 """
 Generate synthetic chromatograms with known ground truth.
 
-Each signal is a peak component plus a baseline plus white noise. The
-true baseline is saved beside the signal, so a baseline estimate can be
-scored against it.
+Each signal is a baseline plus peaks plus white noise, on a sample index
+and in signal units, as the simulated chromatograms of Ning, Selesnick &
+Duval (2014, §5.1). The true baseline is saved beside the signal, so a
+baseline estimate can be scored against it.
 
-In the peak component, a positive spike followed by a negative
-undershoot marks the injection at the dead time. The analytes take the
-shape `--peak-model` names, an exponentially-modified Gaussian by
-default, a modified Pearson VII or a Gaussian, with widths following
-the plate model, sigma = tR / sqrt(N) (Snyder, Kirkland & Dolan 2009,
-Eqs. 2.9b and 2.10). Each analyte draws its tailing factor, by
-default as one plus a log-normal variate, so that most tail a little
-and a few strongly; `--tailing-factor` draws it uniformly in a range instead.
-They elute after the injection artifact, return to the noise before
-the record ends, and keep a resolution of at least 1 between
-neighbours. Blanks hold only the artifact. The ranges of plate number,
-dead time and noise were picked for this benchmark.
+The baseline is one of five types:
 
-The baseline is one of the analytic baselines Donald Erb, author of
-pybaselines, wrote to test the cutoff selection of this project: a
-parabola, an exponential decay or a step. Records last 4.2 to 333 min,
-500 to 40000 points at 120 pts/min, and the signal is rounded to a
-detector's voltage step.
+1. a polynomial plus a sinusoid, Ning et al.'s Type 1;
+2. a stationary low-pass random process, Ning et al.'s Type 2;
+3. to 5. the parabola, exponential decay and step that Donald Erb,
+   author of pybaselines, wrote to test the cutoff selection of this
+   project, legacy types that a set holds with `--legacy-baselines`
+   only.
 
-Every signal is written as a two-column text file the weaselytics
-pipeline reads unchanged. The split into signal, baseline and noise
-goes to ``truth/<stem>__truth.npz``, one row per signal to
-``manifest.csv``, and a plot to ``plots/`` unless ``--no-plot`` is
-given. ``PROVENANCE.txt`` records the commit, the exact call with every
-argument, the machine and the library versions. The output directory
-must be new or empty.
+Every baseline is defined over the whole record: a longer record holds
+as many waves, sampled more densely, while the peaks keep their width in
+samples, unless the plate model sets it.
+
+Between 1 and 30 analytes are drawn per signal (Komsta 2011), 0 to 30
+with the plate model, in the shape `--peak-model` names, an
+exponentially-modified Gaussian by default, a modified Pearson VII or a
+Gaussian. Each draws its tailing factor, by default as one plus a
+log-normal variate; `--tailing-factor` draws it uniformly in a range
+instead. Their widths are drawn in samples, or follow the plate model,
+sigma = tR / sqrt(N) (Snyder, Kirkland & Dolan 2009, Eqs. 2.9b and
+2.10), with `--plate-model`. Each analyte stays where it was drawn or is
+dropped. It must return to the noise before the 20 samples at each end
+of the record, and keep a resolution of at least 1 from the others. A
+share of the analytes, `--overlap-prob`, may overlap. The placement
+stops at the first analyte that would take the share of the record they
+cover above 33%. The name of a signal gives the number left. The plate
+model brings the bipolar injection artifact, at the dead time, in the
+first third of the record and ahead of every analyte.
+
+Records are 500 to 40000 points long, drawn per signal unless
+`--length` fixes them.
+
+Every signal is written as a two-column text file, sample index and
+signal, that the weaselytics pipeline reads unchanged. The split into
+signal, baseline and noise goes to ``truth/<stem>__truth.npz``, one row
+per signal to ``manifest.csv``, and a plot to ``plots/`` unless
+``--no-plot`` is given. ``PROVENANCE.txt`` records the commit, the exact
+call with every argument, the machine and the library versions. The
+output directory must be new or empty.
 
 Usage
 -----
 python tools/synthetic/synth_dataset.py OUTPUT_DIR [--seed 0]
-    [--peak-model emg|pearson7|gaussian] [--tailing-factor LO HI]
-    [--pearson-m LO HI]
+    [--legacy-baselines] [--length N] [--n-peaks K] [--plate-model]
+    [--overlap-prob P] [--peak-model emg|pearson7|gaussian]
+    [--tailing-factor LO HI] [--pearson-m LO HI]
 """
 
 import argparse
@@ -57,113 +72,86 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import scipy  # noqa: E402
 from scipy.optimize import brentq, minimize_scalar  # noqa: E402
-from scipy.special import erfc, erfcx, log_ndtr, ndtri_exp  # noqa: E402
+from scipy.special import erfc, erfcx  # noqa: E402
 from scipy.stats import exponnorm, skewnorm  # noqa: E402
 
 from weaselytics.peakfitting import pearson7  # noqa: E402
 
-PEAK_CASES = {
-    # (fewest, most) analytes, the count drawn per signal. Every case
-    # takes its widths from the plate model (`PLATE_NUMBER_RANGE`);
-    # 'isocratic' also pins an early and a late eluter and keeps the
-    # exact plate width.
-    'blank': (0, 0),
-    'single': (1, 1),
-    'few': (3, 4),
-    'many': (6, 8),
-    'isocratic': (7, 7),
-}
-# Column plate number, drawn once per signal. The range was picked for
-# this benchmark around the N of about 10,000 that Snyder, Kirkland &
+# Analytes per signal, drawn uniformly unless `--n-peaks` fixes the
+# count: 1 to 30, as in the synthetic data of Komsta (2011, p. 724,
+# "Synthetic Data"). With the plate model the lower end is 0: a blank
+# still holds the injection artifact.
+N_PEAKS_RANGE = (1, 30)
+# Standard deviation of an analyte, in samples, drawn uniformly per peak
+# when the plate model is off. Chosen by eye to match the peaks of the
+# 2000-sample chromatograms of Ning et al. (2014, Figs. 5 and 6).
+FIXED_SIGMA_RANGE = (1.5, 8.)
+# Column plate number of the plate model, drawn once per signal. The
+# range was chosen around the N of about 10,000 that Snyder, Kirkland &
 # Dolan (2009, §2.5, p. 57) call a good starting point in many cases.
 PLATE_NUMBER_RANGE = (2000., 14000.)
-# Standard deviation of the white detector noise, in mV, at two levels
-# picked for this benchmark. 'typ' is the reference level and 'high',
-# two and a half times larger, gives noisier records.
-NOISE_CASES = {'typ': 0.02, 'high': 0.05}
-# Height of an analyte, mV: log-normal, with the median and the standard
-# deviation of its logarithm below, picked for this benchmark;
-# `--height-median` and `--height-log-sigma` set others. Half the heights
-# fall between about 1.5 and 5.9 mV, and one in twenty is above about
-# 16 mV. For reference, Davis (2021, §2.5) builds synthetic
-# chromatograms with log-normal amplitudes of log-standard deviation 0.5
-# and 1.5. No height is drawn below `MIN_SNR` noise standard deviations:
-# MacDougall et al. (1980, Eq. (9)) place the limit of detection three
-# standard deviations of the blank above it. Snyder, Kirkland & Dolan
-# (2009, §11.2.5.1) call S/N = 3 a commonly accepted definition of the
-# limit of detection. They measure the noise peak to peak (§4.2.3.1,
-# Fig. 4.7), which is larger than the standard deviation, so their limit
-# sits above this floor.
-HEIGHT_MEDIAN = 3.0
-HEIGHT_LOG_SIGMA = 1.0
+# Levels of the white noise, by the name they take in the signals: the
+# energy of the baseline over the energy of the noise, in dB; see
+# `noise_for_snr`. Chosen. Ning et al. (2014, §5.1) vary an SNR from -5 to
+# 25 dB without defining it; the ratio here has the form of the output
+# SNR they do define, the energy of the generated baseline over that of
+# the error of the estimated one.
+NOISE_CASES = {'snr30': 30., 'snr25': 25., 'snr20': 20.}
+# Height of an analyte, drawn log-uniformly in a range set by the baseline
+# type, so that the tallest analytes stand 5 to 10 times as high as the
+# baseline is large, its highest point less its lowest. The upper end,
+# per type, is ten times the typical size of its baselines, and the lower
+# end is it over `HEIGHT_SPAN`. Chosen by eye to match the contrast and
+# the spread of heights in Ning et al. (2014, Figs. 5 and 6). No height is
+# drawn below `MIN_SNR` noise standard deviations: MacDougall et al.
+# (1980, Eq. (9)) place the limit of detection three standard deviations
+# of the blank above it. Snyder, Kirkland & Dolan (2009, §11.2.5.1) call
+# S/N = 3 a commonly accepted definition of the limit of detection. They
+# measure the noise peak to peak (§4.2.3.1, Fig. 4.7), which is larger
+# than the standard deviation, so their limit sits above this floor.
+HEIGHT_MAX = {1: 40., 2: 90., 3: 50., 4: 80., 5: 120.}
+HEIGHT_SPAN = 60.
 MIN_SNR = 3.
-# The height draw, as (median, log-standard deviation); see `draw_height`.
-DEFAULT_HEIGHTS = (HEIGHT_MEDIAN, HEIGHT_LOG_SIGMA)
-# Default points per minute, picked for this benchmark: two samples per
-# second. `--rate` sets another.
-PTS_PER_MIN = 120
-# Width (FWHM) of the artifact spike, in min: 6 to 10 samples at the
-# default rate, picked for this benchmark.
-ARTIFACT_FWHM_MIN = (6. / PTS_PER_MIN, 10. / PTS_PER_MIN)
 
 _FWHM_PER_SIGMA = 2.3548
 
-# Shapes of the analyte peaks, chosen with `--peak-model`. Every model
-# takes its width from the plate model; see `analyte_peak`.
+# Shapes of the analyte peaks, chosen with `--peak-model`; see
+# `analyte_peak`.
 PEAK_MODELS = ('emg', 'pearson7', 'gaussian')
 # Tailing factor of an analyte, drawn per peak when no range is asked
 # for: one plus a log-normal variate, with the median and the standard
 # deviation of its logarithm given below. A Pearson VII analyte fronts
 # instead, at one minus the variate, with the probability below; an EMG
-# cannot. The values were picked for this benchmark: half the tailing
-# factors fall between about 1.08 and 1.22, and about one in seven is
-# above 1.3. For reference, Snyder, Kirkland & Dolan (2009, §2.4.2) call
-# tailing up to 1.2 minor, usually reducible to 1.5 or less, and give 2
-# as a common limit for routine separations.
+# cannot. The values were chosen: half the tailing factors fall between
+# about 1.08 and 1.22, and about one in seven is above 1.3. For
+# reference, Snyder, Kirkland & Dolan (2009, §2.4.2) call tailing up to
+# 1.2 minor, usually reducible to 1.5 or less, and give 2 as a common
+# limit for routine separations.
 TF_EXCESS_MEDIAN = 0.13
 TF_EXCESS_LOG_SIGMA = 0.77
 FRONTING_SHARE = 0.02
 # Shape parameter of a Pearson VII analyte, drawn log-uniformly, so that
 # heavy tails and the near-Gaussian limit are equally likely per decade.
-# Picked for this benchmark: a low m gives heavy, Lorentzian-like tails
-# and a high m nearly Gaussian peaks. For reference, Niezen et al. (2022,
-# Table 2) kept m from 3.5 to 51 from their fits, and Milani et al.
-# (2024, §3.1.3) bound it between 1 and 1000.
+# Chosen: a low m gives heavy, Lorentzian-like tails and a high m nearly
+# Gaussian peaks. Niezen et al. (2022, Table 2) kept m from 3.5 to 51
+# from their fits, and Milani et al. (2024, §3.1.3) bound it between 1
+# and 1000.
 PEARSON7_M_RANGE = (4., 1000.)
 # The peak shapes of a dataset: the model, the range the tailing factor
 # of each analyte is drawn in uniformly (None draws it as above), and
 # the range of the Pearson VII shape parameter.
 DEFAULT_SHAPES = {'model': 'emg', 'tailing_factor': None,
                   'pearson_m': PEARSON7_M_RANGE}
-
-# Quantization step of the detector, in mV, picked for this benchmark.
-ADC_STEP_MV = 0.008996
-
-
-def quantise(y: np.ndarray, step: float = ADC_STEP_MV) -> np.ndarray:
-    """
-    Round a trace onto the detector's quantization lattice.
-
-    A digitized detector signal is an integer multiple of its
-    quantization step, so the synthetic signals are rounded likewise.
-
-    Parameters
-    ----------
-    y : array-like, shape (N,)
-        The trace, in mV.
-    step : float, optional
-        Quantization step in mV. Default `ADC_STEP_MV`.
-
-    Returns
-    -------
-    yq : numpy.ndarray, shape (N,)
-        `y` rounded to the nearest multiple of `step`.
-
-    """
-    if step <= 0:
-        raise ValueError("step must be greater than 0.")
-    return np.round(np.asarray(y, dtype=float) / step) * step
-
+# Probability that an analyte may overlap the others, chosen. The peaks
+# of Komsta (2011, p. 724, "Synthetic Data") have "a slight probability
+# to be overlapped", without a value.
+OVERLAP_PROB = 0.1
+# The peak layout of a dataset: the analyte count (None draws it, see
+# `N_PEAKS_RANGE`), the plate model, which brings the dead time and the
+# injection artifact, and the probability that an analyte may overlap
+# its neighbours.
+DEFAULT_LAYOUT = {'n_peaks': None, 'plate_model': False,
+                  'overlap_prob': OVERLAP_PROB}
 
 def emg_peak(t: np.ndarray, tc: float, sigma: float, tau: float,
              height: float) -> np.ndarray:
@@ -209,7 +197,7 @@ def pearson7_width(sigma: float, m: float) -> float:
     Parameters
     ----------
     sigma : float
-        Standard deviation of the Gaussian, as the plate model gives it.
+        Standard deviation of the Gaussian, the peak's sigma.
     m : float
         Shape parameter of the Pearson VII, greater than 0.
 
@@ -309,7 +297,7 @@ def analyte_peak(t: np.ndarray, tc: float, sigma: float, shape: dict,
         Centre: of the Gaussian component for ``emg``, the apex
         otherwise.
     sigma : float
-        Standard deviation of the plate model at the peak's place. It is
+        The peak's standard deviation at its place. It is
         the Gaussian component's for ``emg``, and sets the FWHM of the
         symmetric profile for ``pearson7``.
     shape : dict
@@ -334,34 +322,6 @@ def analyte_peak(t: np.ndarray, tc: float, sigma: float, shape: dict,
     raise ValueError(f'unknown peak model {model!r}')
 
 
-def _profiles(t: np.ndarray, centres: np.ndarray, sigmas: np.ndarray,
-              shape: dict) -> np.ndarray:
-    """
-    Unscaled profiles of one analyte at several candidate centres.
-
-    Parameters
-    ----------
-    t : numpy.ndarray, shape (N,)
-        Time axis.
-    centres, sigmas : numpy.ndarray, shape (K,)
-        Candidate centres and the sigma at each.
-    shape : dict
-        As in `analyte_peak`.
-
-    Returns
-    -------
-    y : numpy.ndarray, shape (K, N)
-        One profile per row, each proportional to the peak.
-
-    """
-    model = shape['model']
-    if model == 'emg':
-        return exponnorm.pdf(t[None, :], K=max(shape['tau_ratio'], 1e-3),
-                             loc=centres[:, None], scale=sigmas[:, None])
-    return np.array([analyte_peak(t, c, s, shape, 1.)
-                     for c, s in zip(centres, sigmas)])
-
-
 def _crossings(t: np.ndarray, y: np.ndarray, frac: float
                ) -> tuple[float, float, float]:
     """
@@ -374,7 +334,7 @@ def _crossings(t: np.ndarray, y: np.ndarray, frac: float
     Parameters
     ----------
     t : numpy.ndarray, shape (N,)
-        Time axis, minutes.
+        Sample index.
     y : numpy.ndarray, shape (N,)
         Noise-free, single-peaked profile.
     frac : float
@@ -384,7 +344,7 @@ def _crossings(t: np.ndarray, y: np.ndarray, frac: float
     -------
     apex, left, right : float
         Apex time and the times where the profile crosses the level on
-        either side, minutes. A crossing beyond the record is reported
+        either side, samples. A crossing beyond the record is reported
         at its end.
 
     """
@@ -719,57 +679,37 @@ def draw_shape(rng: np.random.Generator, shapes: dict) -> dict:
 
 
 def draw_height(rng: np.random.Generator, noise_sigma: float,
-                heights: tuple[float, float] = DEFAULT_HEIGHTS) -> float:
+                height_max: float) -> float:
     """
-    Draw the height of one analyte.
+    Draw the height of one analyte, or of the artifact spike.
 
-    A log-normal variate of the median and log-standard deviation in
-    `heights`, cut below at `MIN_SNR` times `noise_sigma`, the limit of
-    detection of MacDougall et al. (1980, Eq. (9)); see `MIN_SNR`. It
-    is drawn by inverting the cumulative distribution of the cut
-    log-normal at one uniform variate, so every height takes exactly one
-    draw from `rng`.
+    Log-uniform from `height_max` over `HEIGHT_SPAN`, or `MIN_SNR` times
+    `noise_sigma` when that is higher, to `height_max`; see `HEIGHT_MAX`.
 
     Parameters
     ----------
     rng : numpy.random.Generator
         Source of randomness.
     noise_sigma : float
-        Standard deviation of the signal's noise, mV.
-    heights : (float, float), optional
-        Median, mV, and standard deviation of the logarithm, both
-        positive. Default `DEFAULT_HEIGHTS`.
+        Standard deviation of the signal's noise.
+    height_max : float
+        Upper end of the range.
 
     Returns
     -------
     height : float
-        Peak height, mV, at least ``MIN_SNR * noise_sigma``.
-
-    Notes
-    -----
-    The floor holds for the true height against the nominal noise
-    level. Once a baseline is fitted and subtracted, the S/N measured on
-    a peak can fall below it. When the floor sits many log-standard
-    deviations above the median, nearly every height lands just over
-    the floor.
+        The height.
 
     """
-    median, log_sigma = heights
-    mu = np.log(median)
-    z_floor = (np.log(MIN_SNR * noise_sigma) - mu) / log_sigma
-    # Inverted in the upper tail, in logs: the share of the log-normal
-    # above the floor, times 1 - U, keeps its digits however far the
-    # floor sits above the median.
-    log_q = log_ndtr(-z_floor) + np.log1p(-rng.uniform())
-    return float(max(np.exp(mu - log_sigma * ndtri_exp(log_q)),
-                     MIN_SNR * noise_sigma))
+    lo = max(height_max / HEIGHT_SPAN, MIN_SNR * noise_sigma)
+    return float(np.exp(rng.uniform(np.log(lo), np.log(height_max))))
 
 
 ###############################################################################
 # Erb's test baselines: the analytic baselines of the `make_data` function
 # Donald Erb, author of pybaselines, wrote to test the cutoff-frequency
-# selection of this project. The `erb` family places the plate-model
-# peak component on them. Posted in issue #4:
+# selection of this project, legacy baseline types 3 to 5. Posted in
+# issue #4:
 # https://github.com/physicien/Weaselytics/issues/4#issuecomment-4158610986
 ###############################################################################
 
@@ -818,7 +758,7 @@ def erb_baseline(x: np.ndarray, kind: int,
         baseline's amplitude scales with the sampling density: at fixed
         span, doubling the point count doubles the drift. That is harmless
         for those three cases, which all use 1000 points, and wrong for
-        a population that varies the record length, so `erb_signal`
+        a population that varies the record length, so `draw_baseline`
         sets True.
 
     Returns
@@ -892,118 +832,184 @@ def _dip_scale(pos: np.ndarray, neg: np.ndarray, ratio: float) -> float:
     return brentq(excess, 0., hi)
 
 
-def dead_time_artifact(t: np.ndarray, t0: float, dt: float,
-                       rng: np.random.Generator,
-                       pos_height: tuple[float, float] = (1., 4.)
-                       ) -> tuple[np.ndarray, list[dict]]:
+def draw_artifact(rng: np.random.Generator, sigma: float, height: float
+                  ) -> dict:
     """
-    Bipolar injection artifact at the dead time.
+    Draw the bipolar injection artifact, relative to its dead time.
 
-    A sharp positive spike at ``t0`` immediately followed by a wider
-    negative undershoot. The undershoot is 0 to 2 times as deep as the
-    spike is high, as the trace shows them, drawn as twice a Beta(1, 3)
-    variate so small dips are the most common. This law was picked for
-    this benchmark. The negative lobe is genuine signal, which is why a
+    A sharp positive spike at the dead time immediately followed by a
+    wider negative undershoot. The undershoot is 0 to 2 times as deep as
+    the spike is high, as the trace shows them, drawn as twice a
+    Beta(1, 3) variate so small dips are the most common. This law was
+    chosen. The negative lobe is genuine signal, which is why a
     symmetric BEADS cost (``asymmetry=1``) is required: an asymmetric
     cost would absorb it into the baseline.
 
     Parameters
     ----------
-    t : array-like, shape (N,)
-        Time axis.
-    t0 : float
-        Dead time (centre of the positive spike).
-    dt : float
-        Sample spacing, minutes.
     rng : numpy.random.Generator
         Source of randomness.
-    pos_height : (float, float), optional
-        Range of the positive-spike height, mV. Default ``(1., 4.)``,
-        picked for this benchmark.
+    sigma : float
+        Standard deviation of the spike, in samples: that of an analyte
+        at its place, so the artifact keeps to the widths of the peaks.
+    height : float
+        Height of the spike.
+
+    Returns
+    -------
+    params : dict
+        ``pos_sigma``, ``pos_tau``, ``pos_height``, ``neg_offset``
+        (centre of the dip after the dead time), ``neg_sigma`` and
+        ``dip_ratio``, in samples and signal units; see
+        `artifact_profile`.
+
+    """
+    tau = rng.uniform(0.3, 0.8) * sigma
+    neg_sigma = rng.uniform(1.2, 2.5) * sigma
+    ratio = 2. * rng.beta(1., 3.)
+    return {'pos_sigma': sigma, 'pos_tau': tau, 'pos_height': height,
+            'neg_offset': rng.uniform(1.0, 2.0) * sigma,
+            'neg_sigma': neg_sigma, 'dip_ratio': ratio}
+
+
+def artifact_profile(t: np.ndarray, t0: float, params: dict
+                     ) -> tuple[np.ndarray, list[dict]]:
+    """
+    Evaluate the injection artifact at a dead time.
+
+    The dip is scaled on the sampled trace, so the trace shows the drawn
+    dip-to-spike ratio (`_dip_scale`).
+
+    Parameters
+    ----------
+    t : array-like, shape (N,)
+        Sample index.
+    t0 : float
+        Dead time, the centre of the positive spike.
+    params : dict
+        As `draw_artifact` returns it.
 
     Returns
     -------
     contribution : numpy.ndarray, shape (N,)
         The artifact, to add to the signal.
     entries : list of dict
-        Per-lobe parameter records for the truth file. The negative
-        lobe's entry also carries ``dip_ratio``, the dip-to-spike ratio
-        the trace shows.
+        Per-lobe parameter records for the truth file: ``height`` is the
+        lobe's own, ``trace_height`` the one the trace shows, where the
+        dip lowers the spike. The negative lobe's entry also carries
+        ``dip_ratio``.
 
     """
-    pos_fwhm = rng.uniform(*ARTIFACT_FWHM_MIN)
-    pos_h = rng.uniform(*pos_height)
-    pos_sigma = pos_fwhm / _FWHM_PER_SIGMA
-    pos_tau = rng.uniform(0.3, 0.8) * pos_sigma
-    contrib = emg_peak(t, t0, pos_sigma, pos_tau, pos_h)
-    entries = [{'tc': t0, 'sigma': pos_sigma, 'tau': pos_tau,
-                'height': pos_h, 'fwhm_points': pos_fwhm / dt,
-                'artifact': True}]
-
-    neg_fwhm = pos_fwhm * rng.uniform(1.2, 2.5)
-    ratio = 2. * rng.beta(1., 3.)
-    neg_sigma = neg_fwhm / _FWHM_PER_SIGMA
-    neg_tc = t0 + rng.uniform(1.0, 2.0) * pos_sigma
-    neg_shape = emg_peak(t, neg_tc, neg_sigma, neg_sigma * 0.5, 1.)
-    neg_h = _dip_scale(contrib, neg_shape, ratio)
-    contrib = contrib - neg_h * neg_shape
-    entries.append({'tc': neg_tc, 'sigma': neg_sigma,
-                    'tau': neg_sigma * 0.5, 'height': -neg_h,
-                    'fwhm_points': neg_fwhm / dt, 'dip_ratio': ratio,
-                    'artifact': True})
-    return contrib, entries
+    p = params
+    contrib = emg_peak(t, t0, p['pos_sigma'], p['pos_tau'], p['pos_height'])
+    neg_tc = t0 + p['neg_offset']
+    neg_shape = emg_peak(t, neg_tc, p['neg_sigma'], 0.5 * p['neg_sigma'], 1.)
+    neg_h = _dip_scale(contrib, neg_shape, p['dip_ratio'])
+    trace = contrib - neg_h * neg_shape
+    entries = [{'tc': t0, 'sigma': p['pos_sigma'], 'tau': p['pos_tau'],
+                'height': p['pos_height'],
+                'trace_height': float(trace.max()),
+                'fwhm_points': p['pos_sigma'] * _FWHM_PER_SIGMA,
+                'artifact': True},
+               {'tc': neg_tc, 'sigma': p['neg_sigma'],
+                'tau': 0.5 * p['neg_sigma'], 'height': -neg_h,
+                'trace_height': float(trace.min()),
+                'fwhm_points': p['neg_sigma'] * _FWHM_PER_SIGMA,
+                'dip_ratio': p['dip_ratio'], 'artifact': True}]
+    return trace, entries
 
 
-def peak_component(n: int, peak_case: str, rng: np.random.Generator,
-                   noise_sigma: float, rate: float = PTS_PER_MIN,
+def artifact_extent(params: dict, noise_sigma: float) -> tuple[float, float]:
+    """
+    How far the artifact stands out of the noise around its dead time.
+
+    Measured on a grid centred on the dead time, wide enough that both
+    lobes are back far below any noise level at its ends: fifty times
+    the dip's FWHM, where its exponential tail has decayed by more than
+    e**-200.
+
+    Parameters
+    ----------
+    params : dict
+        As `draw_artifact` returns it.
+    noise_sigma : float
+        Noise standard deviation, the level the artifact must exceed.
+
+    Returns
+    -------
+    lead, trail : float
+        Samples before and after the dead time where the artifact still
+        exceeds the noise, each plus one sample, so the extent holds at
+        any position of the dead time between two samples.
+
+    """
+    half = int(np.ceil(50. * params['neg_sigma'] * _FWHM_PER_SIGMA))
+    r = np.arange(-half, half + 1, dtype=float)
+    contrib, _ = artifact_profile(r, 0., params)
+    above = np.nonzero(np.abs(contrib) > noise_sigma)[0]
+    if not above.size:
+        return 1., 1.
+    return -r[above[0]] + 1., r[above[-1]] + 1.
+
+
+def peak_component(n: int, rng: np.random.Generator, noise_sigma: float,
                    shapes: dict = DEFAULT_SHAPES,
                    shape_rng: np.random.Generator | None = None,
-                   heights: tuple[float, float] = DEFAULT_HEIGHTS
-                   ) -> tuple[np.ndarray, np.ndarray, list[dict],
-                                     float, dict]:
+                   height_max: float = HEIGHT_MAX[1],
+                   layout: dict = DEFAULT_LAYOUT
+                   ) -> tuple[np.ndarray, np.ndarray, list[dict], dict]:
     """
-    Build the peak component, with the analytes, artifact and time axis.
+    Build the peak component: the analytes and the injection artifact.
 
-    Everything an `erb` chromatogram contains except its baseline and
-    its noise.
+    Everything a chromatogram contains except its baseline and its
+    noise, on the sample index.
 
-    The component is sampled at `rate` points per minute and has a dead
-    time between 2.5 and 6.5 min carrying the bipolar injection
-    artifact, analytes eluting after it in the model `shapes` names,
-    and widths growing with retention time.
+    The analyte count is drawn uniformly in `N_PEAKS_RANGE`, from 0 with
+    the plate model, and ``layout['n_peaks']`` replaces it when given; the
+    draw is taken either way. Another count draws other spots, widths and
+    heights; the baseline and the noise keep their own draws.
+    One spot per analyte, plus one, is drawn uniformly over the record.
+    With the plate model, the dead time, the transit time of an
+    unretained species, before which nothing elutes, is one of the spots
+    in the first `DEAD_TIME_SHARE` of the record whose artifact overlaps
+    neither the first nor the last `BORDER_MARGIN` samples, picked at
+    random; the earlier spots are discarded. Without it, the last spot
+    is discarded and the analytes may sit anywhere. The
+    spots are drawn again when none can be the dead time.
+
+    Each analyte stays where it was drawn or is dropped, in the order of
+    the draw, which is random along the record. It is dropped when:
+
+    - it is above the noise in the first or the last `BORDER_MARGIN`
+      samples, or before the injection artifact is over;
+    - its resolution from an analyte already kept is below
+      `MIN_RESOLUTION` and it may not overlap;
+    - keeping it would take the coverage above `MAX_COVERAGE`. The
+      placement stops there, and every analyte after it is dropped too.
 
     Parameters
     ----------
     n : int
-        Number of data points.
-    peak_case : str
-        Key of `PEAK_CASES`.
+        Number of samples.
     rng : numpy.random.Generator
         Source of randomness.
     noise_sigma : float
-        Standard deviation of the noise the signal will carry. Every
-        analyte is placed so that it is within it until the injection
-        artifact has returned to it and again at the last sample, at a
-        resolution of at least `MIN_RESOLUTION` from every other
-        analyte (see `_place_peak`). When an analyte fits nowhere, the
-        dead time and the analytes are drawn again, with the dead time
-        earlier, until all fit; an analyte that still fits nowhere with
-        the dead time at 2.5 min is dropped.
-    rate : float, optional
-        Points per minute. Default `PTS_PER_MIN`.
+        Standard deviation of the noise the signal will carry.
     shapes : dict, optional
         The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
     shape_rng : numpy.random.Generator, optional
         Source of randomness for the peak shapes alone. Default None,
         which draws them from `rng`.
-    heights : (float, float), optional
-        The analyte height draw; see `draw_height`. Default
-        `DEFAULT_HEIGHTS`.
+    height_max : float, optional
+        The tallest height; see `draw_height`. Default that of a
+        Type 1 baseline.
+    layout : dict, optional
+        The peak layout, as `DEFAULT_LAYOUT`. Default `DEFAULT_LAYOUT`.
 
     Returns
     -------
     t : numpy.ndarray, shape (N,)
-        Time axis, minutes.
+        Sample index, as floats.
     signal : numpy.ndarray, shape (N,)
         Analytes plus the injection artifact.
     peaks : list of dict
@@ -1012,198 +1018,187 @@ def peak_component(n: int, peak_case: str, rng: np.random.Generator,
         carry ``apex``, ``fwhm_true_points``, ``half_left``,
         ``half_right``, measured on the noise-free profile, their
         ``tailing_factor`` and ``asymmetry_factor``, from the shape,
-        free of sampling (`shape_factors`), and their ``shape``. For an
-        EMG, ``tc`` and ``fwhm_points`` describe its Gaussian component,
-        not the peak itself.
-    t0 : float
-        The dead time used, minutes.
+        free of sampling (`shape_factors`), their ``shape`` and
+        ``may_overlap``. For an EMG, ``tc`` and ``fwhm_points`` describe
+        its Gaussian component, not the peak itself.
     info : dict
-        ``n_requested`` (analytes the case drew), ``n_plates`` (NaN for
-        a blank) and ``dead_time_redraws``.
+        ``n_requested`` (analytes drawn), ``dropped_early``
+        (spots discarded before the dead time), ``dropped_cut``,
+        ``dropped_overlap`` and ``dropped_coverage`` (analytes dropped
+        for each reason above), ``n_plates`` (NaN without the plate
+        model) and ``dead_time`` (NaN without a dead time).
 
     Raises
     ------
     ValueError
-        If the record is too short to hold a dead time of 2.5 min.
+        If the margins leave no room in the record, or if none of
+        `_MAX_REDRAWS` spot sets holds a dead time when one
+        is needed, or leaves a feature in a signal without the plate model.
+
+    Notes
+    -----
+    A signal always holds a feature: when every analyte of a signal
+    without the plate model is dropped, they are drawn again.
 
     """
-    dt = 1. / rate                      # minutes per sample
-    t = np.arange(n) * dt
-    # Dead time in absolute minutes, drawn between 2.5 and 6.5 min. The
-    # range was picked for this benchmark. The dead time depends on the
-    # column and the flow rate, so it changes from one setup to another.
-    # The upper bound is lowered on a short record so the elution window
-    # opened below, from 0.02 of the run after the dead time to 0.9 of
-    # the run, is never empty; a record too short to hold the lower bound
-    # is refused.
-    t0_hi = min(6.5, 0.88 * t[-1])
-    if t0_hi <= 2.5:
-        raise ValueError(f'a {t[-1]:.2f} min record cannot hold a dead '
-                         f'time of at least 2.5 min before its elution '
-                         f'window')
-    lo, hi = PEAK_CASES[peak_case]
-    n_peaks = int(rng.integers(lo, hi + 1))
-
-    # Packing many analytes into a short run is only possible with an
-    # early dead time. When an analyte fits nowhere, the dead time is
-    # drawn again below the one that failed, with a new set of analytes,
-    # so it moves earlier until every analyte fits, or until it reaches
-    # 2.5 min within a sample.
-    redraws = -1
-    while True:
-        redraws += 1
-        t0 = rng.uniform(2.5, t0_hi)
-        signal, peaks, n_plates = _peak_component_at(
-            t, t0, n_peaks, peak_case, noise_sigma, rng, shapes,
-            shape_rng, heights)
-        n_placed = sum(not p['artifact'] for p in peaks)
-        if n_placed == n_peaks or t0 - 2.5 < dt:
+    plate = layout['plate_model']
+    if n <= 2 * BORDER_MARGIN or (plate
+                                  and DEAD_TIME_SHARE * n <= BORDER_MARGIN):
+        raise ValueError(f'no dead time or analyte fits a {n}-sample '
+                         f'record between its margins')
+    t = np.arange(n, dtype=float)
+    lo, hi = N_PEAKS_RANGE
+    n_peaks = int(rng.integers(0 if plate else lo, hi + 1))
+    if layout['n_peaks'] is not None:
+        n_peaks = layout['n_peaks']
+    for _ in range(_MAX_REDRAWS):
+        # The extra spot is drawn either way.
+        spots = rng.uniform(0., n - 1., n_peaks + 1)
+        specs, n_plates = _draw_analytes(spots, layout, noise_sigma, rng,
+                                         shapes, shape_rng, height_max)
+        signal = np.zeros(n)
+        artifact = []
+        t0 = float('nan')
+        t_front = -np.inf
+        early = 0
+        if plate:
+            able = []
+            for spec in specs:
+                if not (BORDER_MARGIN <= spec['tc'] < DEAD_TIME_SHARE * n):
+                    continue
+                # As wide and as high as an analyte at its place.
+                spec['artifact'] = draw_artifact(rng, spec['sigma'],
+                                                 spec['height'])
+                lead, trail = artifact_extent(spec['artifact'],
+                                              noise_sigma)
+                if (spec['tc'] - lead >= BORDER_MARGIN
+                        and spec['tc'] + trail <= n - 1. - BORDER_MARGIN):
+                    able.append(spec)
+            if not able:
+                continue
+            start = able[int(rng.integers(len(able)))]
+            t0 = start['tc']
+            early = sum(q['tc'] < t0 for q in specs)
+            specs = [q for q in specs if q['tc'] > t0]
+            contrib, artifact = artifact_profile(t, t0, start['artifact'])
+            signal += contrib
+            above = np.nonzero(np.abs(contrib) > noise_sigma)[0]
+            t_front = t[above[-1]] if above.size else t0
+        else:
+            specs = specs[:-1]
+        kept, profiles, dropped = _keep_analytes(t, specs, t_front,
+                                                 noise_sigma)
+        if kept or plate:
             break
-        t0_hi = t0
-    return t, signal, peaks, t0, {'n_requested': n_peaks,
-                                  'n_plates': n_plates,
-                                  'dead_time_redraws': redraws}
+    else:
+        raise ValueError(f'no dead time or analyte fits a {n}-sample '
+                         f'record in {_MAX_REDRAWS} draws')
+    for y in profiles:
+        signal += y
+    peaks = artifact + sorted(kept, key=lambda p: p['apex'])
+    return t, signal, peaks, {'n_requested': n_peaks,
+                              'dropped_early': early, **dropped,
+                              'n_plates': n_plates, 'dead_time': t0}
 
 
-def _peak_component_at(t: np.ndarray, t0: float, n_peaks: int,
-                       peak_case: str, noise_sigma: float,
-                       rng: np.random.Generator,
-                       shapes: dict = DEFAULT_SHAPES,
-                       shape_rng: np.random.Generator | None = None,
-                       heights: tuple[float, float] = DEFAULT_HEIGHTS
-                       ) -> tuple[np.ndarray, list[dict], float]:
+def _keep_analytes(t: np.ndarray, specs: list[dict], t_front: float,
+                   noise_sigma: float
+                   ) -> tuple[list[dict], list[np.ndarray], dict]:
     """
-    Build the artifact and place the analytes for one dead time.
+    Keep the analytes that fit where they were drawn, drop the others.
+
+    See `peak_component` for the rules.
 
     Parameters
     ----------
     t : numpy.ndarray, shape (N,)
-        Time axis, minutes.
-    t0 : float
-        Dead time, minutes.
-    n_peaks : int
-        Number of analytes to place.
-    peak_case : str
-        Key of `PEAK_CASES`.
+        Sample index.
+    specs : list of dict
+        As `_draw_analytes` returns them.
+    t_front : float
+        End of the injection artifact, or of the dead time, samples.
     noise_sigma : float
-        Noise standard deviation; see `peak_component`.
-    rng : numpy.random.Generator
-        Source of randomness.
-    shapes : dict, optional
-        The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
-    shape_rng : numpy.random.Generator, optional
-        Source of randomness for the peak shapes alone. Default None,
-        which draws them from `rng`.
-    heights : (float, float), optional
-        The analyte height draw; see `draw_height`. Default
-        `DEFAULT_HEIGHTS`.
+        Noise standard deviation, the level a peak must be within.
 
     Returns
     -------
-    signal : numpy.ndarray, shape (N,)
-        Analytes plus the injection artifact.
-    peaks : list of dict
-        The two artifact lobes, then the placed analytes by apex.
-    n_plates : float
-        Plate number drawn for the analytes, NaN without analytes.
+    kept : list of dict
+        Parameters of the kept analytes, in draw order.
+    profiles : list of numpy.ndarray
+        Their profiles.
+    dropped : dict
+        ``dropped_cut``, ``dropped_overlap`` and ``dropped_coverage``.
 
     """
-    dt = t[1] - t[0]
-    signal = np.zeros(len(t))
-    peaks = []
-
-    # The dead-time injection artifact (bipolar; see dead_time_artifact).
-    contrib, entries = dead_time_artifact(t, t0, dt, rng,
-                                          pos_height=(1., 4.))
-    signal += contrib
-    peaks += entries
-    # The dead time is the first thing to leave the column: it is the
-    # transit time of an unretained species, so every other feature
-    # starts only once the injection artifact is back in the noise. A
-    # feature earlier than that would have travelled the column faster
-    # than the mobile phase.
-    above = np.nonzero(np.abs(contrib) > noise_sigma)[0]
-    t_front = t[above[-1]] if above.size else t0
-    # Peaks are first drawn in this window, bounded above by the run
-    # end; `_place_peak` then moves any that does not fit.
-    elute_lo = t0 + 0.02 * t[-1]
-    elute_hi = 0.9 * t[-1]
-
-    # A blank carries only the injection artifact.
-    if not n_peaks:
-        return signal, peaks, float('nan')
-    specs, n_plates = _draw_analytes(t, t0, n_peaks,
-                                     peak_case == 'isocratic', elute_lo,
-                                     elute_hi, noise_sigma, rng, shapes,
-                                     shape_rng, heights)
-
-    # An analyte has eluted when its trailing edge is back in the noise.
-    # A record that stops before that is impossible: the trace ends
-    # part-way down a peak, which is the endpoint mismatch BEADS'
-    # periodicity requirement forbids and which no parabola correction
-    # repairs. Peaks are placed in elution order, each where it was
-    # drawn when it neither overlaps the dead time, nor runs off the
-    # end, nor crowds a peak already placed, else anywhere it does, and
-    # dropped only when there is no such place.
-    placed = []
-    for spec in specs:
+    # A peak cut by an end of the record makes the endpoint mismatch that
+    # BEADS' periodicity requirement forbids. No parabola correction
+    # repairs it.
+    quiet = t <= t_front
+    quiet[:BORDER_MARGIN] = True
+    quiet[-BORDER_MARGIN:] = True
+    kept, profiles, widths = [], [], []
+    dropped = dict.fromkeys(('dropped_cut', 'dropped_overlap',
+                             'dropped_coverage'), 0)
+    for i, spec in enumerate(specs):
         shape = spec['shape']
-        found = _place_peak(t, spec['tc'], spec['sigma_at'], shape,
-                            spec['height'], t_front, noise_sigma, placed,
-                            rng)
-        if found is None:
+        y = analyte_peak(t, spec['tc'], spec['sigma'], shape,
+                         spec['height'])
+        # A profile narrower than the sampling can miss every sample.
+        if y.max() <= noise_sigma or y[quiet].max() > noise_sigma:
+            dropped['dropped_cut'] += 1
             continue
-        tc, (apex, left, right) = found
-        sigma = spec['sigma_at'](tc)
-        signal += analyte_peak(t, tc, sigma, shape, spec['height'])
+        width = _apex_and_half_width(t, y)
+        if not spec['may_overlap'] and any(
+                _resolution(width, o) < MIN_RESOLUTION for o in widths):
+            dropped['dropped_overlap'] += 1
+            continue
+        if _coverage(t, widths + [width]) > MAX_COVERAGE:
+            # Placement stops here: a narrower analyte drawn later could
+            # still fit, which would favour narrow peaks.
+            dropped['dropped_coverage'] = len(specs) - i
+            break
+        apex, left, right = width
         factors = shape_factors(shape)
-        entry = {'tc': tc, 'sigma': sigma}
+        entry = {'tc': spec['tc'], 'sigma': spec['sigma']}
         if shape['model'] == 'emg':
-            entry['tau'] = shape['tau_ratio'] * sigma
+            entry['tau'] = shape['tau_ratio'] * spec['sigma']
         entry.update({'height': spec['height'],
-                      'fwhm_points': sigma * _FWHM_PER_SIGMA / dt,
+                      'fwhm_points': spec['sigma'] * _FWHM_PER_SIGMA,
                       'apex': apex,
-                      'fwhm_true_points': (right - left) / dt,
+                      'fwhm_true_points': right - left,
                       'half_left': left, 'half_right': right,
                       'shape': shape,
                       'tailing_factor': factors[0],
                       'asymmetry_factor': factors[1],
-                      'artifact': spec['artifact']})
-        placed.append(entry)
-    peaks += sorted(placed, key=lambda p: p['apex'])
-    return signal, peaks, n_plates
+                      'may_overlap': spec['may_overlap'],
+                      'artifact': False})
+        kept.append(entry)
+        profiles.append(y)
+        widths.append(width)
+    return kept, profiles, dropped
 
 
-def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
-                   isocratic: bool, elute_lo: float, elute_hi: float,
-                   noise_sigma: float, rng: np.random.Generator,
+def _draw_analytes(centres: np.ndarray, layout: dict, noise_sigma: float,
+                   rng: np.random.Generator,
                    shapes: dict = DEFAULT_SHAPES,
                    shape_rng: np.random.Generator | None = None,
-                   heights: tuple[float, float] = DEFAULT_HEIGHTS
+                   height_max: float = HEIGHT_MAX[1]
                    ) -> tuple[list[dict], float]:
     """
-    Draw one analyte set: centres, width laws, tails and heights.
+    Draw one analyte set: widths, tails, heights and overlap rights.
 
-    A width is a function of where the peak sits, so each analyte is
-    returned with the law that gives its sigma at any retention time:
-    `_place_peak` may move it, and a moved peak takes the width of its
-    new place.
+    Every analyte takes the same draws from `rng` whatever the layout:
+    a width variate, a height and an overlap variate, after one plate
+    number per signal.
 
     Parameters
     ----------
-    t : array-like, shape (N,)
-        Time axis, minutes.
-    t0 : float
-        Dead time, minutes.
-    n_peaks : int
-        Number of analytes, at least 1.
-    isocratic : bool
-        Pin an early and a late eluter and keep the exact plate width,
-        without the per-peak jitter.
-    elute_lo, elute_hi : float
-        Bounds of the window the centres are drawn in, minutes.
+    centres : numpy.ndarray, shape (K,)
+        Drawn centres, in samples.
+    layout : dict
+        As `DEFAULT_LAYOUT`.
     noise_sigma : float
-        Noise standard deviation, mV, which sets the height floor; see
+        Noise standard deviation, which sets the height floor; see
         `draw_height`.
     rng : numpy.random.Generator
         Source of randomness.
@@ -1212,53 +1207,42 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
     shape_rng : numpy.random.Generator, optional
         Source of randomness for the peak shapes alone. Default None,
         which draws them from `rng`.
-    heights : (float, float), optional
-        The analyte height draw; see `draw_height`. Default
-        `DEFAULT_HEIGHTS`.
+    height_max : float, optional
+        The tallest height; see `draw_height`. Default that of a
+        Type 1 baseline.
 
     Returns
     -------
     specs : list of dict
-        One per analyte, sorted by drawn centre: ``tc``, ``sigma_at``
-        (retention time to sigma), ``shape`` (see `draw_shape`),
-        ``height`` (see `draw_height`) and ``artifact=False``.
+        One per analyte, in the order of `centres`: ``tc``, ``sigma``,
+        in samples, ``shape`` (see `draw_shape`), ``height`` (see
+        `draw_height`) and ``may_overlap``.
     n_plates : float
-        The plate number drawn for the signal.
+        The plate number of the signal, NaN without the plate model.
 
     """
-    centers = np.sort(rng.uniform(elute_lo, elute_hi, n_peaks))
-    if isocratic and n_peaks >= 2:
-        # isocratic case: aim for a sharp first and a broad last peak by
-        # pinning an early and a late eluter, both clipped into the
-        # window so the sort keeps them in order. Placement may still
-        # move them.
-        centers[0] = np.clip(t0 * rng.uniform(1.05, 1.20),
-                             elute_lo, elute_hi)
-        centers[-1] = np.clip(rng.uniform(0.85, 0.92) * t[-1],
-                              elute_lo, elute_hi)
-        centers = np.sort(centers)
-    # One plate number per signal: W = 4 N^-0.5 tR with W = 4 sigma, so
-    # sigma = tR / sqrt(N), tR counted from injection (Snyder, Kirkland &
-    # Dolan 2009, §2.3 p. 24, Eqs. 2.9b and 2.10, §2.4 p. 36). A width is
-    # then a fixed share of its retention time, and since every peak
-    # elutes inside the run, widths scale with the run length. The first
-    # peaks are sharp and the late ones broad.
     n_plates = rng.uniform(*PLATE_NUMBER_RANGE)
     specs = []
-    for tc in centers:
-        # A mild per-peak jitter keeps the compounds from being identical;
-        # the isocratic case keeps the exact plate width.
-        jitter = 1. if isocratic else rng.uniform(0.85, 1.15)
-
-        def sigma_at(x, jitter=jitter):
-            """Sigma of this analyte at retention time `x`, minutes."""
-            return jitter * x / np.sqrt(n_plates)
-        specs.append({'tc': tc, 'sigma_at': sigma_at,
+    for tc in centres:
+        width = rng.uniform()
+        if layout['plate_model']:
+            # One plate number per signal: W = 4 N^-0.5 tR with
+            # W = 4 sigma, so sigma = tR / sqrt(N), tR counted from the
+            # injection at the first sample (Snyder, Kirkland & Dolan
+            # 2009, §2.3 p. 24, Eqs. 2.9b and 2.10, §2.4 p. 36). The first
+            # peaks are sharp and the late ones broad. A mild per-peak
+            # jitter keeps the compounds from being identical.
+            sigma = (0.85 + 0.3 * width) * tc / np.sqrt(n_plates)
+        else:
+            lo, hi = FIXED_SIGMA_RANGE
+            sigma = lo + (hi - lo) * width
+        specs.append({'tc': float(tc), 'sigma': float(sigma),
                       'shape': draw_shape(
                           rng if shape_rng is None else shape_rng, shapes),
-                      'height': draw_height(rng, noise_sigma, heights),
-                      'artifact': False})
-    return specs, n_plates
+                      'height': draw_height(rng, noise_sigma, height_max),
+                      'may_overlap': bool(rng.uniform()
+                                          < layout['overlap_prob'])})
+    return specs, float(n_plates if layout['plate_model'] else 'nan')
 
 
 # Minimum chromatographic resolution between any two placed peaks,
@@ -1268,15 +1252,27 @@ def _draw_analytes(t: np.ndarray, t0: float, n_peaks: int,
 # amount); 1.5 is baseline resolution (Snyder, Kirkland & Dolan 2009,
 # §2.5, Eq. 2.23, p. 54), and 1.18 follows from their W1/2 = 0.588 W
 # (§2.4, p. 35). BEADS assumes the peaks and their first two derivatives
-# are sparse (Ning, Selesnick & Duval 2014, §3). A floor of 1.0 still
-# allows small overlaps, to test the limits of that assumption. The
-# formula assumes Gaussian peaks and can be far off for asymmetric ones
-# (Dyson 1998, p. 10); these EMG peaks tail, so the 2% is approximate.
+# are sparse (Ning, Selesnick & Duval 2014, §1 and Fig. 1). A floor of
+# 1.0 still allows small overlaps, to test the limits of that assumption.
+# The formula assumes Gaussian peaks and can be far off for asymmetric
+# ones, as Dyson (1998, p. 10) says of the same formula without the 1.18;
+# these EMG peaks tail, so the 2% is approximate.
 MIN_RESOLUTION = 1.0
 
-# Matrix entries evaluated at once while searching for a place, a memory
-# bound only: it never changes where a peak lands.
-_PLACEMENT_CHUNK = 2_000_000
+# Largest share of the record the analytes may cover, with `_coverage`.
+# Chosen: in 20000 simulated 2000-sample records of 30 Gaussian analytes
+# of `FIXED_SIGMA_RANGE` placed at random, the largest coverage was 33%.
+MAX_COVERAGE = 0.33
+
+# Samples at each end of the record that no peak and no artifact may
+# overlap, chosen.
+BORDER_MARGIN = 20
+# The dead time is picked in this first share of the record, chosen.
+DEAD_TIME_SHARE = 1. / 3.
+
+# Spot sets drawn before a signal is given up; only a record too short
+# to hold its features reaches it.
+_MAX_REDRAWS = 1000
 
 
 def _apex_and_half_width(t: np.ndarray, y: np.ndarray
@@ -1289,7 +1285,7 @@ def _apex_and_half_width(t: np.ndarray, y: np.ndarray
     Parameters
     ----------
     t : numpy.ndarray, shape (N,)
-        Time axis, minutes.
+        Sample index.
     y : numpy.ndarray, shape (N,)
         Noise-free, single-peaked profile.
 
@@ -1297,7 +1293,7 @@ def _apex_and_half_width(t: np.ndarray, y: np.ndarray
     -------
     apex, left, right : float
         Apex time and the times where the profile crosses half its
-        maximum on either side, minutes. A crossing beyond the record is
+        maximum on either side, samples. A crossing beyond the record is
         reported at its end.
 
     """
@@ -1325,107 +1321,55 @@ def _resolution(a: tuple[float, float, float],
     return 1.18 * abs(b[0] - a[0]) / ((a[2] - a[1]) + (b[2] - b[1]))
 
 
-def _place_peak(t: np.ndarray, tc: float, sigma_at, shape: dict,
-                height: float, t_front: float, noise_sigma: float,
-                placed: list[dict], rng: np.random.Generator
-                ) -> tuple[float, tuple[float, float, float]] | None:
+def _coverage(t: np.ndarray, widths: list[tuple[float, float, float]]
+              ) -> float:
     """
-    Place a peak at its drawn retention time, or anywhere it fits.
+    Share of the record inside the base widths of a set of peaks.
 
-    A peak fits when its profile is within the noise at every sample up
-    to `t_front`, where the injection artifact has returned to the
-    noise, and at the last sample, and when its resolution from every
-    peak in `placed` is at least `MIN_RESOLUTION`. The drawn `tc` is
-    kept when it fits; otherwise the peak is drawn uniformly among the
-    samples after `t_front` where it fits, each evaluated with the width
-    `sigma_at` gives at that place.
+    The base of a peak extends from its apex, on each side, 4 / 2.3548
+    times as far as its half-maximum crossing: four standard deviations
+    in all for a Gaussian, the width W of which the half-height width is
+    0.588 W (Snyder, Kirkland & Dolan 2009, §2.4, p. 35). The parts
+    shared by several peaks count once.
 
     Parameters
     ----------
     t : numpy.ndarray, shape (N,)
-        Time axis, minutes.
-    tc : float
-        Drawn retention time, minutes.
-    sigma_at : callable
-        Maps a retention time to the peak's sigma, minutes.
-    shape : dict
-        The peak's shape, see `analyte_peak`.
-    height : float
-        Peak maximum.
-    t_front : float
-        End of the injection artifact, minutes.
-    noise_sigma : float
-        Noise standard deviation, the level a peak must be within.
-    placed : list of dict
-        Peaks already placed, each with ``apex``, ``half_left`` and
-        ``half_right``.
-    rng : numpy.random.Generator
-        Source of randomness for the new place.
+        Sample index.
+    widths : list of (float, float, float)
+        ``(apex, left, right)`` of each peak, as `_apex_and_half_width`
+        returns them.
 
     Returns
     -------
-    found : tuple or None
-        ``(tc, (apex, left, right))`` of the chosen place, or None when
-        the peak fits nowhere.
+    coverage : float
+        Between 0 and 1.
 
     Notes
     -----
-    Fails, by returning None, when the peak is wider than any room left
-    between the end of the artifact, the end of the record and the
-    peaks already placed. A peak that does not fit where it was drawn
-    costs one profile per sample of the record, so its cost grows with
-    the square of the record length.
+    The tail of a strongly tailing peak extends beyond this base.
 
     """
-    others = [(p['apex'], p['half_left'], p['half_right']) for p in placed]
-    front = t <= t_front
-
-    def fitting(c):
-        """
-        The candidate centres `c` where the peak fits, each with its
-        apex and half-maximum crossings.
-        """
-        sigma = np.array([sigma_at(x) for x in c])
-        prof = _profiles(t, c, sigma, shape)
-        peak_max = prof.max(axis=1)
-        y = height * prof / np.where(peak_max > 0, peak_max, 1.)[:, None]
-        ok = (peak_max > 0) & (y[:, -1] <= noise_sigma)
-        if front.any():
-            ok &= y[:, front].max(axis=1) <= noise_sigma
-        fits = []
-        for i in np.nonzero(ok)[0]:
-            shape_i = _apex_and_half_width(t, y[i])
-            if all(_resolution(shape_i, o) >= MIN_RESOLUTION
-                   for o in others):
-                fits.append((float(c[i]), shape_i))
-        return fits
-
-    drawn = fitting(np.array([tc]))
-    if drawn:
-        return drawn[0]
-    later = t[t > t_front]
-    chunk = max(1, _PLACEMENT_CHUNK // len(t))
-    fits = []
-    for start in range(0, len(later), chunk):
-        fits += fitting(later[start:start + chunk])
-    if not fits:
-        return None
-    return fits[int(rng.integers(len(fits)))]
+    ratio = 4. / _FWHM_PER_SIGMA
+    covered, reach = 0., t[0]
+    for left, right in sorted((a - ratio * (a - lo), a + ratio * (hi - a))
+                              for a, lo, hi in widths):
+        right = min(right, t[-1])
+        covered += max(0., right - max(left, reach))
+        reach = max(reach, right)
+    return covered / float(t[-1] - t[0])
 
 
-def _analyte_meta(t: np.ndarray, peaks: list[dict], t0: float,
-                  info: dict) -> dict:
+def _analyte_meta(t: np.ndarray, peaks: list[dict], info: dict) -> dict:
     """
     Summarize the placed analytes of one peak component.
 
     Parameters
     ----------
     t : numpy.ndarray, shape (N,)
-        Time axis, minutes.
+        Sample index.
     peaks : list of dict
         Peaks from `peak_component`.
-    t0 : float
-        Dead time, minutes.
     info : dict
         The ``info`` returned by `peak_component`.
 
@@ -1433,11 +1377,9 @@ def _analyte_meta(t: np.ndarray, peaks: list[dict], t0: float,
     -------
     meta : dict
         ``n_analytes``, ``rs_min`` (lowest resolution between adjacent
-        analytes, NaN below two), ``coverage`` (share of the run inside
-        their half-maximum widths), ``n_requested``, ``n_dropped``,
-        ``n_plates``, ``dead_time``, ``dead_time_redraws``, and
-        ``tf_min`` and ``tf_max``, the range of the analytes' tailing
-        factors (NaN without analytes).
+        analytes, NaN below two), ``coverage`` (see `_coverage`),
+        everything in `info`, and ``tf_min`` and ``tf_max``, the range
+        of the analytes' tailing factors (NaN without analytes).
 
     """
     analytes = sorted((p['apex'], p['half_left'], p['half_right'])
@@ -1447,52 +1389,63 @@ def _analyte_meta(t: np.ndarray, peaks: list[dict], t0: float,
     rs_min = min((_resolution(a, b) for a, b in zip(analytes,
                                                      analytes[1:])),
                  default=float('nan'))
-    covered, reach = 0., -np.inf
-    for _, left, right in sorted(analytes, key=lambda a: a[1]):
-        covered += max(0., right - max(left, reach))
-        reach = max(reach, right)
     return {'n_analytes': len(analytes), 'rs_min': float(rs_min),
-            'coverage': covered / float(t[-1] - t[0]),
-            'n_requested': info['n_requested'],
-            'n_dropped': info['n_requested'] - len(analytes),
-            'n_plates': info['n_plates'], 'dead_time': t0,
-            'dead_time_redraws': info['dead_time_redraws'],
+            'coverage': _coverage(t, analytes), **info,
             'tf_min': min(tfs, default=float('nan')),
             'tf_max': max(tfs, default=float('nan'))}
 
 
-# Record length of the `erb` family. log10 of the length follows a
-# skew-normal distribution, with the shape, location and scale below
-# picked for this benchmark, and draws outside the range are redrawn.
-# Short records are the most common. Half are under about 1500 points
-# and 2% are over 10000. The length is read at the default rate and
-# turned into a duration, so another `--rate` keeps the run as long and
-# changes only how densely it is sampled.
+# Record length in samples. log10 of the length follows a skew-normal
+# distribution, with the shape, location and scale below chosen, and
+# draws outside the range are redrawn. Short records are the most
+# common: half are under about 1500 samples and 2% are over 10000.
 #
 # Record length sets the fundamental frequency 1/n_used, which is exactly
 # what `instability_boundary` keys on, so length must vary. A balanced
 # ladder of lengths would over-weight the long records, which are the
 # most expensive to sweep.
-ERB_LOG10_N_SKEWNORM = (10.02, 2.818, 0.512)
-ERB_N_RANGE = (500, 40000)
+LOG10_N_SKEWNORM = (10.02, 2.818, 0.512)
+N_RANGE = (500, 40000)
 
-# Erb's baseline 3 is a pure sinusoid, ``10 + sin(x/50)``, 2 mV peak to
-# peak and about three cycles over the record. It is excluded from the
-# benchmark because an HPLC baseline does not oscillate through several
-# full cycles within one run.
-EXCLUDED_ERB_BASELINES = ('sine',)
+# The five baseline types, by number: Ning et al.'s Types 1 and 2, then
+# Erb's parabola, exponential and step (`erb_baseline` kinds 0 to 2),
+# which are legacy: a set holds them with `--legacy-baselines` only.
+BASELINE_TYPES = (1, 2, 3, 4, 5)
+LEGACY_TYPES = (3, 4, 5)
 
-# Names of Erb's baselines in signal names, by `erb_baseline` kind.
-ERB_BASELINE_NAMES = {'parabola': 0, 'exp': 1, 'step': 2, 'sine': 3}
+# Type 1, Ning et al. (2014, §5.1, p. 163): "the sum of an order-p
+# polynomial and a sinusoidal signal of frequency f", p and f uniform in
+# a range they do not give. The order is drawn in 1 to 5, to span the
+# polynomials of the simulations they cite: degree up to 4 in Komsta
+# (2011, p. 724, "Synthetic Data"), order 4 or 5 with N(0, 1)
+# coefficients, offset to be positive, in Mazet et al. (2005, §3.1). The
+# frequency, in cycles per record, the span of the polynomial and the
+# amplitude of the sinusoid were chosen by eye to match Ning et al.'s
+# Fig. 5, 2000-sample records.
+TYPE1_ORDER_RANGE = (1, 5)
+TYPE1_CYCLES_RANGE = (0.4, 1.6)
+TYPE1_POLY_SPAN_RANGE = (1., 5.)
+TYPE1_SINE_AMPLITUDE_RANGE = (0.5, 2.)
+# Type 2, Ning et al. (2014, §5.1, p. 163): "a stationary random process
+# with a power spectrum limited to a low-pass range of [0, fc]",
+# obtained by low-pass filtering white Gaussian noise; fc is not given.
+# The cutoff, in cycles per record (fc = 0.001 cycles per sample on 2000
+# samples), and the standard deviation were chosen by eye to match their
+# Fig. 6.
+TYPE2_CYCLES = 2.
+TYPE2_STD_RANGE = (1.5, 4.)
+# Type 2 is filtered on a record this many times longer, and the middle
+# kept: a low-pass in the Fourier domain is periodic over the filtered
+# length, so a record filtered alone would end at the level it starts.
+TYPE2_PADDING = 4
 
 
-def draw_record_duration(rng: np.random.Generator) -> float:
+def draw_record_length(rng: np.random.Generator) -> int:
     """
-    Draw a record duration of the ``erb`` family.
+    Draw a record length.
 
-    log10 of the length is drawn from `ERB_LOG10_N_SKEWNORM` and
-    redrawn until the length falls inside `ERB_N_RANGE`, then divided
-    by `PTS_PER_MIN`.
+    log10 of the length is drawn from `LOG10_N_SKEWNORM` and redrawn
+    until the length falls inside `N_RANGE`.
 
     Parameters
     ----------
@@ -1501,130 +1454,260 @@ def draw_record_duration(rng: np.random.Generator) -> float:
 
     Returns
     -------
-    duration : float
-        Record duration, minutes.
+    n : int
+        Record length, samples.
 
     """
-    lo, hi = ERB_N_RANGE
+    lo, hi = N_RANGE
     while True:
         n = int(round(10 ** float(skewnorm.rvs(
-            *ERB_LOG10_N_SKEWNORM, random_state=rng))))
+            *LOG10_N_SKEWNORM, random_state=rng))))
         if lo <= n <= hi:
-            return n / PTS_PER_MIN
+            return n
 
 
-def erb_signal(n: int, peak_case: str, baseline_type: int,
-               noise_sigma: float, rng: np.random.Generator,
-               quantise_output: bool = True,
-               rate: float = PTS_PER_MIN,
-               shapes: dict = DEFAULT_SHAPES,
-               heights: tuple[float, float] = DEFAULT_HEIGHTS) -> dict:
+def type1_baseline(n: int, rng: np.random.Generator
+                   ) -> tuple[np.ndarray, dict]:
     """
-    Assemble one ``erb`` chromatogram, the shared peak component on an
-    Erb baseline.
+    Draw a Type 1 baseline: a polynomial plus a sinusoid.
 
-    The peak component comes from `peak_component`. White noise
-    at one of `NOISE_CASES` is added.
-
-    The baseline, from `erb_baseline`, is an exact analytic function
-    written by the pybaselines author to exercise cutoff selection.
-
-    **Scales.** The baseline is evaluated on a normalized 0-1000
-    abscissa spanning the record, because `erb_baseline`'s coefficients
-    are written for that range. Its output is read as mV, so the
-    parabola spans 5 mV, the exponential 8.1 mV and the step 12.1 mV.
+    See `TYPE1_ORDER_RANGE` for the source and the values. The
+    polynomial is evaluated on [-1, 1] and rescaled to its drawn span,
+    the sinusoid has a random phase, and the sum is shifted to start at
+    zero at its lowest point, as Mazet et al. (2005, §3.1) offset theirs
+    into the positive part.
 
     Parameters
     ----------
     n : int
-        Number of data points.
-    peak_case : str
-        Key of `PEAK_CASES`.
-    baseline_type : int
-        Which of Erb's four baselines, see `erb_baseline`.
-    noise_sigma : float
-        Standard deviation of the white noise, mV. See `NOISE_CASES`.
+        Record length, samples.
     rng : numpy.random.Generator
         Source of randomness.
-    quantise_output : bool, optional
-        Round the assembled signal onto the detector lattice, see
-        `quantise`. Default True.
-    rate : float, optional
-        Points per minute. Default `PTS_PER_MIN`.
+
+    Returns
+    -------
+    baseline : numpy.ndarray, shape (N,)
+        The baseline.
+    info : dict
+        ``order`` of the polynomial and ``cycles`` of the sinusoid over
+        the record.
+
+    Notes
+    -----
+    The frequency is set per record, so the baseline holds the same
+    number of cycles at any length.
+
+    """
+    lo, hi = TYPE1_ORDER_RANGE
+    order = int(rng.integers(lo, hi + 1))
+    poly = np.polynomial.polynomial.polyval(np.linspace(-1., 1., n),
+                                            rng.normal(0., 1., order + 1))
+    poly = ((poly - poly.min()) / np.ptp(poly)
+            * rng.uniform(*TYPE1_POLY_SPAN_RANGE))
+    cycles = rng.uniform(*TYPE1_CYCLES_RANGE)
+    amplitude = rng.uniform(*TYPE1_SINE_AMPLITUDE_RANGE)
+    phase = rng.uniform(0., 2. * np.pi)
+    baseline = poly + amplitude * np.sin(
+        2. * np.pi * cycles * np.arange(n) / n + phase)
+    return baseline - baseline.min(), {'order': order, 'cycles': cycles}
+
+
+def type2_baseline(n: int, rng: np.random.Generator
+                   ) -> tuple[np.ndarray, dict]:
+    """
+    Draw a Type 2 baseline: low-pass filtered white Gaussian noise.
+
+    See `TYPE2_CYCLES` for the source and the values. White noise
+    `TYPE2_PADDING` times longer than the record is cut in the Fourier
+    domain above `TYPE2_CYCLES` cycles per record, the middle of the
+    result is kept, and it is scaled to its drawn standard deviation.
+
+    Parameters
+    ----------
+    n : int
+        Record length, samples.
+    rng : numpy.random.Generator
+        Source of randomness.
+
+    Returns
+    -------
+    baseline : numpy.ndarray, shape (N,)
+        The baseline. Its mean is not zero: waves slower than the record
+        leave part of their level in it.
+    info : dict
+        ``cycles``, the cutoff over the record.
+
+    Notes
+    -----
+    Keeping the middle of a longer filtered record breaks the
+    periodicity of the Fourier-domain filter. The two ends of the kept
+    record then differ, so its spectrum must be read through a tapering
+    window: without one, the jump between the ends shows as power above
+    the cutoff.
+
+    """
+    m = TYPE2_PADDING * n
+    spectrum = np.fft.rfft(rng.normal(0., 1., m))
+    spectrum[np.fft.rfftfreq(m) > TYPE2_CYCLES / n] = 0.
+    start = (m - n) // 2
+    baseline = np.fft.irfft(spectrum, m)[start:start + n]
+    return (baseline / baseline.std() * rng.uniform(*TYPE2_STD_RANGE),
+            {'cycles': TYPE2_CYCLES})
+
+
+def draw_baseline(n: int, baseline_type: int, rng: np.random.Generator
+                  ) -> tuple[np.ndarray, dict]:
+    """
+    Draw the baseline of one of the five types.
+
+    Parameters
+    ----------
+    n : int
+        Record length, samples.
+    baseline_type : int
+        One of `BASELINE_TYPES`: 1 and 2 are Ning et al.'s Types 1 and 2
+        (`type1_baseline`, `type2_baseline`), 3 to 5 Erb's parabola,
+        exponential and step (`erb_baseline` kinds 0 to 2).
+    rng : numpy.random.Generator
+        Source of randomness; Erb's baselines draw nothing.
+
+    Returns
+    -------
+    baseline : numpy.ndarray, shape (N,)
+        The baseline.
+    info : dict
+        What the type drew; empty for Erb's.
+
+    """
+    if baseline_type == 1:
+        return type1_baseline(n, rng)
+    if baseline_type == 2:
+        return type2_baseline(n, rng)
+    if baseline_type in (3, 4, 5):
+        # Erb's coefficients are written for an abscissa of order 0-1000,
+        # so the baseline is evaluated there and mapped onto the record,
+        # and holds the same shape at any length. exact_integral keeps
+        # the step's amplitude from scaling with the sample count.
+        u = np.linspace(0., 1000., n)
+        return erb_baseline(u, baseline_type - 3, exact_integral=True), {}
+    raise ValueError(f'unknown baseline type {baseline_type!r}')
+
+
+def noise_for_snr(baseline: np.ndarray, snr: float) -> float:
+    """
+    Standard deviation of white noise at a signal-to-noise ratio.
+
+    Parameters
+    ----------
+    baseline : numpy.ndarray, shape (N,)
+        The baseline, the signal of the ratio.
+    snr : float
+        Energy of the baseline over energy of the noise, in dB.
+
+    Returns
+    -------
+    sigma : float
+        Standard deviation of the noise.
+
+    Notes
+    -----
+    The energy counts the level of the baseline, so a shift of the whole
+    baseline changes the noise.
+
+    """
+    return float(np.sqrt(np.mean(baseline ** 2)) * 10. ** (-snr / 20.))
+
+
+def make_signal(n: int, baseline_type: int, noise_sigma: float | None,
+                rng: np.random.Generator,
+                shapes: dict = DEFAULT_SHAPES,
+                layout: dict = DEFAULT_LAYOUT,
+                snr: float | None = None) -> dict:
+    """
+    Assemble one chromatogram: peaks on a baseline, plus white noise.
+
+    The peak component comes from `peak_component` and the baseline
+    from `draw_baseline`. White noise at one of `NOISE_CASES` is added.
+
+    Parameters
+    ----------
+    n : int
+        Number of samples.
+    baseline_type : int
+        One of `BASELINE_TYPES`.
+    noise_sigma : float or None
+        Standard deviation of the white noise; None with `snr`.
+    rng : numpy.random.Generator
+        Source of randomness.
     shapes : dict, optional
         The peak shapes, as `DEFAULT_SHAPES`. Default `DEFAULT_SHAPES`.
-    heights : (float, float), optional
-        The analyte height draw; see `draw_height`. Default
-        `DEFAULT_HEIGHTS`.
+    layout : dict, optional
+        The peak layout, as `DEFAULT_LAYOUT`. Default `DEFAULT_LAYOUT`.
+    snr : float, optional
+        Sets `noise_sigma` with `noise_for_snr`, in dB; see `NOISE_CASES`.
+        Default None.
 
     Returns
     -------
     components : dict
-        Keys ``x``, ``y``, ``signal``, ``baseline``, ``noise``,
-        ``peaks`` and ``meta``.
+        Keys ``x`` (the sample index), ``y``, ``signal``, ``baseline``,
+        ``noise``, ``peaks`` and ``meta``.
 
         ``baseline`` alone is the truth a baseline estimator is scored
-        against. The injection artifact is part of ``signal``, and
-        ``baseline`` holds the baseline alone: the artifact is a sharp
-        bipolar excursion that a low-pass baseline model is not meant to
-        reproduce, and scoring on it
-        would let one feature dominate the error. Entries of ``peaks``
-        with ``artifact=True`` mark it.
+        against. The injection artifact is part of ``signal``: it is a
+        sharp bipolar excursion that a low-pass baseline model is not
+        meant to reproduce, and scoring on it would let one feature
+        dominate the error. Entries of ``peaks`` with ``artifact=True``
+        mark it.
 
-        ``meta['n_requested']`` is the analyte count the case drew,
-        ``meta['n_dropped']`` the analytes that fit nowhere even with the
-        dead time at 2.5 min, and ``n_analytes`` what remains.
-        ``meta['n_plates']`` and ``meta['dead_time_redraws']`` record the
-        plate number and how often the dead time was drawn again,
-        earlier, to make room.
-        ``meta['rs_min']`` is the lowest resolution between adjacent
-        analytes (NaN below two) and ``meta['coverage']`` the share of
-        the run inside their half-maximum widths. Both are measured after
-        placement, as are ``meta['tf_min']`` and ``meta['tf_max']``, the
-        range of the analytes' tailing factors. ``meta['peak_model']``
-        names their model. ``meta['height_min_sigma']`` is the lowest
-        analyte height over the nominal `noise_sigma` (NaN without
-        analytes).
+        ``meta`` holds the layout, the baseline type and what it drew
+        (``baseline_info``), ``n_requested`` (analytes drawn),
+        ``n_analytes`` (those kept) and the counts dropped for each
+        reason (`peak_component`), ``n_may_overlap`` (kept analytes
+        allowed to overlap), ``n_plates`` and ``dead_time`` (NaN when
+        unused), ``rs_min``, the lowest resolution between adjacent
+        analytes (NaN below two), ``coverage`` (`_coverage`),
+        ``sigma_min``, the narrowest analyte in
+        samples, ``tf_min`` and ``tf_max``, the range of their tailing
+        factors, and ``height_min_sigma``, the lowest analyte height over
+        the nominal `noise_sigma` (NaN without analytes).
 
     """
-    # The shapes and the noise draw from streams of their own, split from
-    # `rng`, so the rest of the signal does not depend on how many draws
-    # a peak model takes: datasets that differ only in `shapes` share
-    # their dead times, peak heights and noise wherever every peak fits
-    # where it was drawn.
-    shape_rng, noise_rng = rng.spawn(2)
-    t, signal, peaks, t0, info = peak_component(n, peak_case, rng,
-                                                noise_sigma, rate, shapes,
-                                                shape_rng, heights)
-    # Erb's coefficients are written for an abscissa of order 0-1000, so
-    # the baseline is evaluated there and mapped onto the record. Its
-    # shape is therefore independent of the record's duration in
-    # minutes, which is what makes the types comparable across
-    # lengths. exact_integral keeps type 2's amplitude from scaling with
-    # the point count.
-    u = np.linspace(0., 1000., n)
-    baseline = erb_baseline(u, baseline_type, exact_integral=True)
+    # The shapes, the baseline and the noise draw from streams of their
+    # own, split from `rng`, so the rest of the signal does not depend on
+    # how many draws they take: sets that differ only in the peak model
+    # share their baselines and noise, and the places, widths and heights
+    # their peaks are drawn with. The baseline type sets the height range
+    # and, with `snr`, the noise level.
+    shape_rng, baseline_rng, noise_rng = rng.spawn(3)
+    baseline, baseline_info = draw_baseline(n, baseline_type, baseline_rng)
+    if snr is not None:
+        noise_sigma = noise_for_snr(baseline, snr)
+    t, signal, peaks, info = peak_component(n, rng, noise_sigma, shapes,
+                                            shape_rng,
+                                            HEIGHT_MAX[baseline_type],
+                                            layout)
     noise = noise_rng.normal(0., noise_sigma, n)
     y = signal + baseline + noise
-    if quantise_output:
-        y = quantise(y)
+    analytes = [p for p in peaks if not p['artifact']]
     return {'x': t, 'y': y, 'signal': signal, 'baseline': baseline,
             'noise': noise, 'peaks': peaks,
-            'meta': {'family': 'erb', 'n_points': n,
-                     'peak_case': peak_case,
+            'meta': {'n_points': n,
                      'baseline_type': baseline_type,
+                     'baseline_info': baseline_info,
                      'noise_sigma': noise_sigma,
-                     'quantised': quantise_output,
-                     'points_per_minute': rate,
                      'peak_model': shapes['model'],
-                     'minutes': float(t[-1] - t[0]),
-                     'baseline_range': float(baseline.max()
-                                             - baseline.min()),
+                     'plate_model': layout['plate_model'],
+                     'overlap_prob': layout['overlap_prob'],
+                     'baseline_range': float(np.ptp(baseline)),
                      'height_min_sigma': min(
-                         (p['height'] / noise_sigma for p in peaks
-                          if not p.get('artifact', False)),
+                         (p['height'] / noise_sigma for p in analytes),
                          default=float('nan')),
-                     **_analyte_meta(t, peaks, t0, info)}}
+                     'sigma_min': min((p['sigma'] for p in analytes),
+                                      default=float('nan')),
+                     'n_may_overlap': sum(p['may_overlap']
+                                          for p in analytes),
+                     **_analyte_meta(t, peaks, info)}}
 
 
 def plot_signal(parts: dict, stem: str, out_path: str) -> None:
@@ -1634,12 +1717,12 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
     Produced unless ``--no-plot`` is given, so the synthetic data can be
     reviewed by eye before it is trusted for scoring. Shows the raw
     measured signal, the true baseline, and the true baseline-corrected
-    signal (peaks + noise), with the dead-time region marked.
+    signal (peaks + noise), with the injection artifact marked.
 
     Parameters
     ----------
     parts : dict
-        The component dictionary returned by ``erb_signal``.
+        The component dictionary returned by `make_signal`.
     stem : str
         Signal identifier, used as the title.
     out_path : str
@@ -1656,25 +1739,26 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
     ax0.plot(x, baseline, lw=1.6, c='tab:blue', ls='--',
              label='true baseline $b$')
     ax0.axhline(0., c='tab:red', lw=0.8, alpha=0.4)
-    ax0.set_ylabel('Potential (mV)')
-    ax0.set_title(f'{stem}   (range {y.max() - y.min():.2f} mV, '
-                  f'n={len(y)}, '
-                  f'{parts["meta"].get("peak_model", "emg")} peaks)',
+    ax0.set_ylabel('signal')
+    ax0.set_title(f'{stem}   (range {y.max() - y.min():.2f}, '
+                  f'n={len(y)}, {parts["meta"]["peak_model"]} peaks)',
                   fontsize=10)
     ax0.legend(loc='upper right', fontsize=8)
 
     ax1.plot(x, corrected, lw=0.6, c='tab:green', label='$y - b$')
     ax1.axhline(0., c='tab:red', lw=0.8, alpha=0.4)
-    ax1.set_xlabel('Time (min.)')
-    ax1.set_ylabel('mV')
+    ax1.set_xlabel('sample')
+    ax1.set_ylabel('signal')
     ax1.legend(loc='upper right', fontsize=8)
 
-    # Mark the dead-time artifact region.
-    arts = [p for p in parts['peaks'] if p.get('artifact')]
+    # Mark the injection artifact, from three sigmas before the spike to
+    # three after the dip.
+    arts = [p for p in parts['peaks'] if p['artifact']]
     if arts:
-        t0 = min(p['tc'] for p in arts)
+        lo = arts[0]['tc'] - 3. * arts[0]['sigma']
+        hi = arts[1]['tc'] + 3. * arts[1]['sigma']
         for ax in (ax0, ax1):
-            ax.axvspan(t0 - 0.3, t0 + 0.5, color='tab:orange', alpha=0.08)
+            ax.axvspan(lo, hi, color='tab:orange', alpha=0.15)
 
     fig.tight_layout()
     fig.savefig(out_path, dpi=110)
@@ -1682,46 +1766,73 @@ def plot_signal(parts: dict, stem: str, out_path: str) -> None:
 
 
 # Columns of `manifest.csv`, one row per signal; see `manifest_row`.
-MANIFEST_COLUMNS = ('stem', 'family', 'peak_case', 'baseline_case',
-                    'noise_case', 'n_points', 'replicate', 'n_analytes',
-                    'n_dropped', 'rs_min', 'coverage', 'n_requested',
-                    'n_plates', 'dead_time', 'dead_time_redraws',
-                    'points_per_minute', 'peak_model', 'tf_min', 'tf_max',
-                    'height_min_sigma')
+MANIFEST_COLUMNS = ('stem', 'baseline_type', 'noise_case', 'n_points',
+                    'noise_sigma', 'replicate', 'peak_model',
+                    'plate_model',
+                    'overlap_prob', 'n_requested',
+                    'n_analytes', 'dropped_early', 'dropped_cut',
+                    'dropped_overlap', 'dropped_coverage',
+                    'n_may_overlap', 'rs_min', 'coverage',
+                    'n_plates', 'dead_time', 'sigma_min',
+                    'tf_min', 'tf_max', 'height_min_sigma')
 
 
-def signal_stem(family: str, peak_case: str, peak_model: str,
-                baseline_case: str, noise_case: str, replicate: int,
-                n: int, rep_width: int) -> str:
+def peak_label(n_analytes: int, artifact: bool) -> str:
+    """
+    The peak field of a signal name: the analytes kept, then ``a``
+    when the injection artifact is present.
+
+    Parameters
+    ----------
+    n_analytes : int
+        Analytes in the signal.
+    artifact : bool
+        Whether the signal carries the injection artifact.
+
+    Returns
+    -------
+    label : str
+        For example ``12`` or ``0a``.
+
+    """
+    return f'{n_analytes}{"a" if artifact else ""}'
+
+
+def signal_stem(peaks: str, peak_model: str, baseline_type: int,
+                noise_case: str, n: int, replicate: int) -> str:
     """
     Name one synthetic signal.
 
     Parameters
     ----------
-    family, peak_case, baseline_case, noise_case : str
-        The case keys of the signal.
+    peaks : str
+        The peak field, see `peak_label`.
     peak_model : str
         One of `PEAK_MODELS`.
+    baseline_type : int
+        One of `BASELINE_TYPES`.
+    noise_case : str
+        Key of `NOISE_CASES`.
+    n : int
+        Record length, samples.
     replicate : int
         Replicate number.
-    n : int
-        Record length, points.
-    rep_width : int
-        Digits of the widest replicate number, so names sort in order.
 
     Returns
     -------
     stem : str
-        ``SYN__family__case__model__baseline__noise__replicate__n``.
+        ``SYN__peaks__model__type<k>__noise__n__replicate``, which
+        `synth_diag.stem_fields` reads. The length is padded to the five
+        digits of the longest record and the replicate to four, so names
+        sort in order.
 
     """
-    return (f'SYN__{family}__{peak_case}__{peak_model}__{baseline_case}'
-            f'__{noise_case}__{replicate:0{rep_width}d}__{n}')
+    return (f'SYN__{peaks}__{peak_model}__type{baseline_type}'
+            f'__{noise_case}__{n:05d}__{replicate:04d}')
 
 
-def manifest_row(stem: str, family: str, peak_case: str,
-                 baseline_case: str, noise_case: str, n: int,
-                 replicate: int, parts: dict) -> str:
+def manifest_row(stem: str, noise_case: str, replicate: int,
+                 parts: dict) -> str:
     """
     Format the `manifest.csv` row of one signal.
 
@@ -1729,14 +1840,12 @@ def manifest_row(stem: str, family: str, peak_case: str,
     ----------
     stem : str
         Name of the signal.
-    family, peak_case, baseline_case, noise_case : str
-        The case keys of the signal.
-    n : int
-        Record length, points.
+    noise_case : str
+        Key of `NOISE_CASES`.
     replicate : int
         Replicate number.
     parts : dict
-        The signal as `erb_signal` returns it.
+        The signal as `make_signal` returns it.
 
     Returns
     -------
@@ -1744,23 +1853,15 @@ def manifest_row(stem: str, family: str, peak_case: str,
         Comma-separated values in the order of `MANIFEST_COLUMNS`.
 
     """
-    meta = parts.get('meta', {})
-    n_analytes = meta.get('n_analytes',
-                          sum(not p.get('artifact', False)
-                              for p in parts['peaks']))
-    return (f'{stem},{family},{peak_case},{baseline_case},{noise_case},'
-            f'{n},{replicate},{n_analytes},{meta.get("n_dropped", "")},'
-            f'{meta.get("rs_min", float("nan")):.4g},'
-            f'{meta.get("coverage", float("nan")):.4g},'
-            f'{meta.get("n_requested", "")},'
-            f'{meta.get("n_plates", float("nan")):.0f},'
-            f'{meta.get("dead_time", float("nan")):.3f},'
-            f'{meta.get("dead_time_redraws", "")},'
-            f'{meta.get("points_per_minute", PTS_PER_MIN):g},'
-            f'{meta.get("peak_model", "")},'
-            f'{meta.get("tf_min", float("nan")):.4g},'
-            f'{meta.get("tf_max", float("nan")):.4g},'
-            f'{meta.get("height_min_sigma", float("nan")):.4g}')
+    meta = parts['meta']
+    values = {'stem': stem, 'noise_case': noise_case,
+              'replicate': replicate, **meta}
+    out = []
+    for column in MANIFEST_COLUMNS:
+        value = values[column]
+        out.append(f'{value:.6g}' if isinstance(value, float)
+                   else str(value))
+    return ','.join(out)
 
 
 def git_commit() -> str:
@@ -1875,11 +1976,30 @@ def main() -> None:
                         help='base random seed (default: 0)')
     parser.add_argument('--replicates', type=int, default=1,
                         help='replicates per case (default: 1)')
-    parser.add_argument('--rate', type=float, default=PTS_PER_MIN,
-                        help='points per minute (default: 120)')
     parser.add_argument('--no-plot', action='store_true',
                         help='skip the per-signal PNG in plots/ '
                              '(rendered by default for review by eye)')
+    parser.add_argument('--legacy-baselines', action='store_true',
+                        help='add the legacy baseline types, Erb\'s '
+                             'parabola, exponential and step')
+    parser.add_argument('--length', type=int, default=None, metavar='N',
+                        help='record length of every signal, samples '
+                             '(default: drawn per signal, '
+                             f'{N_RANGE[0]} to {N_RANGE[1]})')
+    parser.add_argument('--n-peaks', type=int, default=None, metavar='K',
+                        help='analytes drawn per signal, before any is '
+                             'dropped (default: drawn '
+                             f'uniformly, {N_PEAKS_RANGE[0]} to '
+                             f'{N_PEAKS_RANGE[1]}, from 0 with --plate-model)')
+    parser.add_argument('--plate-model', action='store_true',
+                        help='widths from the plate model, sigma = tR / '
+                             'sqrt(N), instead of drawn in samples, with '
+                             'the injection artifact at the dead time')
+    parser.add_argument('--overlap-prob', type=float, default=OVERLAP_PROB,
+                        metavar='P',
+                        help='probability that an analyte may overlap its '
+                             'neighbours, skipping the resolution floor '
+                             f'(default: {OVERLAP_PROB:g})')
     parser.add_argument('--peak-model', choices=PEAK_MODELS,
                         default='emg',
                         help='shape of the analyte peaks; gaussian turns '
@@ -1896,19 +2016,17 @@ def main() -> None:
                              'drawn log-uniformly, pearson7 only '
                              f'(default: {PEARSON7_M_RANGE[0]:g} '
                              f'{PEARSON7_M_RANGE[1]:g})')
-    parser.add_argument('--height-median', type=float, default=HEIGHT_MEDIAN,
-                        help='median of the log-normal analyte height, mV '
-                             f'(default: {HEIGHT_MEDIAN:g})')
-    parser.add_argument('--height-log-sigma', type=float,
-                        default=HEIGHT_LOG_SIGMA,
-                        help='standard deviation of the logarithm of the '
-                             'analyte height (default: '
-                             f'{HEIGHT_LOG_SIGMA:g})')
     args = parser.parse_args()
-    if not (args.height_median > 0. and args.height_log_sigma > 0.):
-        parser.error('--height-median and --height-log-sigma must be '
-                     'positive')
-    heights = (args.height_median, args.height_log_sigma)
+    if args.length is not None and args.length < N_RANGE[0]:
+        parser.error(f'--length needs at least {N_RANGE[0]} samples')
+    if args.n_peaks is not None:
+        if args.n_peaks < 0:
+            parser.error('--n-peaks cannot be negative')
+        if args.n_peaks == 0 and not args.plate_model:
+            parser.error('--n-peaks 0 needs --plate-model: a signal holds at '
+                         'least one feature')
+    if not 0. <= args.overlap_prob <= 1.:
+        parser.error('--overlap-prob needs 0 <= P <= 1')
     tf = args.tailing_factor
     if tf is not None:
         if not 0. < tf[0] <= tf[1]:
@@ -1927,6 +2045,8 @@ def main() -> None:
               'tailing_factor': None if tf is None else tuple(tf),
               'pearson_m': (PEARSON7_M_RANGE if args.pearson_m is None
                             else tuple(args.pearson_m))}
+    layout = {'n_peaks': args.n_peaks, 'plate_model': args.plate_model,
+              'overlap_prob': args.overlap_prob}
     # Refuse a range the model cannot reach before anything is written,
     # rather than part-way through the set. The reach of a Pearson VII
     # depends on m, so both ends of its range are tried.
@@ -1953,45 +2073,37 @@ def main() -> None:
     if not args.no_plot:
         os.makedirs(plot_dir, exist_ok=True)
 
-    jobs = []
-    for pc in PEAK_CASES:
-        for bname in ERB_BASELINE_NAMES:
-            for nk, ns in NOISE_CASES.items():
-                # Length is drawn per signal, not crossed: see
-                # `draw_record_duration`.
-                jobs.append((pc, bname, nk, ns))
-
     manifest = []
-    # Zero-padded to the widest replicate number, so names sort in order.
-    rep_width = len(str(args.replicates - 1))
-    for k, (pc, bc, nk, ns) in enumerate(jobs):
-        # Skipped inside the loop rather than dropped from `jobs`, so the
-        # index that seeds every other signal is unchanged and the rest
-        # of the set stays reproducible.
-        if bc in EXCLUDED_ERB_BASELINES:
-            continue
+    jobs = [(bt, nk, ns) for bt in BASELINE_TYPES
+            if args.legacy_baselines or bt not in LEGACY_TYPES
+            for nk, ns in NOISE_CASES.items()]
+    for k, (bt, nk, ns) in enumerate(jobs):
         for rep in range(args.replicates):
             rng = np.random.default_rng(args.seed + 7919 * (k + 1)
                                         + 104729 * rep)
-            n = int(round(draw_record_duration(rng) * args.rate))
-            parts = erb_signal(n, pc, ERB_BASELINE_NAMES[bc], ns, rng,
-                               rate=args.rate, shapes=shapes,
-                               heights=heights)
-            stem = signal_stem('erb', pc, args.peak_model, bc, nk, rep, n,
-                               rep_width)
+            # Drawn even when fixed, so the draws after it are the same
+            # variates with and without --length.
+            n = draw_record_length(rng)
+            if args.length is not None:
+                n = args.length
+            parts = make_signal(n, bt, None, rng, shapes=shapes,
+                                layout=layout, snr=ns)
+            stem = signal_stem(
+                peak_label(parts['meta']['n_analytes'], args.plate_model),
+                args.peak_model, bt, nk, n, rep)
             with open(os.path.join(sig_dir, f'{stem}.txt'), 'w') as f:
                 for xi, yi in zip(parts['x'], parts['y']):
-                    f.write(f'{xi:.6f}\t{yi:.6e}\n')
+                    f.write(f'{int(xi)}\t{yi:.6e}\n')
             np.savez(
                 os.path.join(truth_dir, f'{stem}__truth.npz'),
                 x=parts['x'], y=parts['y'], signal=parts['signal'],
                 baseline=parts['baseline'], noise=parts['noise'],
-                peaks=json.dumps(parts['peaks']))
+                peaks=json.dumps(parts['peaks']),
+                meta=json.dumps(parts['meta']))
             if not args.no_plot:
                 plot_signal(parts, stem,
                             os.path.join(plot_dir, f'{stem}.png'))
-            manifest.append(manifest_row(stem, 'erb', pc, bc, nk, n, rep,
-                                         parts))
+            manifest.append(manifest_row(stem, nk, rep, parts))
     with open(os.path.join(args.output, 'manifest.csv'), 'w') as f:
         f.write(','.join(MANIFEST_COLUMNS) + '\n')
         f.write('\n'.join(manifest) + '\n')

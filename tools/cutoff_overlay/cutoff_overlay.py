@@ -100,7 +100,7 @@ def overlay(dataset, run, stem, out, n_curves, work):
     for f in glob(os.path.join(run, 'r2_cache', f'{stem}__r2__*.npz')):
         shutil.copy2(f, cache)
 
-    regions, sampling, scut = sf._relevant_regions(s, x)
+    regions, sampling, scut = sf._relevant_regions(s)
     fcut_range, r2_val, sens, n_used, fc_best = sf._curve(
         stem, path, os.path.join(run, 'diag'), cache, x, s, b_true,
         regions, sampling, scut)

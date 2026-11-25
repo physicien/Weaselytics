@@ -136,7 +136,7 @@ def error_curve(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     Eq. (15).
 
     """
-    peak_regions, sampling, _ = _relevant_regions(s, x)
+    peak_regions, sampling, _ = _relevant_regions(s)
     fitter = Baseline(x_data=x)
     kwargs = {'regions': peak_regions, 'sampling': sampling,
               'asymmetry': 1.0, 'fit_parabola': True, 'alpha': 1.0,
@@ -224,7 +224,7 @@ def _err_key(s: np.ndarray, x: np.ndarray, b_true: np.ndarray,
         Hexadecimal digest.
 
     """
-    regions, sampling, _ = _relevant_regions(s, x)
+    regions, sampling, _ = _relevant_regions(s)
     sha = hashlib.sha1()
     for arr in (s, x, b_true, fcuts):
         sha.update(str(len(arr)).encode())
@@ -313,7 +313,7 @@ def _err_stats(x: np.ndarray, s: np.ndarray, b_true: np.ndarray,
     blank = {'rms': nan, 'peak': nan, 'snr_db': nan, 'area_pct': nan}
     if fcut is None:
         return blank
-    peak_regions, sampling, _ = _relevant_regions(s, x)
+    peak_regions, sampling, _ = _relevant_regions(s)
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             bl, _ = _custom_beads(
@@ -432,7 +432,7 @@ def diag_one(stem: str, sig_dir: str, truth_dir: str, cache_dir: str,
     # call). With its own defaults it runs plain `beads` with no peak
     # regions instead of `custom_beads` with them. `test_synth_diag.py`
     # checks these against the signature of `auto_beads`.
-    peak_regions, sampling, scut = _relevant_regions(s, x)
+    peak_regions, sampling, scut = _relevant_regions(s)
     method_kwargs = {
         'asymmetry': 1.0,
         'fit_parabola': True,

@@ -73,9 +73,9 @@ def test_output_stats_flag(monkeypatch, sample_txt_path, tmp_path):
 
 
 def _multipeak_txt(tmp_path):
-    """Chromatogram-like signal accepted by ``_relevant_regions`` (the
-    single-peak sample fixture is filtered out by its peak-relevance
-    criteria, so the custom_beads CLI path cannot run on it)."""
+    """Chromatogram-like signal in which ``_relevant_regions`` finds
+    peaks (it finds none in the single-peak sample fixture, so the
+    custom_beads CLI path cannot run on it)."""
     import numpy as np
 
     def gauss(x, a, mu, sig):

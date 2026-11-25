@@ -254,7 +254,7 @@ def one(job):
         x, s = ParsedData(path).data
         b_true = np.load(os.path.join(dataset, 'truth',
                                       f'{stem}__truth.npz'))['baseline']
-        regions, sampling, scut = _relevant_regions(s, x)
+        regions, sampling, scut = _relevant_regions(s)
         fcut_range, r2_val, sens, n_used, fc_best = _curve(
             stem, path, diag_dir, cache_dir, x, s, b_true, regions,
             sampling, scut)

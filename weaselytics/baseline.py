@@ -25,6 +25,12 @@ References
 .. [4] Bauer, F. and Kindermann, S. The quasi-optimality criterion for
    classical inverse problems. Inverse Probl. 24(3), 035002 (2008).
    doi:10.1088/0266-5611/24/3/035002
+.. [5] MacDougall, D. et al. Guidelines for data acquisition and data
+   quality evaluation in environmental chemistry. Anal. Chem. 52(14),
+   2242-2249 (1980). doi:10.1021/ac50064a004
+.. [6] Kaiser, H. Report for analytical chemists. II. Quantitation in
+   elemental analysis. Anal. Chem. 42(4), 26A-59A (1970).
+   doi:10.1021/ac60286a027
 """
 import hashlib
 import logging
@@ -35,7 +41,6 @@ from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 from pybaselines import Baseline
-from scipy.ndimage import gaussian_filter1d
 
 from weaselytics.plot import plot_chromatogram, r2_plots
 from weaselytics.segmentation import (
@@ -51,7 +56,9 @@ from weaselytics.segmentation import (
 from weaselytics.utils import (
     _durbin_watson,
     end_window,
+    l1_trend_filter,
     merge_intervals,
+    noise_level,
     peaks_params,
 )
 
@@ -69,6 +76,19 @@ _R2_CHANNEL = "y-baseline-dw"
 # curve and its stored array were renamed from `stability`: the values
 # are unchanged, but the npz key is not, so pre-rename caches must miss.
 _SENSITIVITY_VERSION = "sens-1"
+
+
+# Prominence a peak needs, in units of the noise. Kaiser [6] and
+# MacDougall et al. [5] set the limit of detection at 3, with a 7% risk
+# of a false peak according to [5]. Chosen: 6.
+_MIN_PROM_NOISE = 6.
+
+# Smallest width of a peak, in samples. Chosen.
+_MIN_WIDTH = 3
+
+# Strength of the l1 trend filter the peaks are detected on, in units of
+# the noise. Chosen.
+_TREND_LAM_NOISE = 6.
 
 
 class NoSurvivingRegionError(ValueError):
@@ -95,49 +115,31 @@ class NoSurvivingRegionError(ValueError):
 
 
 def _relevant_regions(
-    s: np.ndarray, x: np.ndarray, tol: float = 6.,
-    smooth_sigma: float = 3.
+    s: np.ndarray
 ) -> tuple[np.ndarray | None, np.ndarray, int]:
     """
     Locate the peaks and the useful extent of the signal.
 
-    Finds the peaks in a lightly smoothed copy, discards those too wide
-    relative to their position to be analyte rather than baseline
-    structure, readmits very tall wide ones through a hard-coded
-    exception, brackets every survivor but the narrowest with a window
-    reaching 0.85 of that peak's FWHM on each side of its apex, and
-    merges brackets that overlap. The 0.85 follows from the peak shape:
-    a region has to cover the peak it brackets, for a Gaussian about 95%
-    of the area lies within ``+-2 sigma``, so the region spans
-    ``4 sigma``; since ``FWHM = 2.355 sigma`` that is 1.70 FWHM in total,
-    and half of it, 0.85 FWHM, is what each side gets. The regions and
-    their decimation factors control the per-region stiffness of
-    ``_custom_beads``; `scut` truncates the signal past the last peak so
-    the autocorrelation is not diluted by an empty tail.
+    Finds the peaks in a smoothed copy of the signal, brackets every
+    peak but the narrowest with a window reaching 0.85 of that peak's
+    FWHM on each side of its apex, and merges brackets that overlap. The
+    0.85 is half of the width that holds about 95% of a Gaussian peak,
+    1.70 FWHM. The regions and their decimation factors control the
+    per-region stiffness of ``_custom_beads``; `scut` truncates the
+    signal past the last peak so the autocorrelation is not diluted by
+    an empty tail.
 
     Parameters
     ----------
     s : array-like, shape (N,)
         The y-values of the signal.
-    x : array-like, shape (N,)
-        The x-values of the signal.
-    tol : float, optional
-        Largest peak width, per unit of `x`, still counted as analyte. A
-        wider feature is treated as baseline structure and ignored,
-        unless the exception in the body readmits it. Default is 6.
-    smooth_sigma : float, optional
-        Standard deviation, in points, of the Gaussian applied to the
-        copy of `s` that peaks are detected on. It sets the scale below
-        which structure is treated as noise rather than as a peak.
-        Default is 3.
 
     Returns
     -------
     peak_regions : array-like, shape (M,2), or None
-        Start and stop indices of each region holding a relevant peak,
-        as ``data[start:stop]``. The final stop is clamped below
-        ``len(s)``, so the last sample is never inside a region.
-        `None` means no relevant peaks were found.
+        Start and stop indices of each region holding a peak, as
+        ``data[start:stop]``, within ``[0, scut - 1]``. `None` when
+        there is no peak, or only one.
     sampling : array-like of shape (M,)
         Decimation factor for each region: one point in every
         `sampling` is kept when the baseline is fitted, which stiffens
@@ -149,62 +151,46 @@ def _relevant_regions(
         ``s[:scut]``. Equals ``len(s)`` when the last peak leaves no
         room after it.
 
+    Raises
+    ------
+    ValueError
+        If no window of the signal is free of peaks, see `noise_level`.
+
     Notes
     -----
-    Negative peaks are gated on prominence, measured from the local
-    level, so the detection does not depend on where the baseline sits.
-    Fails on a signal carrying no genuine negative peak: the bar is
-    then the noise floor, and the deepest noise dip is admitted. See
-    `peaks_params`, where the gate lives.
+    A peak has to stand out by `_MIN_PROM_NOISE` times the noise. A
+    negative peak gives no region.
 
-    `smooth_sigma` is load-bearing and nothing fixes its value. It sets
-    the scale below which structure counts as noise rather than as a
-    peak. It is a standard deviation and not a window length, and
-    scipy's default truncation carries the kernel four sigma either
-    side of centre.
+    The smoothed copy is the l1 trend filter of the signal, whose
+    strength is `_TREND_LAM_NOISE` times the noise. See
+    `l1_trend_filter`.
 
-    What it costs is paid on the peaks it keeps. The smoothed apex is
-    attenuated, and a peak of full width ``w`` is measured at
-    ``sqrt(w**2 + (2.355 * smooth_sigma)**2)``, so a peak only a few
-    points wide comes out substantially broader. Those widths are what
-    the relevance filter and the decimation factors are computed from.
+    Fails where the noise is slower than the windows of `noise_level`:
+    the noise estimate is then too small, and a bump of slow noise is
+    admitted as a peak. Since `scut` follows the last admitted feature,
+    such a bump near the tail extends the swept region. A signal whose
+    noise is zero is not smoothed, and any bump at least `_MIN_WIDTH`
+    samples wide is a peak.
 
-    **Reducing it towards a spike-removal width does not clean the
-    signal, it stops cleaning it.** The detector then reads the noise
-    floor as peaks, and since `scut` follows the last admitted feature,
-    a noise bump near the tail extends the swept region.
+    Nothing rejects baseline structure that stands out from the noise: a
+    wave of the baseline, or the bump some detectors give at the start
+    of a record.
 
-    Widths arrive from `peaks_params` at half prominence, which is
-    scipy's own default and is not overridden here, so every width in
-    this chain is a half-prominence width: what `tol` filters on, what
-    the 0.85 buffer is built from, and what sets the decimation.
-
-    The acetonitrile exception is two numbers written for one sample.
-    See GitHub issue #23.
+    Widths are measured at half prominence, the default of scipy. They
+    set the 0.85 buffer and the decimation.
 
     """
-    # NOTE: A weak smoothing helps to avoid peak detection in noisy region of
-    #       the signal by:
-    #           1) removing most of the spurious features in the raw signal
-    #           2) sligntly enlarging features relevant for peaks detection
-    #       `smooth_sigma` is a standard deviation, not a window: scipy
-    #       truncates at 4 sigma, so the default spans 25 points.
-    z = gaussian_filter1d(s, smooth_sigma)
+    noise = noise_level(s, min_run=_MIN_WIDTH)
+    z = l1_trend_filter(s, _TREND_LAM_NOISE * noise, noise)
     # A feature carrying taller peaks is structure, not a peak: the
     # peaks on it are what define the region.
-    peaks, widths = peaks_params(z, width=3, rel_prom_p=0.01,
-                                   adapt=True, drop_enclosing=True)
+    rel_peaks, rel_widths = peaks_params(
+        z, width=_MIN_WIDTH, rel_prom_p=0., min_prom=_MIN_PROM_NOISE * noise,
+        drop_enclosing=True, negative=False)
 
-    width_per_x = widths/x[peaks]
-    # In case of very tall and large peaks (see acetonitrile)
-    exception = ((s[peaks] > 20) & (width_per_x < 11))
-    # Signal splitting
-    rel_peaks = peaks[((width_per_x < tol) | exception)]
-    rel_widths = widths[((width_per_x < tol) | exception)]
-    # No relevant peak at all (featureless signal, or every detected
-    # peak rejected by the relevance filter): fall back to the
-    # documented degraded mode (no peak regions, uniform sampling and
-    # no truncation) instead of crashing on the empty array below.
+    # No peak at all: fall back to the documented degraded mode (no
+    # peak regions, uniform sampling and no truncation) instead of
+    # crashing on the empty array below.
     if len(rel_peaks) == 0:
         return None, np.array([1]), len(s)
     ratio_w = rel_widths/np.min(rel_widths)
@@ -221,6 +207,12 @@ def _relevant_regions(
     right_lim = rel_peaks + buffer
     full_widths = np.array([left_lim,right_lim]).T
 
+    # Signal cutoff
+    arg_last_peak = rel_peaks.argmax()
+    pos_last_peak = rel_peaks[arg_last_peak]
+    buffer_last_peak = int(np.ceil(2*rel_widths)[arg_last_peak])
+    scut = min(len(s), pos_last_peak + buffer_last_peak)
+
     # Peak regions and sampling
     large_peaks = full_widths[ratio_w > 1]      # Ignore the narrowest peak
     peak_regions = merge_intervals(large_peaks)
@@ -228,9 +220,9 @@ def _relevant_regions(
         peak_regions = None
         sampling = np.array([1])
     else:
-        # Because values in regions must be less than len(data)
-        if peak_regions[-1,-1] >= len(s):
-            peak_regions[-1,-1] = len(s) - 1
+        # A region has to lie within the part of the signal that the
+        # sweep fits, and its values must be less than `scut`.
+        peak_regions = np.clip(peak_regions, 0, scut - 1)
         # The region width covers 2×buffer per peak (= 2 × 0.85 × FWHM),
         # so dividing by 2 converts it to buffer units. Combined with the
         # division by rel_widths (FWHM), an isolated peak yields sampling≈1
@@ -238,16 +230,6 @@ def _relevant_regions(
         # the baseline unnecessarily stiff for isolated peaks.
         sampling = np.ceil((peak_regions[:,1]-peak_regions[:,0])/2
                            /np.min(rel_widths)).astype(int)
-
-    # Signal cutoff
-    arg_last_peak = rel_peaks.argmax()
-    pos_last_peak = rel_peaks[arg_last_peak]
-    buffer_last_peak = int(np.ceil(2*rel_widths)[arg_last_peak])
-    pos_max = pos_last_peak + buffer_last_peak
-    if len(s) > pos_max:
-        scut = pos_max
-    else:
-        scut = len(s)
     return peak_regions, sampling, scut
 
 def _log_transform(s: np.ndarray, epsilon: float = 1) -> np.ndarray:
@@ -1362,7 +1344,8 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     ValueError
         Raised if `asymmetry` is not greater than 0, if `method` is not
         one of the allowed methods, or if `freq_cutoff` is not in
-        (0, 0.5).
+        (0, 0.5). Also if no window of the signal is free of
+        peaks, see `utils.noise_level`.
     NoSurvivingRegionError
         Raised when the cutoff is being selected and stage-2 trimming
         leaves no plateau. A subclass of `ValueError`. When
@@ -1392,7 +1375,7 @@ def auto_beads(s: np.ndarray, x: np.ndarray,
     # Only needed when freq_cutoff is auto-selected (needs scut) or when
     # using custom_beads (needs regions/sampling).
     if method == "custom_beads" or freq_cutoff is None:
-        peak_regions, sampling, scut = _relevant_regions(s, x)
+        peak_regions, sampling, scut = _relevant_regions(s)
     else:
         peak_regions = None
         sampling = None

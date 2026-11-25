@@ -299,13 +299,13 @@ def _lsq_fit(
 
     Notes
     -----
-    Peaks are found with `peaks_params` at its own defaults, so the
-    adaptive prominence ladder is off and the bar is a plain fraction
-    of the largest prominence. The negative-peak behaviour documented
-    there applies: on a signal with no genuine negative excursion a
-    noise dip is admitted, and since the main peak is the largest
-    ``|y|`` among those found, the sign of the fit follows it. The
-    amplitude bounds open downward when the main peak is negative.
+    Peaks are found with `peaks_params` at its own defaults, so the bar
+    is a plain fraction of the largest prominence. The negative-peak
+    behaviour documented there applies: on a signal with no genuine
+    negative excursion a noise dip is admitted, and since the main peak
+    is the largest ``|y|`` among those found, the sign of the fit
+    follows it. The amplitude bounds open downward when the main peak is
+    negative.
 
     ``sigma0`` is the half-width of the main peak in `x` units, which
     is not a standard deviation: for a Gaussian the half-prominence

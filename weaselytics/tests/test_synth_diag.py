@@ -236,7 +236,7 @@ class TestErrorCurveReuse:
         fcuts = np.geomspace(1e-5, 0.5, 50, endpoint=False)
         base = diag._err_key(y, x, b, fcuts)
         with patch.object(diag, '_relevant_regions',
-                          lambda s, xx: (None, np.array([1]), len(s))):
+                          lambda s: (None, np.array([1]), len(s))):
             other = diag._err_key(y, x, b, fcuts)
         assert other != base
         assert B is not None

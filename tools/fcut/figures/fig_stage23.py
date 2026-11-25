@@ -39,7 +39,7 @@ def production_inputs(data):
     """`n_used`, as `_fcutoff` derives it."""
     src = glob.glob(os.path.join(data, '*', f'{STEM}.txt'))[0]
     x, y = ParsedData(src).data
-    _, _, scut = _relevant_regions(y, x)
+    _, _, scut = _relevant_regions(y)
     return len(_log_transform(y[:scut]))
 
 

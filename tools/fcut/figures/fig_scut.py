@@ -62,7 +62,7 @@ def main(data):
         src = glob.glob(os.path.join(data, '*', f'{stem}.txt'))[0]
         d = ParsedData(src).data
         x, y = np.asarray(d[0], float), np.asarray(d[1], float)
-        regions, sampling, scut = _relevant_regions(y, x)
+        regions, sampling, scut = _relevant_regions(y)
         pct = 100.0 * (1 - scut / len(y))
         print(f"  {stem:32s} n={len(y):5d} scut={scut:5d} "
               f"discards {pct:.0f}%")

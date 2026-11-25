@@ -144,7 +144,7 @@ def fit_at(x, y, f):
     selection only; fitting it here and inverting with Navarro-Huerta et
     al. (2017) Eq. (11) gives a baseline that climbs into the peaks.
     """
-    regions, sampling, _ = _relevant_regions(y, x)
+    regions, sampling, _ = _relevant_regions(y)
     bl, _ = _custom_beads(Baseline(x_data=x), y, regions=regions,
                           sampling=sampling, freq_cutoff=f, asymmetry=1.0,
                           fit_parabola=True, alpha=1.0, parabola_len=3)
@@ -175,7 +175,7 @@ def analyse(stem):
     else:
         # The fit failed, so there is no error curve. n_used is still
         # recoverable: it is the length of the log-transformed record.
-        _, _, scut = _relevant_regions(y, x)
+        _, _, scut = _relevant_regions(y)
         n_used = len(_log_transform(y[:scut]))
         ok = np.zeros(0, dtype=bool)
         fcuts = err = np.zeros(0)

@@ -19,9 +19,17 @@ References
    1507, 1-10 (2017). doi:10.1016/j.chroma.2017.05.057
 .. [4] pybaselines issue #70, on rejecting an outlying endpoint before
    the parabola fit. https://github.com/derb12/pybaselines/issues/70
+.. [5] Kim, S.-J., Koh, K., Boyd, S. and Gorinevsky, D. l1 trend
+   filtering. SIAM Rev. 51(2), 339-360 (2009). doi:10.1137/070690274
+.. [6] Selesnick, I. W., Graber, H. L., Pfeil, D. S. and Barbour, R. L.
+   Simultaneous low-pass filtering and total variation denoising. IEEE
+   Trans. Signal Process. 62(5), 1109-1124 (2014).
+   doi:10.1109/TSP.2014.2298836
 """
 import numpy as np
 import pandas as pd
+from scipy.linalg import solveh_banded
+from scipy.ndimage import convolve1d
 from scipy.signal import find_peaks, peak_widths
 
 
@@ -256,20 +264,206 @@ def r2_dw(s: np.ndarray) -> float:
     r2 = ((2-_durbin_watson(s))**2)/4
     return r2
 
+def _runs(mask: np.ndarray, length: int) -> np.ndarray:
+    """
+    Keep the runs of consecutive True of at least a given length.
+
+    Parameters
+    ----------
+    mask : numpy.ndarray of bool, shape (N,)
+        The mask.
+    length : int
+        Shortest run to keep.
+
+    Returns
+    -------
+    runs : numpy.ndarray of bool, shape (N,)
+        `mask`, with every shorter run set to False.
+
+    """
+    edges = np.diff(np.concatenate(([0], mask.astype(int), [0])))
+    starts = np.flatnonzero(edges == 1)
+    stops = np.flatnonzero(edges == -1)
+    runs = np.zeros(len(mask), dtype=bool)
+    for start, stop in zip(starts, stops):
+        runs[start:stop] = stop - start >= length
+    return runs
+
+
+def noise_level(s: np.ndarray, window: int = 20, min_run: int = 3,
+                max_iter: int = 100) -> float:
+    """
+    Standard deviation of the noise of a signal.
+
+    Measured on the raw signal, in the windows free of peaks. The peaks
+    are located on the difference between the signal and its rolling
+    mean.
+
+    Parameters
+    ----------
+    s : numpy.ndarray, shape (N,)
+        The signal.
+    window : int, optional
+        Number of samples of the rolling mean and of the windows.
+        Default is 20, a chosen value.
+    min_run : int, optional
+        Shortest run of samples that counts as a peak. Default is 3.
+    max_iter : int, optional
+        Largest number of passes over the difference. Default is 100.
+
+    Returns
+    -------
+    noise : float
+        The noise, in the units of `s`. Zero when more than half of the
+        windows kept hold a straight line.
+
+    Raises
+    ------
+    ValueError
+        If no window is free of peaks.
+
+    Notes
+    -----
+    A run of at least `min_run` samples of the difference, all above or
+    all below three times its root mean square, belongs to a peak. The
+    root mean square is computed again without the runs, until they no
+    longer change. The factor of 3 is chosen. A shorter excursion is
+    noise, such as a jump by one step of the digitizer.
+
+    The windows follow each other from the first sample, and the
+    samples left at the end are unused. In each window without a run, a
+    straight line is removed from the raw signal and the standard
+    deviation of what is left is taken. The noise is the median of
+    these.
+
+    The noise slower than `window` samples is not counted. A peak much
+    wider than `window` barely differs from its rolling mean. Its
+    windows are kept, and the estimate is too large when they outnumber
+    the flat ones, or when the peaks leave few flat windows.
+
+    """
+    s = np.asarray(s, dtype=float)
+    # Centred mean: an even window has half a sample at each end.
+    weights = np.ones(window)
+    if window % 2 == 0:
+        weights = np.concatenate(([0.5], np.ones(window - 1), [0.5]))
+    diff = s - convolve1d(s, weights / window)
+    peaks = np.zeros(len(s), dtype=bool)
+    for _ in range(max_iter):
+        limit = 3. * np.sqrt(np.mean(diff[~peaks]**2))
+        new_peaks = (_runs(diff > limit, min_run)
+                     | _runs(diff < -limit, min_run))
+        if np.array_equal(new_peaks, peaks):
+            break
+        peaks = new_peaks
+
+    n = len(s) // window
+    free = ~peaks[:n * window].reshape(n, window).any(axis=1)
+    if not free.any():
+        raise ValueError("no window of the signal is free of peaks, so "
+                         "its noise cannot be measured")
+    segments = s[:n * window].reshape(n, window)[free]
+    # Offset removed first: the mean of equal samples is not exact.
+    segments = segments - segments[:, :1]
+    t = np.arange(window) - (window - 1) / 2.
+    slopes = segments @ t / (t @ t)
+    rest = segments - segments.mean(axis=1, keepdims=True)
+    rest = rest - np.outer(slopes, t)
+    return float(np.median(np.sqrt(np.sum(rest**2, axis=1)
+                                   / (window - 2))))
+
+
+def l1_trend_filter(s: np.ndarray, lam: float, noise: float,
+                    tol: float = 1e-3, max_iter: int = 200) -> np.ndarray:
+    r"""
+    Smooth a signal with straight segments, keeping its sharp peaks.
+
+    Minimizes ``0.5 * ||s - z||^2 + lam * ||D z||_1``, Kim et al. [5]_,
+    with ``D`` the second difference. The :math:`\ell_1` penalty makes
+    most of the second differences zero, so ``z`` is made of straight
+    segments that bend where the signal does.
+
+    Parameters
+    ----------
+    s : numpy.ndarray, shape (N,)
+        The signal to smooth.
+    lam : float
+        Strength of the smoothing, in the units of `s`.
+    noise : float
+        Standard deviation of the noise of `s`, which sets the scale
+        below which the iterations stop and a second difference counts
+        as zero.
+    tol : float, optional
+        Largest change between two iterations, in units of `noise`, at
+        which the iterations stop. Default is 1e-3.
+    max_iter : int, optional
+        Largest number of iterations. Default is 200.
+
+    Returns
+    -------
+    z : numpy.ndarray, shape (N,)
+        The smoothed signal. A copy of `s` when `lam` or `noise` is
+        zero, or when `s` has fewer than 3 samples.
+
+    Notes
+    -----
+    Solved by majorization-minimization, which Selesnick et al. [6]_ use
+    for total variation: each iteration replaces the absolute values by
+    quadratics that touch them at the current solution, and solves the
+    pentadiagonal system that results. A constant added to the absolute
+    values keeps the weights finite.
+
+    The filter is not linear. No sample moves by more than ``4 * lam``
+    [5]_. A peak far above the noise keeps its height and its position
+    whatever its width, and a peak close to the noise loses height, more
+    so when it is narrow.
+
+    It fails on noise that is correlated over several samples: the
+    segments follow it, since a bump of correlated noise and a small
+    peak look the same.
+
+    """
+    n = len(s)
+    if lam <= 0 or noise <= 0 or n < 3:
+        return np.array(s, dtype=float)
+    z = np.array(s, dtype=float)
+    eps = 1e-3 * noise
+    bands = np.zeros((3, n))
+    for _ in range(max_iter):
+        w = lam / (np.abs(np.diff(z, 2)) + eps)
+        # I + D.T @ diag(w) @ D in upper banded form
+        bands[2] = 1.
+        bands[2, :-2] += w
+        bands[2, 1:-1] += 4. * w
+        bands[2, 2:] += w
+        bands[1] = 0.
+        bands[1, 1:-1] -= 2. * w
+        bands[1, 2:] -= 2. * w
+        bands[0, 2:] = w
+        z_new = solveh_banded(bands, s)
+        change = np.max(np.abs(z_new - z))
+        z = z_new
+        if change <= tol * noise:
+            break
+    return z
+
+
 def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
                  rel_prom_n: float = 0.8,
                  rel_height_p: float = 0.5, rel_height_n: float = 0.5,
                  width: int | None = None,
-                 adapt: bool = False,
-                 drop_enclosing: bool = False
+                 min_prom: float = 0.,
+                 drop_enclosing: bool = False,
+                 negative: bool = True
                  ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Locate every peak of a signal, positive and negative, with its
-    width.
+    Locate the positive and negative peaks of a signal, with their
+    widths.
 
     Positive and negative features are detected separately, each gated
-    on prominence relative to the strongest feature of its own sign, so
-    the threshold does not depend on where the baseline sits.
+    on prominence relative to the strongest feature of its own sign and
+    on an absolute prominence, so the threshold does not depend on where
+    the baseline sits.
 
     Parameters
     ----------
@@ -277,8 +471,7 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
         A signal with peaks.
     rel_prom_p : float, optional
         Prominence a positive peak needs, as a fraction of the largest
-        positive prominence in `s`. Default is 0.05. Overridden by
-        `adapt`; see Notes.
+        positive prominence in `s`. Default is 0.05.
     rel_prom_n : float, optional
         Prominence a negative peak needs, as a fraction of the deepest
         negative prominence in `s`. Default is 0.8.
@@ -292,12 +485,14 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
     width : number or ndarray or sequence, optional
         Minimum peak width in samples, or a ``(min, max)`` pair, passed
         to ``scipy.signal.find_peaks``. Default is `None`.
-    adapt : bool, optional
-        If True, set `rel_prom_p` from the signal instead of using the
-        value passed; see Notes. Default is False.
+    min_prom : float, optional
+        Prominence any peak needs, positive or negative, in the units of
+        `s`. Default is 0.
     drop_enclosing : bool, optional
         If True, discard any feature whose width encloses a taller
         peak. See `_drop_enclosing`. Default is False.
+    negative : bool, optional
+        If False, only the positive peaks are located. Default is True.
 
     Returns
     -------
@@ -308,28 +503,14 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
 
     Notes
     -----
-    **The `adapt` ladder.** With ``adapt=True`` the fraction is taken
-    from the largest positive prominence ``m`` in the signal: 0.5 for
-    ``m <= 1``, 0.08 for ``m <= 2.5``, five times the passed value for
-    ``m <= 10``, and the passed value above that. A signal whose
-    tallest feature is small must therefore clear a larger share of it.
-    Nothing fixes the three fractions or the two breakpoints, and the
-    ladder is to be investigated.
-
-    **The ladder is discontinuous and not monotonic.** The absolute bar
-    is the fraction times ``m``, while the fraction changes in steps,
-    so two signals whose tallest features differ negligibly can be
-    gated very differently: crossing ``m = 1`` the bar falls by about
-    six, and crossing ``m = 10`` it falls by five. Detection can change
-    abruptly between signals that look alike.
-
-    **A signal with no genuine negative peak still yields one, and
-    this should be treated as a defect rather than a limitation.** The
+    A signal with no genuine negative peak can still yield one. The
     negative gate is a fraction of the deepest negative prominence
-    present, so when no real negative excursion exists the reference
-    becomes the noise floor and the deepest noise dip clears the bar. A
-    caller that takes a returned negative peak to be real will act on
-    noise.
+    present, and the prominence of a negative feature runs up to the top
+    of the lower of the two peaks beside it. A flat gap between two tall
+    peaks is therefore a deep negative feature, and the deepest one is
+    kept whether or not the signal holds a real negative peak. A caller
+    that takes a returned negative peak to be real will act on such a
+    gap. See GitHub issue #18.
 
     Detection and width measurement are ``scipy.signal.find_peaks`` and
     ``scipy.signal.peak_widths``.
@@ -341,18 +522,13 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
                   if len(raw_params_p["prominences"]) > 0 else 0.0)
     max_prom_n = (raw_params_n["prominences"].max()
                   if len(raw_params_n["prominences"]) > 0 else 0.0)
-    if adapt:
-        if max_prom_p <= 1:
-            rel_prom_p = 0.5
-        elif max_prom_p <= 2.5:
-            rel_prom_p = 0.08
-        elif max_prom_p <= 10.0:
-            rel_prom_p = 5*rel_prom_p
-    prom_p = rel_prom_p * max_prom_p
-    prom_n = rel_prom_n * max_prom_n
+    prom_p = max(rel_prom_p * max_prom_p, min_prom)
+    prom_n = max(rel_prom_n * max_prom_n, min_prom)
 
     peaks_p, _ = find_peaks(s, prominence=prom_p, width=width)
     peaks_n, _ = find_peaks(-s, prominence=prom_n, width=width)
+    if not negative:
+        peaks_n = peaks_n[:0]
     widths_p = peak_widths(s, peaks_p, rel_height=rel_height_p)[0]
     widths_n = peak_widths(-s, peaks_n, rel_height=rel_height_n)[0]
 
@@ -363,24 +539,19 @@ def peaks_params(s: np.ndarray, rel_prom_p: float = 0.05,
     peaks = unsorted_peaks[index_array]
     widths = unsorted_widths[index_array]
     if drop_enclosing and len(peaks) > 1:
-        abs_dev = np.abs(s[peaks] - np.median(s))
-        peaks, widths = _drop_enclosing(peaks, widths, abs_dev)
+        peaks, widths = _drop_enclosing(peaks, widths, s[peaks])
     return peaks, widths
 
 
 def _drop_enclosing(peaks: np.ndarray, widths: np.ndarray,
-                    abs_dev: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+                    heights: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Discard features that enclose a taller peak.
 
     A chromatographic peak can carry a smaller shoulder inside its own
-    half-width, but never a taller peak. Structure that does, a drift
-    feature with peaks on it or a gap between two peaks, is not a peak,
-    and the peaks it encloses are what should define the region.
-
-    Compared on deviation about the signal median rather than on
-    prominence: a valley inherits the prominence of the peaks bounding
-    it, so a shallow gap between two tall peaks outranks them.
+    half-width, but never a taller peak. Structure that does, such as a
+    wave of the baseline with peaks on it, is not a peak, and the peaks
+    it encloses are what should define the region.
 
     Parameters
     ----------
@@ -388,9 +559,8 @@ def _drop_enclosing(peaks: np.ndarray, widths: np.ndarray,
         Peak indices, sorted.
     widths : array-like, shape (M,)
         Their widths in samples.
-    abs_dev : array-like, shape (M,)
-        Their absolute deviations from the signal median, in the same
-        order.
+    heights : array-like, shape (M,)
+        Their heights, in the same order.
 
     Returns
     -------
@@ -400,18 +570,15 @@ def _drop_enclosing(peaks: np.ndarray, widths: np.ndarray,
     Notes
     -----
     A feature encloses another when the other's index falls strictly
-    inside ``peaks +- widths / 2``. The deviations are magnitudes, so a
-    deep negative excursion can outrank a positive peak and remove the
-    feature that contains it.
+    inside ``peaks +- widths / 2``.
 
-    **Every verdict is decided in one pass, against the deviations of
-    all the features given, so a feature that is itself discarded can
-    still cause a discard.** Given three nested features of rising
-    deviation, the outermost goes because the middle one is larger and
-    inside it, while the middle one goes in the same pass because the
-    innermost is larger and inside that. The outermost is therefore
-    judged against something the function has already rejected, and
-    only the innermost survives.
+    Every verdict is decided in one pass, against the heights of all the
+    features given, so a feature that is itself discarded can still
+    cause a discard. Given three nested features of rising height, the
+    outermost goes because the middle one is taller and inside it, while
+    the middle one goes in the same pass because the innermost is taller
+    and inside that. The outermost is therefore judged against something
+    the function has already rejected, and only the innermost survives.
 
     """
     lo = peaks - widths / 2.
@@ -419,7 +586,7 @@ def _drop_enclosing(peaks: np.ndarray, widths: np.ndarray,
     inside = ((peaks[None, :] > lo[:, None])
               & (peaks[None, :] < hi[:, None]))
     np.fill_diagonal(inside, False)
-    taller = abs_dev[None, :] > abs_dev[:, None]
+    taller = heights[None, :] > heights[:, None]
     keep = ~(inside & taller).any(axis=1)
     return peaks[keep], widths[keep]
 

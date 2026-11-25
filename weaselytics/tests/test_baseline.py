@@ -16,62 +16,124 @@ from weaselytics.baseline import (
     _relevant_regions,
     auto_beads,
 )
-from weaselytics.utils import r2_dw
+from weaselytics.utils import noise_level, r2_dw
 
 
 class TestRelevantRegions:
+    @staticmethod
+    def _signal(n=2000, seed=8, noise=0.02):
+        t = np.arange(n, dtype=float)
+        s = 10. * np.exp(-0.5 * ((t - 700.) / 9.) ** 2)
+        s += 8. * np.exp(-0.5 * ((t - 1200.) / 24.) ** 2)
+        s += 0.3 * np.sin(2. * np.pi * t / 3. / n)
+        return s + noise * np.random.default_rng(seed).normal(size=n)
+
     def test_peaked_signal_still_returns_regions(self):
-        x = np.arange(1000) / 60.
-        rng = np.random.default_rng(8)
-        s = 10. * np.exp(-0.5 * ((x - 6.) / 0.15) ** 2)
-        s += 8. * np.exp(-0.5 * ((x - 10.) / 0.4) ** 2)
-        s += 0.01 * rng.normal(size=len(x))
-        peak_regions, sampling, scut = _relevant_regions(s, x)
+        s = self._signal()
+        peak_regions, sampling, scut = _relevant_regions(s)
         assert peak_regions is not None
         assert scut <= len(s)
 
+    @pytest.mark.parametrize("scale", [1e-3, 0.1, 10., 1e4])
+    def test_the_unit_of_the_signal_does_not_matter(self, scale):
+        s = self._signal()
+        ref = _relevant_regions(s)
+        out = _relevant_regions(scale * s)
+        assert np.array_equal(out[0], ref[0])
+        assert np.array_equal(out[1], ref[1])
+        assert out[2] == ref[2]
 
-class TestSmoothSigma:
-    """The pre-smoothing width is an argument, and it is a sigma.
+    def test_an_offset_does_not_matter(self):
+        s = self._signal()
+        ref = _relevant_regions(s)
+        out = _relevant_regions(s - 50.)
+        assert np.array_equal(out[0], ref[0])
+        assert out[2] == ref[2]
 
-    Exposing it changed no result. Checked by running the previous
-    revision and this one over the 339 LPYE records and comparing all
-    three outputs: `peak_regions`, `sampling` and `scut` agree on every
-    record. That comparison needs two revisions of the module and so
-    cannot live here; what is asserted below is that the default is
-    still 3 and that the argument reaches the filter.
+    def test_a_wide_early_peak_is_kept(self):
+        # A wide peak early in the record is kept whatever its width.
+        t = np.arange(3000, dtype=float)
+        s = 12. * np.exp(-0.5 * ((t - 420.) / 45.) ** 2)
+        s += 6. * np.exp(-0.5 * ((t - 1500.) / 6.) ** 2)
+        s += 0.02 * np.random.default_rng(3).normal(size=len(t))
+        peak_regions, _, _ = _relevant_regions(s)
+        assert any(a < 420 < b for a, b in peak_regions)
 
-    It is not a window length, so a small value does not clean the
-    trace, it stops cleaning it.
-    """
+    def test_a_bump_below_the_bar_is_not_a_peak(self):
+        n, noise = 2000, 0.05
+        t = np.arange(n, dtype=float)
+        s = 5. * np.exp(-0.5 * ((t - 700.) / 12.) ** 2)
+        s += noise * np.random.default_rng(5).normal(size=n)
+        without = _relevant_regions(s)[2]
+        for height, moves in ((2., False), (12., True)):
+            bump = height * noise * np.exp(-0.5 * ((t - 1500.) / 12.) ** 2)
+            assert bool(_relevant_regions(s + bump)[2] > without) is moves
 
-    @staticmethod
-    def _noisy_peak():
-        x = np.arange(2000) / 60.
-        rng = np.random.default_rng(11)
-        s = 5. * np.exp(-0.5 * ((x - 12.) / 0.2) ** 2)
-        s += 0.05 * rng.normal(size=len(x))
-        return x, s
+    def test_regions_stay_within_the_swept_part(self):
+        # A bump at the start, whose region would begin before the
+        # record, and a wide peak whose region would end after `scut`.
+        n = 1500
+        t = np.arange(n, dtype=float)
+        s = 6. * np.exp(-0.5 * ((t - 8.) / 5.) ** 2)
+        s += 9. * np.exp(-0.5 * ((t - 1440.) / 60.) ** 2)
+        s += 7. * np.exp(-0.5 * ((t - 600.) / 3.) ** 2)
+        s += 0.02 * np.random.default_rng(1).normal(size=n)
+        peak_regions, sampling, scut = _relevant_regions(s)
+        assert peak_regions[0, 0] == 0
+        assert peak_regions.max() < scut <= n
+        assert np.all(peak_regions[:, 1] > peak_regions[:, 0])
+        assert len(sampling) == len(peak_regions)
 
-    def test_default_is_three(self):
-        import inspect
+    def test_featureless_signal_degrades_without_error(self):
+        for s in (np.zeros(500), np.linspace(0., 1., 500)):
+            peak_regions, sampling, scut = _relevant_regions(s)
+            assert peak_regions is None
+            assert np.array_equal(sampling, [1])
+            assert scut == len(s)
 
-        sig = inspect.signature(_relevant_regions)
-        assert sig.parameters['smooth_sigma'].default == 3.
+    def test_a_negative_peak_gives_no_region(self):
+        t = np.arange(2000, dtype=float)
+        s = sum(h * np.exp(-0.5 * ((t - c) / w) ** 2)
+                for c, w, h in ((400., 5., 10.), (1400., 12., 8.)))
+        s += 0.02 * np.random.default_rng(3).normal(size=len(t))
+        dip = 5. * np.exp(-0.5 * ((t - 900.) / 9.) ** 2)
+        with_dip = _relevant_regions(s - dip)[0]
+        assert with_dip is not None
+        assert not np.any((with_dip[:, 0] <= 900) & (with_dip[:, 1] >= 900))
 
-    def test_passing_the_default_explicitly_is_a_no_op(self):
-        x, s = self._noisy_peak()
-        assert (_relevant_regions(s, x)[2]
-                == _relevant_regions(s, x, smooth_sigma=3.)[2])
+    def test_a_wide_region_stops_at_scut(self):
+        # A wide peak whose region reaches past the last peak.
+        t = np.arange(2500, dtype=float)
+        s = 20. * np.exp(-0.5 * ((t - 1400.) / 200.) ** 2)
+        s += 9. * np.exp(-0.5 * ((t - 1700.) / 4.) ** 2)
+        s += 9. * np.exp(-0.5 * ((t - 400.) / 8.) ** 2)
+        s += 0.02 * np.random.default_rng(1).normal(size=len(t))
+        peak_regions, _, scut = _relevant_regions(s)
+        assert scut < 1800
+        assert peak_regions[:, 1].max() == scut - 1
 
-    def test_a_small_sigma_admits_the_noise(self):
-        # At a spike-removal scale the detection reads the noise floor
-        # as peaks; measured over the 339 LPYE records, the relevance
-        # filter returns 2092 against 1294.
-        x, s = self._noisy_peak()
-        wide = _relevant_regions(s, x, smooth_sigma=3.)
-        narrow = _relevant_regions(s, x, smooth_sigma=0.5)
-        assert narrow[2] > wide[2]
+    def test_the_rule_is_the_one_documented(self):
+        s = self._signal()
+        noise = noise_level(s)
+        with mock.patch.object(baseline_module, 'l1_trend_filter',
+                               wraps=baseline_module.l1_trend_filter) as f, \
+             mock.patch.object(baseline_module, 'peaks_params',
+                               wraps=baseline_module.peaks_params) as p:
+            _relevant_regions(s)
+        assert np.isclose(f.call_args.args[1], 6. * noise)
+        assert p.call_args.kwargs == {
+            'width': 3, 'rel_prom_p': 0., 'min_prom': 6. * noise,
+            'drop_enclosing': True, 'negative': False}
+
+    @pytest.mark.parametrize("offset", [0., 0.1, 1.008, 12.3])
+    def test_a_noiseless_signal_ignores_an_offset(self, offset):
+        t = np.arange(1500.)
+        s = 5. * np.exp(-0.5 * ((t - 400.) / 8.) ** 2)
+        s += 9. * np.exp(-0.5 * ((t - 900.) / 12.) ** 2)
+        s = np.round(s / 0.144) * 0.144
+        ref, out = _relevant_regions(s), _relevant_regions(s + offset)
+        assert np.array_equal(out[0], ref[0])
+        assert out[2] == ref[2]
 
 
 class TestFcutoffSelection:
@@ -641,16 +703,14 @@ class TestSensitivityCurve:
             assert "sensitivity" in d.files
 
 class TestRelevantRegionsHasNoDetrend:
-    """`_relevant_regions` measures widths on the raw smoothed curve.
+    """`_relevant_regions` measures widths on the smoothed curve itself.
 
     An N/4 rolling-median detrend (6a1a380) was removed on 2026-08-17.
     Measured against the true widths of 1520 peaks over 576 synthetic
     chromatograms -- truth taken as the apex and FWHM of the noise-free
     EMG profiles, not the stored Gaussian parameters -- it was worse
     than the raw curve on median error (4.83 vs 4.22), on p90 (84 vs
-    45) and on bias (-17.1 vs +4.9), and it biased widths NARROW, which
-    silently drops real peaks. Reproducing the decision the relevance
-    filter would make with exact widths, it cost 224 errors against 133.
+    45) and on bias (-17.1 vs +4.9), and it biased widths NARROW.
     """
 
     def test_no_median_detrend(self):
@@ -663,7 +723,7 @@ class TestRelevantRegionsHasNoDetrend:
                         if not ln.lstrip().startswith('#'))
         assert 'median_filter' not in src, (
             'the rolling-median detrend is back; it measures widths '
-            'narrower than the truth and drops real peaks')
+            'narrower than the truth')
 
     def test_structure_carrying_taller_peaks_is_discarded(self):
         import inspect
